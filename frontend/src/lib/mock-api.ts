@@ -34,7 +34,7 @@ export interface FishAnalysisResult {
 
 // ── Mock data pools ───────────────────────────────────────────────────────────
 
-const SPECIES_DATA: { name: string; scientific: string; minSize: number; pricePerKg: number }[] = [
+export const SPECIES_DATA: { name: string; scientific: string; minSize: number; pricePerKg: number }[] = [
   { name: "Indian Pomfret", scientific: "Pampus argenteus", minSize: 150, pricePerKg: 650 },
   { name: "Indian Mackerel", scientific: "Rastrelliger kanagurta", minSize: 100, pricePerKg: 220 },
   { name: "Kingfish", scientific: "Scomberomorus commerson", minSize: 350, pricePerKg: 480 },
