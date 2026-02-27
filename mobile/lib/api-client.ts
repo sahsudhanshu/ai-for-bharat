@@ -3,7 +3,7 @@
  * Uses AsyncStorage for token management. Demo mode when EXPO_PUBLIC_API_URL not set.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { API_BASE_URL, DEMO_JWT, IS_DEMO_MODE, ENDPOINTS } from './constants';
+import { API_BASE_URL, AGENT_BASE_URL, IS_AGENT_CONFIGURED, DEMO_JWT, IS_DEMO_MODE, ENDPOINTS } from './constants';
 import * as Mock from './mock-api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -97,6 +97,33 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
         try {
             const body = await res.json();
             message = body.message || body.error || message;
+        } catch { /* ignore */ }
+        throw new ApiError(res.status, message);
+    }
+
+    return res.json() as Promise<T>;
+}
+
+/**
+ * Fetch helper for the Python agent (LangGraph).
+ * Same pattern as apiFetch but hits the agent URL.
+ */
+async function agentFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+    const token = await getToken();
+    const url = `${AGENT_BASE_URL}${path}`;
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(options.headers as Record<string, string>),
+    };
+
+    const res = await fetch(url, { ...options, headers });
+
+    if (!res.ok) {
+        let message = `Agent API error ${res.status}`;
+        try {
+            const body = await res.json();
+            message = body.message || body.error || body.detail || message;
         } catch { /* ignore */ }
         throw new ApiError(res.status, message);
     }
@@ -201,6 +228,12 @@ export async function getMapData(
 }
 
 export async function sendChat(message: string): Promise<SendChatResponse> {
+    if (IS_AGENT_CONFIGURED) {
+        return agentFetch<SendChatResponse>('/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message }),
+        });
+    }
     if (IS_DEMO_MODE) {
         const response = await Mock.getChatbotResponse(message);
         return { chatId: `demo_${Date.now()}`, response, timestamp: new Date().toISOString() };
@@ -212,6 +245,9 @@ export async function sendChat(message: string): Promise<SendChatResponse> {
 }
 
 export async function getChatHistory(limit = 30): Promise<Mock.ChatMessage[]> {
+    if (IS_AGENT_CONFIGURED) {
+        return agentFetch<Mock.ChatMessage[]>(`/chat?limit=${limit}`);
+    }
     if (IS_DEMO_MODE) {
         await delay(400);
         return Mock.getMockChatHistory();
