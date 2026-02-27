@@ -27,6 +27,8 @@ export interface PresignedUrlResponse {
     uploadUrl: string;
     imageId: string;
     s3Path: string;
+    locationMapped?: boolean;
+    locationMapReason?: string;
 }
 
 export interface AnalyzeImageResponse {
@@ -91,8 +93,10 @@ export interface AnalyticsResponse {
  * This reads from localStorage (set by auth-context) or falls back to demo token.
  */
 function getToken(): string {
-    if (typeof window === "undefined") return DEMO_JWT;
-    return localStorage.getItem("ocean_ai_token") || DEMO_JWT;
+    if (typeof window === "undefined") return IS_DEMO_MODE ? DEMO_JWT : "";
+    const token = localStorage.getItem("ocean_ai_token") || "";
+    if (token) return token;
+    return IS_DEMO_MODE ? DEMO_JWT : "";
 }
 
 async function apiFetch<T>(
@@ -100,11 +104,14 @@ async function apiFetch<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${API_BASE_URL}${path}`;
+    const token = getToken();
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
         ...(options.headers as Record<string, string>),
     };
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
 
     const res = await fetch(url, { ...options, headers });
 
@@ -131,11 +138,14 @@ async function agentFetch<T>(
     options: RequestInit = {}
 ): Promise<T> {
     const url = `${AGENT_BASE_URL}${path}`;
+    const token = getToken();
     const headers: Record<string, string> = {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${getToken()}`,
         ...(options.headers as Record<string, string>),
     };
+    if (token) {
+        headers.Authorization = `Bearer ${token}`;
+    }
 
     const res = await fetch(url, { ...options, headers });
 
@@ -237,7 +247,11 @@ export async function getImages(limit = 20, lastKey?: string): Promise<{ items: 
     }
     const params = new URLSearchParams({ limit: String(limit) });
     if (lastKey) params.set("lastKey", lastKey);
-    return apiFetch(`${ENDPOINTS.getImages}?${params}`);
+    const response = await apiFetch<{ items?: ImageRecord[]; images?: ImageRecord[]; lastKey?: string }>(`${ENDPOINTS.getImages}?${params}`);
+    return {
+        items: response.items ?? response.images ?? [],
+        lastKey: response.lastKey,
+    };
 }
 
 /**

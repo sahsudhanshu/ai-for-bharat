@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Waves, Thermometer, Fish, Filter, Info, ChevronRight,
@@ -52,6 +52,13 @@ const MAP_URLS = {
   light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
 };
 
+const OPENWEATHER_LAYER_BY_ACTIVE_LAYER: Record<string, string | null> = {
+  distribution: null,
+  temp: "temp_new",
+  currents: "wind_new",
+  salinity: "pressure_new",
+};
+
 export default function OceanDataPage() {
   const { t } = useLanguage();
   const [activeLayer, setActiveLayer] = useState('distribution');
@@ -61,6 +68,27 @@ export default function OceanDataPage() {
   const [markers, setMarkers] = useState<MapMarker[]>([]);
   const [selectedSpecies, setSelectedSpecies] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(true);
+  const openWeatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHERMAP_API_KEY || "";
+
+  const validMarkers = useMemo(
+    () => markers.filter((marker) =>
+      Number.isFinite(marker.latitude) && Number.isFinite(marker.longitude)
+    ),
+    [markers]
+  );
+
+  const openWeatherLayer = useMemo(() => {
+    const layer = OPENWEATHER_LAYER_BY_ACTIVE_LAYER[activeLayer];
+    if (!layer || !openWeatherApiKey) return null;
+    return `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${openWeatherApiKey}`;
+  }, [activeLayer, openWeatherApiKey]);
+
+  const openWeatherOpacity = useMemo(() => {
+    if (activeLayer === "temp") return 0.55;
+    if (activeLayer === "currents") return 0.75;
+    if (activeLayer === "salinity") return 0.45;
+    return 0.55;
+  }, [activeLayer]);
 
   // ── Fetch dynamic user markers from backend ─────────────────────────────────
   useEffect(() => {
@@ -132,6 +160,11 @@ export default function OceanDataPage() {
                   </Button>
                 ))}
               </div>
+              {!openWeatherApiKey && activeLayer !== 'distribution' && (
+                <p className="text-[10px] text-amber-500 font-semibold">
+                  OpenWeatherMap API key missing. Add `NEXT_PUBLIC_OPENWEATHERMAP_API_KEY` to enable weather overlays.
+                </p>
+              )}
             </div>
 
             {/* Species Filter */}
@@ -178,19 +211,19 @@ export default function OceanDataPage() {
                     <Loader2 className="w-3 h-3 animate-spin" />
                     Loading your catch data...
                   </div>
-                ) : markers.length > 0 && (
+                ) : validMarkers.length > 0 && (
                   <div className="p-3 sm:p-4 rounded-2xl bg-card border border-border/50 space-y-2">
                     <div className="flex justify-between items-start">
                       <div>
                         <h4 className="text-sm sm:text-base font-bold text-primary">Your Catches</h4>
-                        <p className="text-[10px] sm:text-xs text-muted-foreground">{markers.length} recorded locations</p>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground">{validMarkers.length} recorded locations</p>
                       </div>
                       <Badge variant="outline" className="bg-primary/10 text-primary border-none text-[10px] h-5">Active</Badge>
                     </div>
                     <div className="flex justify-between text-[10px] sm:text-xs font-medium">
                       <span className="flex items-center gap-1">
                         <MapPin className="w-3 h-3 text-emerald-500" />
-                        {[...new Set(markers.map(m => m.species).filter(Boolean))].slice(0, 3).join(', ')}
+                        {[...new Set(validMarkers.map(m => m.species).filter(Boolean))].slice(0, 3).join(', ')}
                       </span>
                     </div>
                   </div>
@@ -237,7 +270,7 @@ export default function OceanDataPage() {
             <MapEventsWrapper onMouseMove={setMousePos} />
 
             {/* Static ocean zone circles */}
-            {ZONES.map((zone) => (
+            {activeLayer === 'distribution' && ZONES.map((zone) => (
               <Circle
                 key={zone.id}
                 center={[zone.lat, zone.lng]}
@@ -266,10 +299,10 @@ export default function OceanDataPage() {
             ))}
 
             {/* Dynamic user catch markers */}
-            {markers.map((marker) => (
+            {activeLayer === 'distribution' && validMarkers.map((marker) => (
               <Circle
                 key={marker.imageId}
-                center={[marker.latitude, marker.longitude]}
+                center={[Number(marker.latitude), Number(marker.longitude)]}
                 radius={8000}
                 pathOptions={{
                   fillColor: getMarkerColor(marker.qualityGrade),
@@ -291,6 +324,15 @@ export default function OceanDataPage() {
                 </Popup>
               </Circle>
             ))}
+
+            {openWeatherLayer && (
+              <TileLayer
+                key={`owm-${activeLayer}`}
+                attribution='&copy; <a href="https://openweathermap.org/">OpenWeatherMap</a>'
+                url={openWeatherLayer}
+                opacity={openWeatherOpacity}
+              />
+            )}
           </MapContainer>
 
           {/* Floating UI: Recommendation Card */}
@@ -375,7 +417,7 @@ export default function OceanDataPage() {
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Your Catches</span>
                   <span className="text-sm font-bold flex items-center gap-1">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    {markers.length} Mapped
+                    {validMarkers.length} Mapped
                   </span>
                 </div>
               </div>

@@ -313,6 +313,33 @@ export default function UploadScreen() {
                         </Card>
                     </View>
                 )}
+
+                {/* Debug Outputs */}
+                {result?.debugUrls && (
+                    <View style={styles.debugSection}>
+                        <Text style={styles.debugTitle}>🧪 Debug — ML Model Outputs</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.debugScroll}>
+                            {result.debugUrls.yoloImageUrl && (
+                                <View style={styles.debugImageContainer}>
+                                    <Text style={styles.debugLabel}>YOLO Detection</Text>
+                                    <Image source={{ uri: result.debugUrls.yoloImageUrl }} style={styles.debugImage} resizeMode="contain" />
+                                </View>
+                            )}
+                            {result.debugUrls.cropImageUrl && (
+                                <View style={styles.debugImageContainer}>
+                                    <Text style={styles.debugLabel}>Cropped Fish</Text>
+                                    <Image source={{ uri: result.debugUrls.cropImageUrl }} style={styles.debugImage} resizeMode="contain" />
+                                </View>
+                            )}
+                            {result.debugUrls.gradcamUrl && (
+                                <View style={styles.debugImageContainer}>
+                                    <Text style={styles.debugLabel}>Grad-CAM Heatmap</Text>
+                                    <Image source={{ uri: result.debugUrls.gradcamUrl }} style={styles.debugImage} resizeMode="contain" />
+                                </View>
+                            )}
+                        </ScrollView>
+                    </View>
+                )}
             </ScrollView>
         </SafeAreaView>
     );
@@ -415,4 +442,11 @@ const styles = StyleSheet.create({
 
     sustainCard: { borderWidth: 1, flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm },
     sustainText: { flex: 1, fontSize: FONTS.sizes.sm, color: COLORS.textSecondary, lineHeight: 22 },
+
+    debugSection: { marginTop: SPACING.xl, padding: SPACING.md, backgroundColor: COLORS.warning + '10', borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.warning + '30' },
+    debugTitle: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold, color: COLORS.warning, textTransform: 'uppercase', marginBottom: SPACING.md },
+    debugScroll: { flexDirection: 'row', gap: SPACING.md },
+    debugImageContainer: { marginRight: SPACING.md },
+    debugLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginBottom: SPACING.xs },
+    debugImage: { width: 160, height: 160, borderRadius: RADIUS.md, backgroundColor: 'rgba(0,0,0,0.1)' }
 });

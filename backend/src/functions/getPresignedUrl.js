@@ -20,6 +20,55 @@ const BUCKET = process.env.S3_BUCKET_NAME;
 const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
 const URL_EXPIRY_SECONDS = 300; // 5 minutes
 
+const WATER_KEYWORDS = ["sea", "ocean", "bay", "gulf", "channel", "strait", "coast"];
+const LAND_ADDRESS_KEYS = ["city", "town", "village", "hamlet", "road", "suburb", "postcode", "county", "state_district"];
+
+async function detectOceanLocation(latitude, longitude) {
+    if (latitude == null || longitude == null) {
+        return { isOcean: false, reason: "location_not_provided" };
+    }
+
+    const lat = Number(latitude);
+    const lng = Number(longitude);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return { isOcean: false, reason: "location_invalid" };
+    }
+
+    try {
+        const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`;
+        const response = await fetch(url, {
+            headers: {
+                "User-Agent": "OceanAI/1.0 (AI-for-Bharat)",
+                "Accept": "application/json",
+            },
+        });
+
+        if (!response.ok) {
+            return { isOcean: false, reason: "location_validation_unavailable" };
+        }
+
+        const data = await response.json();
+        const displayName = String(data?.display_name || "").toLowerCase();
+        const category = String(data?.category || "").toLowerCase();
+        const type = String(data?.type || "").toLowerCase();
+        const address = data?.address || {};
+
+        const looksWater = WATER_KEYWORDS.some((k) =>
+            displayName.includes(k) || category.includes(k) || type.includes(k)
+        );
+        const hasLandHints = LAND_ADDRESS_KEYS.some((k) => address[k]);
+
+        if (looksWater && !hasLandHints) {
+            return { isOcean: true, reason: "ocean_detected" };
+        }
+
+        return { isOcean: false, reason: "location_not_in_ocean" };
+    } catch {
+        return { isOcean: false, reason: "location_validation_unavailable" };
+    }
+}
+
 exports.handler = async (event) => {
     // Handle CORS preflight
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -50,6 +99,10 @@ exports.handler = async (event) => {
         return badRequest(`Unsupported file type: ${fileType}`);
     }
 
+    const locationCheck = await detectOceanLocation(latitude, longitude);
+    const mappedLatitude = locationCheck.isOcean ? Number(latitude) : null;
+    const mappedLongitude = locationCheck.isOcean ? Number(longitude) : null;
+
     const imageId = uuidv4();
     const userId = decoded.sub;
     const ext = fileName.split(".").pop() || "jpg";
@@ -75,8 +128,10 @@ exports.handler = async (event) => {
                     userId,
                     s3Path: `s3://${BUCKET}/${s3Key}`,
                     s3Key,
-                    latitude: latitude || null,
-                    longitude: longitude || null,
+                    latitude: mappedLatitude,
+                    longitude: mappedLongitude,
+                    locationMapped: locationCheck.isOcean,
+                    locationMapReason: locationCheck.reason,
                     status: "pending",
                     analysisResult: null,
                     createdAt,
@@ -85,7 +140,13 @@ exports.handler = async (event) => {
             })
         );
 
-        return ok({ uploadUrl, imageId, s3Path: `s3://${BUCKET}/${s3Key}` });
+        return ok({
+            uploadUrl,
+            imageId,
+            s3Path: `s3://${BUCKET}/${s3Key}`,
+            locationMapped: locationCheck.isOcean,
+            locationMapReason: locationCheck.reason,
+        });
     } catch (err) {
         console.error("getPresignedUrl error:", err);
         return serverError("Failed to generate upload URL");
