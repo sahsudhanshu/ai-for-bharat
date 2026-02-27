@@ -67,13 +67,15 @@ exports.handler = async (event) => {
             // Expected request:  POST CHAT_API_URL
             // Body: { userId, message, sessionId (optional) }
             // Expected response: { response: string }
+            const authHeader = event.headers?.Authorization || event.headers?.authorization;
             const chatApiRes = await fetch(CHAT_API_URL, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                     ...(CHAT_API_KEY ? { "x-api-key": CHAT_API_KEY } : {}),
+                    ...(authHeader ? { "Authorization": authHeader } : {}),
                 },
-                body: JSON.stringify({ userId, message, sessionId: chatId }),
+                body: JSON.stringify({ message }),
             });
             if (!chatApiRes.ok) throw new Error(`Chat API returned ${chatApiRes.status}`);
             const data = await chatApiRes.json();
