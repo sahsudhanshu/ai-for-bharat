@@ -39,7 +39,7 @@ export function Button({
 }: ButtonProps) {
     const isDisabled = disabled || loading;
 
-    const containerStyles: ViewStyle[] = [
+    const containerStyles: any[] = [
         styles.base,
         styles[`size_${size}`],
         styles[`variant_${variant}`],
@@ -48,7 +48,7 @@ export function Button({
         style ?? {},
     ];
 
-    const labelStyles: TextStyle[] = [
+    const labelStyles: any[] = [
         styles.label,
         styles[`labelSize_${size}`],
         styles[`labelVariant_${variant}`],

@@ -16,12 +16,14 @@ import * as Location from 'expo-location';
 import { getPresignedUrl, uploadToS3, analyzeImage } from '../../lib/api-client';
 import type { FishAnalysisResult } from '../../lib/mock-api';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
+import { useLanguage } from '../../lib/i18n';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 
 type Step = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 
 export default function UploadScreen() {
+    const { t, isLoaded } = useLanguage();
     const [imageUri, setImageUri] = useState<string | null>(null);
     const [step, setStep] = useState<Step>('idle');
     const [progress, setProgress] = useState(0);
@@ -53,7 +55,7 @@ export default function UploadScreen() {
     const pickFromGallery = async () => {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-            Alert.alert('Permission Required', 'Please allow access to your photos.');
+            Alert.alert(t('common.error'), 'Please allow access to your photos.');
             return;
         }
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -72,7 +74,7 @@ export default function UploadScreen() {
     const captureFromCamera = async () => {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-            Alert.alert('Permission Required', 'Please allow access to your camera.');
+            Alert.alert(t('common.error'), 'Please allow access to your camera.');
             return;
         }
         const result = await ImagePicker.launchCameraAsync({
@@ -119,7 +121,7 @@ export default function UploadScreen() {
             setStep('done');
         } catch (e: any) {
             setStep('error');
-            Alert.alert('Analysis Failed', e.message || 'Please retry.');
+            Alert.alert('Analysis Failed', e.message || t('common.error'));
         }
     };
 
@@ -136,32 +138,34 @@ export default function UploadScreen() {
         ? COLORS.success : result?.qualityGrade === 'Standard'
             ? COLORS.warning : COLORS.error;
 
+    if (!isLoaded) return null;
+
     return (
         <SafeAreaView style={styles.safe}>
             <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text style={styles.title}>Catch Analysis</Text>
-                    <Text style={styles.subtitle}>AI-powered species ID & weight estimation</Text>
+                    <Text style={styles.title}>{t('upload.title')}</Text>
+                    <Text style={styles.subtitle}>{t('upload.subtitle')}</Text>
                 </View>
 
                 {/* Upload Zone */}
                 {!imageUri ? (
                     <View style={styles.uploadZone}>
                         <Text style={styles.uploadEmoji}>📸</Text>
-                        <Text style={styles.uploadTitle}>Upload Your Catch</Text>
+                        <Text style={styles.uploadTitle}>{t('upload.cta')}</Text>
                         <Text style={styles.uploadHint}>
-                            High-resolution images get more accurate results
+                            {t('upload.hint')}
                         </Text>
                         <View style={styles.uploadBtns}>
                             <Button
-                                label="📷  Camera"
+                                label={`📷  ${t('upload.btnCamera')}`}
                                 onPress={captureFromCamera}
                                 variant="primary"
                                 style={styles.uploadBtn}
                             />
                             <Button
-                                label="🖼️  Gallery"
+                                label={`🖼️  ${t('upload.btnGallery')}`}
                                 onPress={pickFromGallery}
                                 variant="outline"
                                 style={styles.uploadBtn}
@@ -169,10 +173,10 @@ export default function UploadScreen() {
                         </View>
                         {/* Tips */}
                         <View style={styles.tipsBox}>
-                            <Text style={styles.tipsTitle}>Pro Tips</Text>
-                            <Text style={styles.tipItem}>• Place a coin next to the fish for weight accuracy</Text>
-                            <Text style={styles.tipItem}>• Shoot from directly above with good lighting</Text>
-                            <Text style={styles.tipItem}>• Ensure the entire fish is visible</Text>
+                            <Text style={styles.tipsTitle}>{t('upload.tipsTitle')}</Text>
+                            <Text style={styles.tipItem}>• {t('upload.tip1')}</Text>
+                            <Text style={styles.tipItem}>• {t('upload.tip2')}</Text>
+                            <Text style={styles.tipItem}>• {t('upload.tip3')}</Text>
                         </View>
                     </View>
                 ) : (
@@ -193,7 +197,7 @@ export default function UploadScreen() {
                         {isAnalyzing && (
                             <Card style={styles.progressCard} padding={SPACING.base}>
                                 <Text style={styles.progressLabel}>
-                                    {step === 'uploading' ? '☁️ Uploading to cloud...' : '🧠 Running AI models...'}
+                                    {step === 'uploading' ? `☁️ ${t('upload.uploading')}...` : `🧠 ${t('upload.analyzing')}...`}
                                 </Text>
                                 <View style={styles.progressBar}>
                                     <Animated.View
@@ -217,18 +221,18 @@ export default function UploadScreen() {
                         {/* Controls */}
                         {step === 'idle' && (
                             <View style={styles.controlRow}>
-                                <Button label="Start Analysis ⚡" onPress={startAnalysis} size="lg" style={styles.analyzeBtn} />
-                                <Button label="Remove" onPress={reset} variant="ghost" style={styles.removeBtn} />
+                                <Button label={`${t('upload.btnStartAnalysis')} ⚡`} onPress={startAnalysis} size="lg" style={styles.analyzeBtn} />
+                                <Button label={t('common.cancel')} onPress={reset} variant="ghost" style={styles.removeBtn} />
                             </View>
                         )}
                         {step === 'error' && (
                             <View style={styles.controlRow}>
                                 <Button label="Retry" onPress={startAnalysis} style={{ flex: 1 }} />
-                                <Button label="Reset" onPress={reset} variant="outline" style={{ flex: 1 }} />
+                                <Button label={t('common.cancel')} onPress={reset} variant="outline" style={{ flex: 1 }} />
                             </View>
                         )}
                         {step === 'done' && (
-                            <Button label="Upload Another" onPress={reset} variant="outline" fullWidth style={{ marginTop: SPACING.md }} />
+                            <Button label={t('upload.btnUploadAnother')} onPress={reset} variant="outline" fullWidth style={{ marginTop: SPACING.md }} />
                         )}
                     </>
                 )}
@@ -236,22 +240,22 @@ export default function UploadScreen() {
                 {/* Analysis Results */}
                 {result && (
                     <View style={styles.resultsSection}>
-                        <Text style={styles.sectionTitle}>Analysis Results</Text>
+                        <Text style={styles.sectionTitle}>{t('upload.results')}</Text>
 
                         {/* Species Card */}
                         <Card style={styles.resultCard} padding={SPACING.xl}>
                             <View style={styles.sustainabilityBadge}>
                                 <Text style={[styles.sustainabilityText, { color: result.isSustainable ? COLORS.success : COLORS.warning }]}>
-                                    {result.isSustainable ? '✓ Sustainable' : '⚠ Check Regulations'}
+                                    {result.isSustainable ? `✓ ${t('upload.sustainable')}` : `⚠ ${t('upload.notSustainable')}`}
                                 </Text>
                             </View>
 
-                            <Text style={styles.speciesLabel}>DETECTED SPECIES</Text>
+                            <Text style={styles.speciesLabel}>{t('upload.species')}</Text>
                             <Text style={styles.speciesName}>{result.species}</Text>
                             <Text style={styles.scientificName}>{result.scientificName}</Text>
 
                             <View style={styles.confidenceRow}>
-                                <Text style={styles.confidenceLabel}>Confidence</Text>
+                                <Text style={styles.confidenceLabel}>{t('upload.confidence')}</Text>
                                 <Text style={styles.confidenceValue}>{(result.confidence * 100).toFixed(1)}%</Text>
                             </View>
                         </Card>
@@ -260,7 +264,7 @@ export default function UploadScreen() {
                         <View style={styles.metricsGrid}>
                             <Card style={styles.metricCard} padding={SPACING.base}>
                                 <Text style={styles.metricEmoji}>⚖️</Text>
-                                <Text style={styles.metricLabel}>Est. Weight</Text>
+                                <Text style={styles.metricLabel}>{t('map.weight')}</Text>
                                 <Text style={styles.metricValue}>
                                     {(result.measurements.weight_g / 1000).toFixed(2)} KG
                                 </Text>
@@ -268,7 +272,7 @@ export default function UploadScreen() {
                             </Card>
                             <Card style={styles.metricCard} padding={SPACING.base}>
                                 <Text style={styles.metricEmoji}>🏷️</Text>
-                                <Text style={styles.metricLabel}>Quality Grade</Text>
+                                <Text style={styles.metricLabel}>{t('upload.quality')}</Text>
                                 <Text style={[styles.metricValue, { color: gradeColor }]}>{result.qualityGrade}</Text>
                                 <Text style={styles.metricSub}>Physical markers</Text>
                             </Card>
@@ -278,12 +282,12 @@ export default function UploadScreen() {
                         <Card style={styles.marketCard} padding={SPACING.xl}>
                             <View style={styles.marketRow}>
                                 <View>
-                                    <Text style={styles.marketLabel}>📈 Estimated Market Value</Text>
+                                    <Text style={styles.marketLabel}>📈 {t('upload.marketValue')}</Text>
                                     <Text style={styles.marketValue}>₹{result.marketEstimate.estimated_value.toLocaleString('en-IN')}</Text>
                                     <Text style={styles.marketRate}>@ ₹{result.marketEstimate.price_per_kg}/kg</Text>
                                 </View>
                                 <View>
-                                    <Text style={styles.legalLabel}>Legal Size</Text>
+                                    <Text style={styles.legalLabel}>{t('upload.legalSize')}</Text>
                                     <View style={[styles.legalBadge, { backgroundColor: result.compliance.is_legal_size ? COLORS.success + '20' : COLORS.error + '20' }]}>
                                         <Text style={[styles.legalText, { color: result.compliance.is_legal_size ? COLORS.success : COLORS.error }]}>
                                             {result.compliance.is_legal_size ? `≥${result.compliance.min_legal_size_mm}mm ✓` : 'Below Limit'}
@@ -303,8 +307,8 @@ export default function UploadScreen() {
                             </Text>
                             <Text style={styles.sustainText}>
                                 {result.isSustainable
-                                    ? 'This species is thriving in this region. Safe for harvesting — continue responsible fishing practices.'
-                                    : 'Warning: This specimen may be undersized. Consider releasing to preserve stock health and comply with regulations.'}
+                                    ? t('upload.sustainMsg')
+                                    : t('upload.warningMsg')}
                             </Text>
                         </Card>
                     </View>

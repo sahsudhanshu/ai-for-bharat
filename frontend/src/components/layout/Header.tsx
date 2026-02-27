@@ -1,7 +1,7 @@
 "use client"
 
 import React from 'react';
-import { Bell, Search, ChevronRight, LogOut, User, Settings } from 'lucide-react';
+import { Bell, Search, ChevronRight, LogOut, User, Settings, Globe } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,23 +16,27 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from "@/lib/auth-context";
+import { useLanguage, LANGUAGES } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import Link from 'next/link';
-
-const PAGE_NAMES: Record<string, string> = {
-  '': 'Dashboard',
-  'upload': 'Upload Catch',
-  'ocean-data': 'Ocean Intelligence Map',
-  'chatbot': 'AI Fisherman Assistant',
-  'analytics': 'Analytics & History',
-  'settings': 'Settings',
-};
 
 export default function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { locale, setLocale, t } = useLanguage();
 
   const pathSegment = pathname.split('/').filter(Boolean)[0] ?? '';
+
+  const PAGE_NAMES: Record<string, string> = {
+    '': t('nav.dashboard'),
+    'upload': t('nav.upload'),
+    'ocean-data': t('nav.ocean'),
+    'chatbot': t('nav.chat'),
+    'analytics': t('nav.analytics'),
+    'settings': t('nav.settings'),
+  };
+
   const pageName = PAGE_NAMES[pathSegment] ?? pathSegment;
 
   const handleLogout = () => {
@@ -45,11 +49,11 @@ export default function Header() {
     : 'RM';
 
   return (
-    <header className="h-20 border-b border-border/50 bg-background/50 backdrop-blur-xl flex items-center justify-between px-4 lg:px-8 sticky top-0 z-40">
+    <header className="h-16 sm:h-20 border-b border-border/50 bg-background/50 backdrop-blur-xl flex items-center justify-between px-4 lg:px-8 sticky top-0 z-40">
       <div className="flex items-center gap-4">
         <div className="lg:hidden w-12 shrink-0" /> {/* Space for mobile hamburger */}
         <div className="hidden lg:flex items-center gap-2 text-sm font-medium">
-          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">Dashboard</Link>
+          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">{t('nav.dashboard')}</Link>
           {pathSegment && (
             <>
               <ChevronRight className="w-4 h-4 text-muted-foreground" />
@@ -58,19 +62,47 @@ export default function Header() {
           )}
         </div>
         {/* Mobile: show page name */}
-        <span className="lg:hidden font-bold text-lg pl-2">{pageName}</span>
+        <span className="lg:hidden font-bold text-base pl-2">{pageName}</span>
       </div>
 
-      <div className="flex items-center gap-3 sm:gap-6">
+      <div className="flex items-center gap-2 sm:gap-4">
         <div className="hidden md:flex relative w-56 xl:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Search analysis, catch..."
+            placeholder={t('header.search')}
             className="pl-10 h-10 bg-muted/50 border-none rounded-xl focus-visible:ring-1 focus-visible:ring-primary/30"
           />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
+          {/* Language Switcher */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="rounded-xl hover:bg-primary/5 h-10 w-10">
+                <Globe className="w-5 h-5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48 rounded-xl">
+              <DropdownMenuLabel className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                {t('header.language')}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {LANGUAGES.map((lang) => (
+                <DropdownMenuItem
+                  key={lang.code}
+                  onClick={() => setLocale(lang.code)}
+                  className={cn(
+                    "cursor-pointer flex items-center justify-between",
+                    locale === lang.code && "bg-primary/10 text-primary font-bold"
+                  )}
+                >
+                  <span>{lang.label}</span>
+                  <span className="text-[10px] text-muted-foreground">{lang.labelEn}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           {/* Notification bell */}
           <Button variant="ghost" size="icon" className="relative rounded-xl hover:bg-primary/5 h-10 w-10">
             <Bell className="w-5 h-5 text-muted-foreground" />
@@ -80,8 +112,8 @@ export default function Header() {
           {/* User menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="pl-1 pr-3 py-1 h-12 rounded-xl gap-3 hover:bg-primary/5">
-                <Avatar className="h-9 w-9 border border-border/50">
+              <Button variant="ghost" className="pl-1 pr-2 sm:pr-3 py-1 h-10 sm:h-12 rounded-xl gap-2 sm:gap-3 hover:bg-primary/5">
+                <Avatar className="h-8 w-8 sm:h-9 sm:w-9 border border-border/50">
                   <AvatarImage src={user?.avatar} />
                   <AvatarFallback className="text-xs font-bold bg-primary/10 text-primary">{userInitials}</AvatarFallback>
                 </Avatar>
@@ -102,12 +134,12 @@ export default function Header() {
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
                 <Link href="/settings" className="cursor-pointer">
-                  <User className="mr-2 w-4 h-4" />Profile
+                  <User className="mr-2 w-4 h-4" />{t('common.profile')}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/settings" className="cursor-pointer">
-                  <Settings className="mr-2 w-4 h-4" />Settings
+                  <Settings className="mr-2 w-4 h-4" />{t('common.settings')}
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -116,7 +148,7 @@ export default function Header() {
                 className="text-red-500 focus:text-red-500 focus:bg-red-500/10 cursor-pointer"
               >
                 <LogOut className="mr-2 w-4 h-4" />
-                Log out
+                {t('common.logOut')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

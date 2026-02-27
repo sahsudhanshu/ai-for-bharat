@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getMapData } from "@/lib/api-client";
 import type { MapMarker } from "@/lib/api-client";
 import { FISH_SPECIES } from "@/lib/constants";
+import { useLanguage } from "@/lib/i18n";
 import 'leaflet/dist/leaflet.css';
 
 // ── Dynamic imports for Leaflet components (avoids SSR issues) ────────────────
@@ -52,6 +53,7 @@ const MAP_URLS = {
 };
 
 export default function OceanDataPage() {
+  const { t } = useLanguage();
   const [activeLayer, setActiveLayer] = useState('distribution');
   const [timeRange, setTimeRange] = useState([50]);
   const [mapType, setMapType] = useState<keyof typeof MAP_URLS>('dark');
@@ -88,16 +90,16 @@ export default function OceanDataPage() {
     <div className="space-y-6 sm:space-y-8 pb-10">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Ocean Intelligence Map</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Real-time visualization of sea conditions and your catch distribution.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('ocean.title')}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">{t('ocean.subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" className="rounded-xl border-border bg-card/50 text-xs sm:text-sm">
             <Calendar className="mr-2 w-4 h-4" />
-            Seasonal Forecast
+            Forecast
           </Button>
           <Button className="rounded-xl bg-primary font-bold shadow-lg shadow-primary/20 text-xs sm:text-sm">
-            Export Data
+            Export
           </Button>
         </div>
       </div>

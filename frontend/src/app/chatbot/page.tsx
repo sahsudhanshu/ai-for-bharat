@@ -2,24 +2,12 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
-  Send,
-  Mic,
-  Bot,
-  User,
-  RotateCcw,
-  Download,
-  Info,
-  Waves,
-  Fish,
-  CloudRain,
-  BookOpen,
-  HelpCircle,
-  Plus,
-  Loader2,
+  Send, Mic, Bot, User, RotateCcw, Download, Info,
+  Waves, Fish, CloudRain, BookOpen, HelpCircle, Plus, Loader2,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -27,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { sendChat, getChatHistory } from "@/lib/api-client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useLanguage } from "@/lib/i18n";
+import { useVoiceInput } from "@/hooks/useVoiceInput";
 
 interface Message {
   id: string;
@@ -35,29 +25,14 @@ interface Message {
   timestamp: Date;
 }
 
-const QUICK_ACTIONS = [
-  { label: "Fish Identification", icon: Fish, query: "How do I identify fish species?" },
-  { label: "Weather Forecast", icon: CloudRain, query: "What are the sea conditions today?" },
-  { label: "Ocean Conditions", icon: Waves, query: "What are the current ocean conditions?" },
-  { label: "Fishing Regulations", icon: BookOpen, query: "What are the fishing regulations?" },
-  { label: "Help & Tips", icon: HelpCircle, query: "Give me tips to improve my catch quality" },
-];
-
-const SUGGESTED_TOPICS = [
-  "What's the best time to fish for Kingfish near Ratnagiri?",
-  "How to distinguish between Silver and White Pomfret?",
-  "Current safety warnings for high-sea vessels near Malabar?",
-  "Latest GST regulations for small-scale fishermen exports.",
-  "Sustainable net mesh size recommendations for the Konkan coast.",
-];
-
 export default function ChatbotPage() {
   const { user } = useAuth();
+  const { t, speechCode } = useLanguage();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
       role: 'assistant',
-      content: "Namaste! I'm your OceanAI Fisherman Assistant 🐟. I can help with fish identification, ocean conditions, market prices, and fishing regulations. What can I assist you with today?",
+      content: t('chat.welcome'),
       timestamp: new Date(),
     },
   ]);
@@ -66,6 +41,41 @@ export default function ChatbotPage() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Voice Input ─────────────────────────────────────────────────────────────
+  const { isListening, transcript, isSupported: voiceSupported, startListening, stopListening } = useVoiceInput({
+    lang: speechCode,
+    onResult: (text) => {
+      setInput(text);
+    },
+    onError: (error) => {
+      toast.error(error);
+    },
+  });
+
+  // Update input with interim transcript while listening
+  useEffect(() => {
+    if (isListening && transcript) {
+      setInput(transcript);
+    }
+  }, [transcript, isListening]);
+
+  // ── Quick actions with translated labels ───────────────────────────────────
+  const QUICK_ACTIONS = [
+    { label: t('chat.action.fish'), icon: Fish, query: "How do I identify fish species?" },
+    { label: t('chat.action.weather'), icon: CloudRain, query: "What are the sea conditions today?" },
+    { label: t('chat.action.ocean'), icon: Waves, query: "What are the current ocean conditions?" },
+    { label: t('chat.action.regulations'), icon: BookOpen, query: "What are the fishing regulations?" },
+    { label: t('chat.action.tips'), icon: HelpCircle, query: "Give me tips to improve my catch quality" },
+  ];
+
+  const SUGGESTED_TOPICS = [
+    "What's the best time to fish for Kingfish near Ratnagiri?",
+    "How to distinguish between Silver and White Pomfret?",
+    "Current safety warnings for high-sea vessels near Malabar?",
+    "Latest GST regulations for small-scale fishermen exports.",
+    "Sustainable net mesh size recommendations for the Konkan coast.",
+  ];
 
   // ── Load chat history on mount ─────────────────────────────────────────────
   useEffect(() => {
@@ -129,12 +139,12 @@ export default function ChatbotPage() {
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
-      toast.error("Failed to get AI response. Please try again.");
+      toast.error(t('chat.error'));
       console.error("Chat error:", err);
     } finally {
       setIsTyping(false);
     }
-  }, [input, isTyping]);
+  }, [input, isTyping, t]);
 
   // ── Export chat ────────────────────────────────────────────────────────────
   const exportChat = () => {
@@ -148,24 +158,36 @@ export default function ChatbotPage() {
     a.download = `oceanai-chat-${new Date().toISOString().split('T')[0]}.txt`;
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("Chat exported!");
+    toast.success(t('chat.exported'));
   };
 
   const clearChat = () => {
     setMessages([{
       id: 'welcome_fresh',
       role: 'assistant',
-      content: "Chat cleared. How can I help you with your fishing today?",
+      content: t('chat.cleared'),
       timestamp: new Date(),
     }]);
+  };
+
+  const handleMicClick = () => {
+    if (!voiceSupported) {
+      toast.error(t('voice.notSupported'));
+      return;
+    }
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
   };
 
   return (
     <div className="h-full sm:h-[calc(100vh-140px)] flex flex-col space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">AI Fisherman Assistant</h1>
-          <p className="text-sm sm:text-base text-muted-foreground">Expert maritime guidance powered by AI.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('chat.title')}</h1>
+          <p className="text-sm sm:text-base text-muted-foreground">{t('chat.subtitle')}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -174,7 +196,7 @@ export default function ChatbotPage() {
             onClick={clearChat}
           >
             <RotateCcw className="mr-2 w-4 h-4" />
-            Reset
+            {t('chat.reset')}
           </Button>
           <Button
             variant="outline"
@@ -182,7 +204,7 @@ export default function ChatbotPage() {
             onClick={exportChat}
           >
             <Download className="mr-2 w-4 h-4" />
-            Export
+            {t('chat.exportChat')}
           </Button>
         </div>
       </div>
@@ -195,7 +217,7 @@ export default function ChatbotPage() {
               {isLoadingHistory && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  Loading chat history...
+                  {t('chat.loadingHistory')}
                 </div>
               )}
 
@@ -261,6 +283,18 @@ export default function ChatbotPage() {
             </div>
           </ScrollArea>
 
+          {/* Voice listening indicator */}
+          {isListening && (
+            <div className="px-4 sm:px-6 py-2 border-t border-primary/20 bg-primary/5 flex items-center gap-3 animate-in fade-in duration-200">
+              <div className="relative flex items-center justify-center">
+                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+                <div className="absolute w-6 h-6 bg-red-500/20 rounded-full animate-ping" />
+              </div>
+              <span className="text-sm font-medium text-primary">{t('voice.listening')}</span>
+              <span className="text-xs text-muted-foreground">{t('voice.tapToStop')}</span>
+            </div>
+          )}
+
           {/* Input bar */}
           <div className="p-4 sm:p-6 border-t border-border/50 bg-background/30">
             <div className="relative group">
@@ -268,12 +302,23 @@ export default function ChatbotPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                placeholder="Ask your maritime assistant..."
+                placeholder={t('chat.placeholder')}
                 disabled={isTyping}
                 className="h-12 sm:h-16 pl-4 sm:pl-6 pr-24 sm:pr-32 rounded-xl sm:rounded-2xl bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 text-sm sm:text-base"
               />
               <div className="absolute right-1.5 sm:right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-2">
-                <Button variant="ghost" size="icon" className="h-9 w-9 sm:h-12 sm:w-12 rounded-lg sm:rounded-xl text-muted-foreground hover:text-primary">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "h-9 w-9 sm:h-12 sm:w-12 rounded-lg sm:rounded-xl transition-all",
+                    isListening
+                      ? "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/30"
+                      : "text-muted-foreground hover:text-primary"
+                  )}
+                  onClick={handleMicClick}
+                  disabled={isTyping}
+                >
                   <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
                 </Button>
                 <Button
@@ -296,8 +341,8 @@ export default function ChatbotPage() {
             </div>
             <div className="relative z-10 space-y-4 sm:space-y-6">
               <div className="space-y-1">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Quick Actions</h3>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Tap to start a common query</p>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('chat.quickActions')}</h3>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">{t('chat.quickActionsDesc')}</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-3">
                 {QUICK_ACTIONS.map((action, i) => (
@@ -321,8 +366,8 @@ export default function ChatbotPage() {
           <Card className="rounded-3xl border-none bg-blue-500/5 p-6 flex-1 overflow-hidden">
             <div className="space-y-6 h-full flex flex-col">
               <div className="space-y-1">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-blue-500">Suggested Topics</h3>
-                <p className="text-xs text-blue-400/80">Popular maritime questions</p>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-blue-500">{t('chat.suggestedTopics')}</h3>
+                <p className="text-xs text-blue-400/80">{t('chat.suggestedTopicsDesc')}</p>
               </div>
 
               <ScrollArea className="flex-1">
@@ -346,7 +391,7 @@ export default function ChatbotPage() {
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
                   <Info className="w-4 h-4 shrink-0" />
                   <p className="text-[11px] font-semibold italic">
-                    Responses are based on real-time NOAA, INCOIS, and regional fishery data feeds.
+                    {t('chat.dataSource')}
                   </p>
                 </div>
               </div>

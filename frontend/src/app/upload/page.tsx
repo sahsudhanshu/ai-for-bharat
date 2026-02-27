@@ -10,10 +10,13 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getPresignedUrl, uploadToS3, analyzeImage } from "@/lib/api-client";
 import type { FishAnalysisResult } from "@/lib/mock-api";
+import { useLanguage } from "@/lib/i18n";
+import CameraModal from "@/components/CameraModal";
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
 export default function UploadPage() {
+  const { t } = useLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [step, setStep] = useState<UploadStep>("idle");
@@ -22,8 +25,10 @@ export default function UploadPage() {
   const [result, setResult] = useState<FishAnalysisResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mobileFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Drag & Drop ─────────────────────────────────────────────────────────────
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -41,7 +46,7 @@ export default function UploadPage() {
 
   const handleFile = (selectedFile: File) => {
     if (!selectedFile.type.startsWith('image/')) {
-      toast.error("Please upload an image file (JPG, PNG, HEIC).");
+      toast.error(t('upload.imageError'));
       return;
     }
     setFile(selectedFile);
@@ -51,7 +56,6 @@ export default function UploadPage() {
     setResult(null);
     setStep("idle");
 
-    // Try to capture GPS location
     if ("geolocation" in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
@@ -60,12 +64,32 @@ export default function UploadPage() {
     }
   };
 
+  // ── Camera handling ────────────────────────────────────────────────────────
+  const handleCameraClick = () => {
+    // On mobile, use the native file input with capture attribute
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile) {
+      mobileFileInputRef.current?.click();
+    } else {
+      // On desktop, open our camera modal
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        toast.error(t('camera.httpsRequired'));
+        return;
+      }
+      setShowCamera(true);
+    }
+  };
+
+  const handleCameraCapture = (capturedFile: File) => {
+    handleFile(capturedFile);
+    setShowCamera(false);
+  };
+
   // ── Full Upload + Analyze Flow ───────────────────────────────────────────────
   const startAnalysis = async () => {
     if (!file) return;
 
     try {
-      // Step 1: Get presigned URL
       setStep("uploading");
       setUploadProgress(0);
       const { uploadUrl, imageId } = await getPresignedUrl(
@@ -75,11 +99,9 @@ export default function UploadPage() {
         location?.lng
       );
 
-      // Step 2: Upload to S3 with progress tracking
       await uploadToS3(uploadUrl, file, (pct) => setUploadProgress(pct));
       setUploadProgress(100);
 
-      // Step 3: Trigger ML analysis
       setStep("processing");
       setAnalysisProgress(0);
       const progressInterval = setInterval(() => {
@@ -94,10 +116,10 @@ export default function UploadPage() {
       setAnalysisProgress(100);
       setResult(analysisResult);
       setStep("done");
-      toast.success("Analysis complete! 🐟");
+      toast.success(t('upload.success'));
     } catch (err) {
       setStep("error");
-      toast.error(err instanceof Error ? err.message : "Analysis failed. Please retry.");
+      toast.error(err instanceof Error ? err.message : t('upload.error'));
     }
   };
 
@@ -117,8 +139,8 @@ export default function UploadPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 sm:space-y-8 pb-10">
       <div className="space-y-2">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Catch Analysis</h1>
-        <p className="text-sm sm:text-base text-muted-foreground">Upload an image for instant AI-powered species identification and weight estimation.</p>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('upload.title')}</h1>
+        <p className="text-sm sm:text-base text-muted-foreground">{t('upload.subtitle')}</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
@@ -145,21 +167,25 @@ export default function UploadPage() {
                     <Upload className="w-8 h-8 sm:w-10 sm:h-10" />
                   </div>
                   <h3 className="text-lg sm:text-xl font-bold mb-2">
-                    {dragActive ? "Drop your image here!" : "Drag and drop your catch image"}
+                    {dragActive ? t('upload.dropHere') : t('upload.dragDrop')}
                   </h3>
                   <p className="text-xs sm:text-sm text-muted-foreground mb-6 sm:mb-8 max-w-xs mx-auto">
-                    Upload high-resolution images for best results. Supports JPG, PNG, HEIC.
+                    {t('upload.hint')}
                   </p>
                   <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4" onClick={(e) => e.stopPropagation()}>
                     <Button
                       onClick={() => fileInputRef.current?.click()}
                       className="rounded-xl h-10 sm:h-12 px-5 sm:px-6 bg-primary font-bold text-xs sm:text-sm"
                     >
-                      Browse Files
+                      {t('upload.browse')}
                     </Button>
-                    <Button variant="outline" className="rounded-xl h-10 sm:h-12 px-5 sm:px-6 border-border font-bold text-xs sm:text-sm">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl h-10 sm:h-12 px-5 sm:px-6 border-border font-bold text-xs sm:text-sm"
+                      onClick={handleCameraClick}
+                    >
                       <Camera className="mr-2 w-4 h-4 sm:w-5 sm:h-5" />
-                      Use Camera
+                      {t('upload.camera')}
                     </Button>
                   </div>
                   <input
@@ -168,6 +194,15 @@ export default function UploadPage() {
                     className="hidden"
                     onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
                     accept="image/*"
+                  />
+                  {/* Mobile camera file input with capture attribute */}
+                  <input
+                    type="file"
+                    ref={mobileFileInputRef}
+                    className="hidden"
+                    onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                    accept="image/*"
+                    capture="environment"
                   />
                 </div>
               ) : (
@@ -184,7 +219,7 @@ export default function UploadPage() {
                       onClick={() => fileInputRef.current?.click()}
                       disabled={isDisabled}
                     >
-                      Replace
+                      {t('upload.replace')}
                     </Button>
                     <Button
                       variant="destructive"
@@ -193,7 +228,7 @@ export default function UploadPage() {
                       disabled={isDisabled}
                     >
                       <Trash2 className="mr-2 w-4 h-4" />
-                      Remove
+                      {t('upload.remove')}
                     </Button>
                   </div>
                   {location && (
@@ -227,7 +262,7 @@ export default function UploadPage() {
                   onClick={startAnalysis}
                   className="w-full sm:w-auto rounded-xl h-12 px-8 bg-primary font-bold shadow-lg shadow-primary/20 transition-all active:scale-95"
                 >
-                  Start Analysis
+                  {t('upload.startAnalysis')}
                   <Zap className="ml-2 w-4 h-4 fill-white" />
                 </Button>
               </CardFooter>
@@ -240,7 +275,7 @@ export default function UploadPage() {
               <div className="flex justify-between items-center text-sm font-medium">
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                  Uploading to secure cloud storage...
+                  {t('upload.uploading')}
                 </span>
                 <span className="text-primary font-bold">{uploadProgress}%</span>
               </div>
@@ -253,13 +288,13 @@ export default function UploadPage() {
               <div className="flex justify-between items-center text-sm font-medium">
                 <span className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-primary fill-primary animate-pulse" />
-                  Running AI Vision Models...
+                  {t('upload.processing')}
                 </span>
                 <span className="text-primary font-bold">{analysisProgress}%</span>
               </div>
               <Progress value={analysisProgress} className="h-3 rounded-full bg-primary/10" />
               <p className="text-xs text-muted-foreground text-center italic animate-pulse">
-                YOLOv11 → Species Classification → Depth Estimation → Weight Calculation
+                {t('upload.pipeline')}
               </p>
             </Card>
           )}
@@ -272,11 +307,11 @@ export default function UploadPage() {
                   <Info className="w-5 h-5" />
                 </div>
                 <div className="space-y-1">
-                  <h4 className="font-bold text-blue-500">Pro Tips for Maximum Accuracy</h4>
+                  <h4 className="font-bold text-blue-500">{t('upload.tips')}</h4>
                   <ul className="text-sm text-blue-400/80 leading-relaxed space-y-1">
-                    <li>• Place a coin or ruler next to the fish for precise weight estimation</li>
-                    <li>• Shoot from directly above with good lighting</li>
-                    <li>• Ensure the entire fish is visible in the frame</li>
+                    <li>• {t('upload.tip1')}</li>
+                    <li>• {t('upload.tip2')}</li>
+                    <li>• {t('upload.tip3')}</li>
                   </ul>
                 </div>
               </div>
@@ -290,76 +325,76 @@ export default function UploadPage() {
             "rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm h-full flex flex-col transition-all duration-500",
             !result && "opacity-50 grayscale pointer-events-none"
           )}>
-            <CardHeader className="p-8">
+            <CardHeader className="p-6 sm:p-8">
               <div className="flex justify-between items-start">
                 <div>
-                  <CardTitle className="text-2xl font-bold">Analysis Results</CardTitle>
-                  <CardDescription>Generated by OceanAI Vision Engine</CardDescription>
+                  <CardTitle className="text-xl sm:text-2xl font-bold">{t('upload.results')}</CardTitle>
+                  <CardDescription>{t('upload.resultsBy')}</CardDescription>
                 </div>
                 {result && (
                   <Badge className={cn(
-                    "px-4 py-1.5 rounded-full border-none",
+                    "px-3 sm:px-4 py-1.5 rounded-full border-none text-[10px] sm:text-xs",
                     result.isSustainable ? "bg-emerald-500 text-white" : "bg-amber-500 text-white"
                   )}>
-                    {result.isSustainable ? "✓ Sustainable" : "⚠ Limited Species"}
+                    {result.isSustainable ? t('upload.sustainableBadge') : t('upload.limitedBadge')}
                   </Badge>
                 )}
               </div>
             </CardHeader>
 
-            <CardContent className="p-8 pt-0 flex-1 space-y-8">
+            <CardContent className="p-6 sm:p-8 pt-0 flex-1 space-y-8">
               {result ? (
                 <>
                   {/* Species */}
                   <div className="space-y-6">
                     <div className="flex justify-between items-end">
                       <div className="space-y-1">
-                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Detected Species</span>
-                        <h2 className="text-3xl sm:text-4xl font-bold text-primary">{result.species}</h2>
+                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t('upload.species')}</span>
+                        <h2 className="text-2xl sm:text-4xl font-bold text-primary">{result.species}</h2>
                         <p className="text-xs text-muted-foreground italic">{result.scientificName}</p>
                       </div>
                       <div className="text-right">
-                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Confidence</span>
+                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{t('upload.confidence')}</span>
                         <p className="text-xl font-bold">{(result.confidence * 100).toFixed(1)}%</p>
                       </div>
                     </div>
 
                     {/* Metric Cards */}
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="p-5 rounded-2xl bg-muted/30 border border-border/50 flex flex-col gap-2">
+                      <div className="p-4 sm:p-5 rounded-2xl bg-muted/30 border border-border/50 flex flex-col gap-2">
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Scale className="w-4 h-4" />
-                          <span className="text-xs font-semibold uppercase tracking-wider">Est. Weight</span>
+                          <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">{t('upload.weight')}</span>
                         </div>
-                        <p className="text-2xl font-bold">
+                        <p className="text-xl sm:text-2xl font-bold">
                           {result.measurements ? (result.measurements.weight_g / 1000).toFixed(2) : result.weightEstimate.toFixed(2)} KG
                         </p>
                         <p className="text-[10px] text-muted-foreground font-medium">
                           Length: {result.measurements?.length_mm ?? "—"} mm
                         </p>
                       </div>
-                      <div className="p-5 rounded-2xl bg-muted/30 border border-border/50 flex flex-col gap-2">
+                      <div className="p-4 sm:p-5 rounded-2xl bg-muted/30 border border-border/50 flex flex-col gap-2">
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <BarChart2 className="w-4 h-4" />
-                          <span className="text-xs font-semibold uppercase tracking-wider">Quality Grade</span>
+                          <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">{t('upload.quality')}</span>
                         </div>
                         <p className={cn(
-                          "text-2xl font-bold",
+                          "text-xl sm:text-2xl font-bold",
                           result.qualityGrade === 'Premium' ? "text-emerald-500" :
                             result.qualityGrade === 'Standard' ? "text-amber-500" : "text-red-500"
                         )}>{result.qualityGrade}</p>
-                        <p className="text-[10px] text-muted-foreground font-medium">Based on physical markers</p>
+                        <p className="text-[10px] text-muted-foreground font-medium">{t('upload.qualityBasis')}</p>
                       </div>
                     </div>
 
                     {/* Market Price */}
-                    <div className="p-6 rounded-2xl bg-primary/5 border border-primary/10 flex items-center justify-between">
+                    <div className="p-5 sm:p-6 rounded-2xl bg-primary/5 border border-primary/10 flex items-center justify-between">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2 text-primary font-bold">
                           <TrendingUp className="w-4 h-4" />
-                          <span className="text-xs uppercase tracking-wider">Est. Market Value</span>
+                          <span className="text-[10px] sm:text-xs uppercase tracking-wider">{t('upload.marketValue')}</span>
                         </div>
-                        <p className="text-3xl font-bold">
+                        <p className="text-2xl sm:text-3xl font-bold">
                           ₹{result.marketEstimate?.estimated_value ?? Math.round(result.marketPriceEstimate * result.weightEstimate)}
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -367,12 +402,12 @@ export default function UploadPage() {
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="text-xs text-muted-foreground">Legal Size</p>
+                        <p className="text-xs text-muted-foreground">{t('upload.legalSize')}</p>
                         <Badge className={cn(
                           "px-3 py-1 mt-1 border-none text-[10px] font-bold",
                           result.compliance?.is_legal_size ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
                         )}>
-                          {result.compliance?.is_legal_size ? `≥${result.compliance.min_legal_size_mm}mm ✓` : "Below Limit"}
+                          {result.compliance?.is_legal_size ? `≥${result.compliance.min_legal_size_mm}mm ✓` : t('upload.belowLimit')}
                         </Badge>
                       </div>
                     </div>
@@ -380,17 +415,17 @@ export default function UploadPage() {
 
                   {/* Sustainability */}
                   <div className="space-y-4 pt-4 border-t border-border/50">
-                    <h4 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Sustainability Verdict</h4>
+                    <h4 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">{t('upload.sustainability')}</h4>
                     <div className="flex gap-4 p-4 rounded-xl bg-muted/20 border border-border/50">
                       {result.isSustainable ? (
                         <>
                           <CheckCircle2 className="w-6 h-6 text-emerald-500 shrink-0" />
-                          <p className="text-sm leading-relaxed">This species is thriving in this region. Safe for harvesting — continue responsible fishing practices.</p>
+                          <p className="text-sm leading-relaxed">{t('upload.sustainable')}</p>
                         </>
                       ) : (
                         <>
                           <AlertCircle className="w-6 h-6 text-amber-500 shrink-0" />
-                          <p className="text-sm leading-relaxed">Warning: This specimen may be undersized. Consider releasing to preserve stock health and comply with regulations.</p>
+                          <p className="text-sm leading-relaxed">{t('upload.notSustainable')}</p>
                         </>
                       )}
                     </div>
@@ -399,25 +434,32 @@ export default function UploadPage() {
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-30">
                   <BarChart2 className="w-16 h-16 mb-6" />
-                  <p className="text-lg font-bold">No results yet</p>
-                  <p className="text-sm max-w-xs mx-auto">Upload an image and start analysis to see species ID, weight estimate, market value, and sustainability verdict.</p>
+                  <p className="text-lg font-bold">{t('upload.noResults')}</p>
+                  <p className="text-sm max-w-xs mx-auto">{t('upload.noResultsDesc')}</p>
                 </div>
               )}
             </CardContent>
 
             {result && (
-              <CardFooter className="p-8 pt-0 gap-4">
-                <Button className="flex-1 h-14 rounded-xl bg-primary font-bold shadow-lg shadow-primary/20">
-                  Save to History
+              <CardFooter className="p-6 sm:p-8 pt-0 gap-4">
+                <Button className="flex-1 h-12 sm:h-14 rounded-xl bg-primary font-bold shadow-lg shadow-primary/20">
+                  {t('upload.save')}
                 </Button>
-                <Button variant="outline" className="flex-1 h-14 rounded-xl border-border font-bold">
-                  Export PDF
+                <Button variant="outline" className="flex-1 h-12 sm:h-14 rounded-xl border-border font-bold">
+                  {t('upload.export')}
                 </Button>
               </CardFooter>
             )}
           </Card>
         </div>
       </div>
+
+      {/* Camera Modal */}
+      <CameraModal
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 }

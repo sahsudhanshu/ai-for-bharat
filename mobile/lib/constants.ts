@@ -16,7 +16,7 @@ export const COLORS = {
   // Backgrounds
   bgDark: '#0f172a',
   bgCard: '#1e293b',
-  bgSurface: '#162032',
+  bgSurface: '#334155',
 
   // Text
   textPrimary: '#f8fafc',

@@ -4,6 +4,7 @@ import "./globals.css";
 import { VisualEditsMessenger } from "orchids-visual-edits";
 import AppLayout from "@/components/layout/AppLayout";
 import { AuthProvider } from "@/lib/auth-context";
+import { LanguageProvider } from "@/lib/i18n";
 import { Toaster } from "@/components/ui/sonner";
 
 const geistSans = Geist({
@@ -31,12 +32,14 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-          <AppLayout>
-            {children}
-          </AppLayout>
-          <Toaster position="top-right" />
-        </AuthProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <AppLayout>
+              {children}
+            </AppLayout>
+            <Toaster position="top-right" />
+          </AuthProvider>
+        </LanguageProvider>
         <VisualEditsMessenger />
       </body>
     </html>

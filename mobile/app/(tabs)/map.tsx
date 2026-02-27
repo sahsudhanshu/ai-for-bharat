@@ -13,6 +13,7 @@ import MapView, { Marker, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
 import { getMapData } from '../../lib/api-client';
 import type { MapMarker } from '../../lib/api-client';
 import { COLORS, FONTS, SPACING, RADIUS, DEFAULT_MAP_REGION, FISH_SPECIES } from '../../lib/constants';
+import { useLanguage } from '../../lib/i18n';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 
@@ -23,10 +24,11 @@ const GRADE_COLORS: Record<string, string> = {
 };
 
 export default function MapScreen() {
+    const { t, isLoaded } = useLanguage();
     const [markers, setMarkers] = useState<MapMarker[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
-    const [filterSpecies, setFilterSpecies] = useState('All Species');
+    const [filterSpecies, setFilterSpecies] = useState(t('map.allSpecies'));
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const mapRef = useRef<MapView>(null);
 
@@ -38,7 +40,7 @@ export default function MapScreen() {
         setLoading(true);
         try {
             const data = await getMapData(
-                filterSpecies !== 'All Species' ? { species: filterSpecies } : undefined
+                filterSpecies !== t('map.allSpecies') ? { species: filterSpecies } : undefined
             );
             setMarkers(data.markers);
         } catch {
@@ -48,24 +50,26 @@ export default function MapScreen() {
         }
     };
 
-    const filteredMarkers = filterSpecies === 'All Species'
+    const filteredMarkers = filterSpecies === t('map.allSpecies')
         ? markers
         : markers.filter((m) => m.species === filterSpecies);
+
+    if (!isLoaded) return null;
 
     return (
         <SafeAreaView style={styles.safe}>
             {/* Header */}
             <View style={styles.header}>
                 <View>
-                    <Text style={styles.title}>Ocean Map</Text>
-                    <Text style={styles.subtitle}>{filteredMarkers.length} catch locations</Text>
+                    <Text style={styles.title}>{t('nav.oceanMap')}</Text>
+                    <Text style={styles.subtitle}>{filteredMarkers.length} {t('map.catchLocations')}</Text>
                 </View>
                 <TouchableOpacity
                     style={styles.filterBtn}
                     onPress={() => setFilterModalVisible(true)}
                     activeOpacity={0.8}
                 >
-                    <Text style={styles.filterBtnText}>🔍 {filterSpecies === 'All Species' ? 'Filter' : filterSpecies.split(' ')[0]}</Text>
+                    <Text style={styles.filterBtnText}>🔍 {filterSpecies === t('map.allSpecies') ? t('map.filter') : filterSpecies.split(' ')[0]}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -115,26 +119,26 @@ export default function MapScreen() {
                         </View>
                         <View style={styles.infoDetails}>
                             <View style={styles.infoDetailItem}>
-                                <Text style={styles.infoDetailLabel}>⚖️ Weight</Text>
+                                <Text style={styles.infoDetailLabel}>⚖️ {t('map.weight')}</Text>
                                 <Text style={styles.infoDetailValue}>
                                     {selectedMarker.weight_g ? `${(selectedMarker.weight_g / 1000).toFixed(2)} kg` : '—'}
                                 </Text>
                             </View>
                             <View style={styles.infoDetailItem}>
-                                <Text style={styles.infoDetailLabel}>📍 Location</Text>
+                                <Text style={styles.infoDetailLabel}>📍 {t('map.location')}</Text>
                                 <Text style={styles.infoDetailValue}>
                                     {selectedMarker.latitude.toFixed(3)}°N, {selectedMarker.longitude.toFixed(3)}°E
                                 </Text>
                             </View>
                             <View style={styles.infoDetailItem}>
-                                <Text style={styles.infoDetailLabel}>📅 Date</Text>
+                                <Text style={styles.infoDetailLabel}>📅 {t('map.date')}</Text>
                                 <Text style={styles.infoDetailValue}>
                                     {new Date(selectedMarker.createdAt).toLocaleDateString('en-IN')}
                                 </Text>
                             </View>
                         </View>
                         <Button
-                            label="Dismiss"
+                            label={t('common.dismiss')}
                             onPress={() => setSelectedMarker(null)}
                             variant="ghost"
                             size="sm"
@@ -146,20 +150,20 @@ export default function MapScreen() {
 
             {/* Fishing Zone Cards */}
             <View style={styles.zonesSection}>
-                <Text style={styles.zonesTitle}>Recommended Zones</Text>
+                <Text style={styles.zonesTitle}>{t('map.recommendedZones')}</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zonesScroll}>
                     {[
-                        { zone: 'Zone A', lat: '17°–19°N', species: 'Indian Pomfret', density: 'High', emoji: '⭐' },
-                        { zone: 'Zone B', lat: '15°–17°N', species: 'Kingfish', density: 'Medium', emoji: '🎯' },
-                        { zone: 'Zone C', lat: '11°–14°N', species: 'Yellowfin Tuna', density: 'High', emoji: '🔥' },
+                        { zone: 'Zone A', lat: '17°–19°N', species: 'Indian Pomfret', density: t('map.densityHigh'), emoji: '⭐' },
+                        { zone: 'Zone B', lat: '15°–17°N', species: 'Kingfish', density: t('map.densityMedium'), emoji: '🎯' },
+                        { zone: 'Zone C', lat: '11°–14°N', species: 'Yellowfin Tuna', density: t('map.densityHigh'), emoji: '🔥' },
                     ].map((z) => (
                         <View key={z.zone} style={styles.zoneCard}>
                             <Text style={styles.zoneEmoji}>{z.emoji}</Text>
                             <Text style={styles.zoneName}>{z.zone}</Text>
                             <Text style={styles.zoneLocation}>{z.lat}</Text>
                             <Text style={styles.zoneSpecies}>{z.species}</Text>
-                            <Text style={[styles.zoneDensity, { color: z.density === 'High' ? COLORS.success : COLORS.warning }]}>
-                                {z.density} Density
+                            <Text style={[styles.zoneDensity, { color: z.density === String(t('map.densityHigh')) ? COLORS.success : COLORS.warning }]}>
+                                {z.density}
                             </Text>
                         </View>
                     ))}
@@ -175,7 +179,17 @@ export default function MapScreen() {
             >
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalSheet}>
-                        <Text style={styles.modalTitle}>Filter by Species</Text>
+                        <Text style={styles.modalTitle}>{t('map.filterBySpecies')}</Text>
+                        <TouchableOpacity
+                            style={[styles.modalOption, filterSpecies === t('map.allSpecies') && styles.modalOptionActive]}
+                            onPress={() => { setFilterSpecies(t('map.allSpecies')); setFilterModalVisible(false); }}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={[styles.modalOptionText, filterSpecies === t('map.allSpecies') && styles.modalOptionTextActive]}>
+                                {t('map.allSpecies')}
+                            </Text>
+                            {filterSpecies === t('map.allSpecies') && <Text style={{ color: COLORS.primaryLight }}>✓</Text>}
+                        </TouchableOpacity>
                         {FISH_SPECIES.map((species) => (
                             <TouchableOpacity
                                 key={species}
