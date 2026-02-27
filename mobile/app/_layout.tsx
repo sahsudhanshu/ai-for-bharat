@@ -5,6 +5,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../lib/auth-context';
+import { LanguageProvider, useLanguage } from '../lib/i18n';
 import { COLORS } from '../lib/constants';
 
 function RootLayoutNav() {
@@ -55,10 +56,12 @@ export default function RootLayout() {
         <GestureHandlerRootView style={styles.root}>
             <ThemeProvider value={customDarkTheme}>
                 <SafeAreaProvider>
-                    <AuthProvider>
-                        <StatusBar style="light" backgroundColor={COLORS.bgDark} />
-                        <RootLayoutNav />
-                    </AuthProvider>
+                    <LanguageProvider>
+                        <AuthProvider>
+                            <StatusBar style="light" backgroundColor={COLORS.bgDark} />
+                            <RootLayoutNav />
+                        </AuthProvider>
+                    </LanguageProvider>
                 </SafeAreaProvider>
             </ThemeProvider>
         </GestureHandlerRootView>

@@ -12,25 +12,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useAuth } from '../../lib/auth-context';
+import { useLanguage } from '../../lib/i18n';
 import { COLORS, FONTS, SPACING, RADIUS, INDIAN_LANGUAGES } from '../../lib/constants';
 import { Card } from '../../components/ui/Card';
 
 export default function SettingsScreen() {
     const { user, logout } = useAuth();
+    const { t, locale, setLocale, isLoaded } = useLanguage();
     const [notifications, setNotifications] = useState(true);
     const [darkMode, setDarkMode] = useState(true);
     const [kgUnit, setKgUnit] = useState(true);
-    const [language, setLanguage] = useState('English');
     const [langModalVisible, setLangModalVisible] = useState(false);
 
     const handleLogout = () => {
         Alert.alert(
-            'Log Out',
-            'Are you sure you want to log out?',
+            t('settings.logout'),
+            t('settings.logoutConfirm'),
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: t('common.cancel'), style: 'cancel' },
                 {
-                    text: 'Log Out',
+                    text: t('settings.logout'),
                     style: 'destructive',
                     onPress: async () => {
                         await logout();
@@ -86,12 +87,23 @@ export default function SettingsScreen() {
         </TouchableOpacity>
     );
 
+    const languageDisplayNames: Record<string, string> = {
+        en: 'English',
+        hi: 'हिन्दी (Hindi)',
+        bn: 'বাংলা (Bengali)',
+        ta: 'தமிழ் (Tamil)',
+        te: 'తెలుగు (Telugu)',
+        mr: 'मराठी (Marathi)',
+    };
+
+    if (!isLoaded) return null;
+
     return (
         <SafeAreaView style={styles.safe}>
             <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text style={styles.title}>Settings</Text>
+                    <Text style={styles.title}>{t('nav.settings')}</Text>
                 </View>
 
                 {/* Profile Card */}
@@ -107,31 +119,31 @@ export default function SettingsScreen() {
                 </View>
 
                 {/* Account Info */}
-                <Text style={styles.sectionLabel}>ACCOUNT</Text>
+                <Text style={styles.sectionLabel}>{t('settings.account')}</Text>
                 <Card padding={0} style={styles.menuCard}>
-                    {user?.phone && <MenuRow label="Phone" value={user.phone} onPress={() => { }} />}
-                    <MenuRow label="Fishing Location" value={user?.location ?? 'Not set'} onPress={() => { }} />
-                    <MenuRow label="Member Since" value="Feb 2026" onPress={() => { }} />
+                    {user?.phone && <MenuRow label={t('settings.phone')} value={user.phone} onPress={() => { }} />}
+                    <MenuRow label={t('settings.location')} value={user?.location ?? 'Not set'} onPress={() => { }} />
+                    <MenuRow label={t('settings.memberSince')} value="Feb 2026" onPress={() => { }} />
                 </Card>
 
                 {/* Preferences */}
-                <Text style={styles.sectionLabel}>PREFERENCES</Text>
+                <Text style={styles.sectionLabel}>{t('settings.preferences')}</Text>
                 <Card padding={0} style={styles.menuCard}>
                     <PreferenceRow
-                        label="Push Notifications"
+                        label={t('settings.notifications')}
                         value={notifications}
                         onValueChange={setNotifications}
-                        description="Market prices, weather alerts"
+                        description={t('settings.notificationsDesc')}
                     />
                     <View style={styles.prefDivider} />
                     <PreferenceRow
-                        label="Dark Mode"
+                        label={t('settings.darkMode')}
                         value={darkMode}
                         onValueChange={setDarkMode}
                     />
                     <View style={styles.prefDivider} />
                     <PreferenceRow
-                        label="Weight in KG"
+                        label={t('settings.weightUnit')}
                         value={kgUnit}
                         onValueChange={setKgUnit}
                         description={kgUnit ? 'Currently: Kilograms' : 'Currently: Pounds'}
@@ -139,34 +151,34 @@ export default function SettingsScreen() {
                 </Card>
 
                 {/* Language */}
-                <Text style={styles.sectionLabel}>LANGUAGE</Text>
+                <Text style={styles.sectionLabel}>{t('settings.language')}</Text>
                 <Card padding={0} style={styles.menuCard}>
                     <MenuRow
-                        label="App Language"
-                        value={language}
+                        label={t('settings.appLanguage')}
+                        value={languageDisplayNames[locale] ?? 'English'}
                         onPress={() => setLangModalVisible(true)}
                     />
                 </Card>
 
                 {/* Privacy & Security */}
-                <Text style={styles.sectionLabel}>PRIVACY & SECURITY</Text>
+                <Text style={styles.sectionLabel}>{t('settings.privacy')}</Text>
                 <Card padding={0} style={styles.menuCard}>
-                    <MenuRow label="Change Password" onPress={() => Alert.alert('Coming Soon', 'Password change via Cognito coming soon.')} />
-                    <MenuRow label="Export My Data" onPress={() => Alert.alert('Export', 'Your data export will be emailed to you.')} />
-                    <MenuRow label="Delete Account" onPress={() => Alert.alert('Delete Account', 'Please contact support.')} danger />
+                    <MenuRow label={t('settings.changePassword')} onPress={() => Alert.alert('Coming Soon', 'Password change via Cognito coming soon.')} />
+                    <MenuRow label={t('settings.exportData')} onPress={() => Alert.alert('Export', 'Your data export will be emailed to you.')} />
+                    <MenuRow label={t('settings.deleteAccount')} onPress={() => Alert.alert('Delete Account', 'Please contact support.')} danger />
                 </Card>
 
                 {/* Help */}
-                <Text style={styles.sectionLabel}>HELP & SUPPORT</Text>
+                <Text style={styles.sectionLabel}>{t('settings.help')}</Text>
                 <Card padding={0} style={styles.menuCard}>
-                    <MenuRow label="FAQ" onPress={() => { }} />
-                    <MenuRow label="Contact Support" onPress={() => { }} />
-                    <MenuRow label="App Version" value="1.0.0" onPress={() => { }} />
+                    <MenuRow label={t('settings.faq')} onPress={() => { }} />
+                    <MenuRow label={t('settings.contactSupport')} onPress={() => { }} />
+                    <MenuRow label={t('settings.appVersion')} value="1.0.0" onPress={() => { }} />
                 </Card>
 
                 {/* Logout */}
                 <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
-                    <Text style={styles.logoutText}>🚪  Log Out</Text>
+                    <Text style={styles.logoutText}>🚪  {t('settings.logout')}</Text>
                 </TouchableOpacity>
 
                 {/* App Info */}
@@ -182,19 +194,19 @@ export default function SettingsScreen() {
             >
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalSheet}>
-                        <Text style={styles.modalTitle}>Select Language</Text>
+                        <Text style={styles.modalTitle}>{t('settings.selectLanguage')}</Text>
                         <ScrollView showsVerticalScrollIndicator={false}>
-                            {INDIAN_LANGUAGES.map((lang) => (
+                            {(Object.entries(languageDisplayNames)).map(([code, displayName]) => (
                                 <TouchableOpacity
-                                    key={lang}
-                                    style={[styles.langOption, lang === language && styles.langOptionActive]}
-                                    onPress={() => { setLanguage(lang); setLangModalVisible(false); }}
+                                    key={code}
+                                    style={[styles.langOption, code === locale && styles.langOptionActive]}
+                                    onPress={() => { setLocale(code as any); setLangModalVisible(false); }}
                                     activeOpacity={0.8}
                                 >
-                                    <Text style={[styles.langOptionText, lang === language && styles.langOptionTextActive]}>
-                                        {lang}
+                                    <Text style={[styles.langOptionText, code === locale && styles.langOptionTextActive]}>
+                                        {displayName}
                                     </Text>
-                                    {lang === language && <Text style={{ color: COLORS.primaryLight, fontSize: 16 }}>✓</Text>}
+                                    {code === locale && <Text style={{ color: COLORS.primaryLight, fontSize: 16 }}>✓</Text>}
                                 </TouchableOpacity>
                             ))}
                         </ScrollView>

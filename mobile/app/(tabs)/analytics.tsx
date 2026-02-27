@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getAnalytics, getImages } from '../../lib/api-client';
 import type { AnalyticsResponse, ImageRecord } from '../../lib/api-client';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
+import { useLanguage } from '../../lib/i18n';
 import { Card, StatCard } from '../../components/ui/Card';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -25,6 +26,7 @@ const GRADE_COLORS: Record<string, string> = {
 };
 
 export default function AnalyticsScreen() {
+    const { t, isLoaded } = useLanguage();
     const [analytics, setAnalytics] = useState<Analytics | null>(null);
     const [images, setImages] = useState<ImageRecord[]>([]);
     const [loading, setLoading] = useState(true);
@@ -36,12 +38,12 @@ export default function AnalyticsScreen() {
         ]).finally(() => setLoading(false));
     }, []);
 
-    if (loading) {
+    if (loading || !isLoaded) {
         return (
             <SafeAreaView style={styles.safe}>
                 <View style={styles.loadingContainer}>
                     <ActivityIndicator size="large" color={COLORS.primary} />
-                    <Text style={styles.loadingText}>Loading analytics...</Text>
+                    <Text style={styles.loadingText}>{t('upload.analyzing')}...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -54,35 +56,35 @@ export default function AnalyticsScreen() {
             <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
                 {/* Header */}
                 <View style={styles.header}>
-                    <Text style={styles.title}>Analytics</Text>
-                    <Text style={styles.subtitle}>Your catch performance & earnings</Text>
+                    <Text style={styles.title}>{t('nav.analytics')}</Text>
+                    <Text style={styles.subtitle}>{t('home.statEarnings')}</Text>
                 </View>
 
                 {/* Stats Overview */}
                 <View style={styles.statsGrid}>
                     <StatCard
-                        label="Monthly Earnings"
+                        label={t('home.statEarnings')}
                         value={`₹${analytics ? (analytics.totalEarnings / 1000).toFixed(1) + 'K' : '—'}`}
                         icon={<Text style={{ fontSize: 20 }}>💰</Text>}
                         accentColor={COLORS.secondary}
                         style={styles.statCard}
                     />
                     <StatCard
-                        label="Total Catches"
+                        label={t('home.statCatches')}
                         value={`${analytics?.totalCatches ?? '—'}`}
                         icon={<Text style={{ fontSize: 20 }}>🐟</Text>}
                         accentColor={COLORS.primary}
                         style={styles.statCard}
                     />
                     <StatCard
-                        label="Avg. Weight"
+                        label={t('map.weight')}
                         value={`${analytics ? analytics.avgWeight.toFixed(0) : '—'}g`}
                         icon={<Text style={{ fontSize: 20 }}>⚖️</Text>}
                         accentColor={COLORS.accent}
                         style={styles.statCard}
                     />
                     <StatCard
-                        label="Top Species"
+                        label={t('home.insightSpecies')}
                         value={analytics?.topSpecies?.split(' ')[0] ?? '—'}
                         icon={<Text style={{ fontSize: 20 }}>🏆</Text>}
                         accentColor="#7c3aed"
@@ -91,7 +93,7 @@ export default function AnalyticsScreen() {
                 </View>
 
                 {/* Earnings Chart */}
-                <Text style={styles.sectionTitle}>Weekly Earnings</Text>
+                <Text style={styles.sectionTitle}>{t('home.statEarnings')}</Text>
                 <Card padding={SPACING.base} style={styles.chartCard}>
                     <View style={styles.barChart}>
                         {analytics?.weeklyTrend.map((day) => {
@@ -112,7 +114,7 @@ export default function AnalyticsScreen() {
                 </Card>
 
                 {/* Species Breakdown */}
-                <Text style={styles.sectionTitle}>Species Distribution</Text>
+                <Text style={styles.sectionTitle}>{t('home.insightSpecies')}</Text>
                 <Card padding={SPACING.base} style={styles.chartCard}>
                     {analytics?.speciesBreakdown.map((s, i) => {
                         const colors = [COLORS.primary, COLORS.secondary, COLORS.accent, '#7c3aed'];
@@ -133,20 +135,20 @@ export default function AnalyticsScreen() {
                 </Card>
 
                 {/* Quality Distribution */}
-                <Text style={styles.sectionTitle}>Quality Distribution</Text>
+                <Text style={styles.sectionTitle}>{t('upload.species')}</Text>
                 <View style={styles.qualityRow}>
                     {analytics?.qualityDistribution.map((q) => (
                         <Card key={q.grade} padding={SPACING.base} style={styles.qualityCard}>
                             <View style={[styles.qualityDot, { backgroundColor: GRADE_COLORS[q.grade] }]} />
                             <Text style={[styles.qualityGrade, { color: GRADE_COLORS[q.grade] }]}>{q.grade}</Text>
                             <Text style={styles.qualityCount}>{q.count}</Text>
-                            <Text style={styles.qualityLabel}>catches</Text>
+                            <Text style={styles.qualityLabel}>{t('home.statCatches')}</Text>
                         </Card>
                     ))}
                 </View>
 
                 {/* AI Insights */}
-                <Text style={styles.sectionTitle}>AI Insights</Text>
+                <Text style={styles.sectionTitle}>{t('home.insights')}</Text>
                 <Card padding={SPACING.base} style={styles.insightsCard}>
                     {[
                         { emoji: '⏰', text: 'Best fishing time: 5:00–8:00 AM' },
@@ -162,7 +164,7 @@ export default function AnalyticsScreen() {
                 </Card>
 
                 {/* Catch History */}
-                <Text style={styles.sectionTitle}>Recent Catches</Text>
+                <Text style={styles.sectionTitle}>{t('upload.title')}</Text>
                 {images.slice(0, 5).map((img) => (
                     <Card key={img.imageId} padding={SPACING.base} style={styles.catchItem}>
                         <View style={styles.catchRow}>

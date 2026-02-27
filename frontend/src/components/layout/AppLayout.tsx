@@ -4,6 +4,7 @@ import React, { ReactNode, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import BottomNav from './BottomNav';
 import { useAuth } from "@/lib/auth-context";
 import { Loader2 } from 'lucide-react';
 
@@ -55,10 +56,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <Sidebar />
       <div className="flex-1 flex flex-col relative overflow-hidden">
         <Header />
-        <main className="flex-1 p-4 sm:p-6 lg:p-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 pb-24 lg:pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto">
           {children}
         </main>
       </div>
+      <BottomNav />
     </div>
   );
 }

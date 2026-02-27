@@ -180,7 +180,7 @@ export async function getImages(
 ): Promise<{ items: ImageRecord[]; lastKey?: string }> {
     if (IS_DEMO_MODE) {
         await delay(600);
-        return Mock.getMockImages();
+        return Mock.getMockImages() as any;
     }
     const params = new URLSearchParams({ limit: String(limit) });
     if (lastKey) params.set('lastKey', lastKey);
