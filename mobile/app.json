@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.aiforbharat.oceanai"
+      "bundleIdentifier": "com.aiforbharat.oceanai",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -37,6 +40,7 @@
       "bundler": "metro"
     },
     "plugins": [
+      "react-native-fast-tflite",
       "expo-router",
       "expo-camera",
       [
@@ -58,7 +62,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "b9033077-0e8b-49ac-a557-5672c7b07d85"
+        "projectId": "ccae7625-6eb4-4ba9-9d6f-cc39e06ed09b"
       }
     }
   }
