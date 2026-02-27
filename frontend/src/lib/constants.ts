@@ -10,10 +10,10 @@
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 /** Agent (Python FastAPI) base URL — used for chat routes */
-export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
+export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8001";
 
 /** Whether the LangGraph agent is available */
-export const IS_AGENT_CONFIGURED = !!AGENT_BASE_URL;
+export const IS_AGENT_CONFIGURED = false;
 
 /** Demo JWT that bypasses Cognito verification on the Lambda side */
 export const DEMO_JWT = "demo_jwt_token_fisherman_001";
