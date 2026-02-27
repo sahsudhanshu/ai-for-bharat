@@ -2,9 +2,18 @@
  * App-wide constants and API configuration.
  * Set NEXT_PUBLIC_API_URL in .env.local to point to your deployed API Gateway.
  * If unset, all API calls fall back to mock data (demo mode).
+ *
+ * Set NEXT_PUBLIC_AGENT_URL for the Python agent (LangGraph chatbot).
+ * Defaults to http://localhost:8000 for local development.
  */
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+/** Agent (Python FastAPI) base URL — used for chat routes */
+export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8000";
+
+/** Whether the LangGraph agent is available */
+export const IS_AGENT_CONFIGURED = !!AGENT_BASE_URL;
 
 /** Demo JWT that bypasses Cognito verification on the Lambda side */
 export const DEMO_JWT = "demo_jwt_token_fisherman_001";
