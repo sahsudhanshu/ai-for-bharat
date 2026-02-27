@@ -92,7 +92,7 @@ export const RADIUS = {
 // ── API Configuration ──────────────────────────────────────────────────────────
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || '';
 export const AGENT_BASE_URL = process.env.EXPO_PUBLIC_AGENT_URL || '';
-export const IS_AGENT_CONFIGURED = false;
+export const IS_AGENT_CONFIGURED = true;
 export const IS_DEMO_MODE = !API_BASE_URL;
 export const DEMO_JWT = 'demo_token_ocean_ai_bharat';
 

@@ -1,8 +1,3 @@
-/**
- * Auth context — stub Cognito behaviour using AsyncStorage.
- * Swap out `mockLogin` / `mockRegister` for real Cognito SDK calls when backend is ready.
- */
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthenticationDetails, CognitoUser, CognitoUserAttribute, CognitoUserPool } from 'amazon-cognito-identity-js';
@@ -15,6 +10,7 @@ const poolData = {
     ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID || ''
 };
 const userPool = new CognitoUserPool(poolData);
+const isCognitoConfigured = Boolean(poolData.UserPoolId && poolData.ClientId);
 
 export interface User {
     userId: string;
@@ -35,6 +31,27 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+function assertCognitoConfigured() {
+    if (!isCognitoConfigured) {
+        throw new Error('Cognito env is missing. Set EXPO_PUBLIC_COGNITO_USER_POOL_ID and EXPO_PUBLIC_COGNITO_CLIENT_ID in mobile/.env.');
+    }
+}
+
+function mapCognitoError(err: unknown): Error {
+    const maybeError = err as { code?: string; message?: string };
+    const code = maybeError?.code;
+
+    if (code === 'NotAuthorizedException') return new Error('Incorrect email or password.');
+    if (code === 'UserNotFoundException') return new Error('No account found for this email.');
+    if (code === 'UsernameExistsException') return new Error('An account with this email already exists. Please sign in.');
+    if (code === 'InvalidPasswordException') return new Error('Password does not meet Cognito policy requirements.');
+    if (code === 'InvalidParameterException' && maybeError?.message?.includes('SECRET_HASH')) {
+        return new Error('Cognito app client is misconfigured: use a public app client with no secret.');
+    }
+
+    return new Error(maybeError?.message || 'Authentication failed. Please try again.');
+}
 
 
 
@@ -65,6 +82,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const login = async (email: string, password: string) => {
         return new Promise<void>((resolve, reject) => {
+            try {
+                assertCognitoConfigured();
+            } catch (err) {
+                reject(err);
+                return;
+            }
+
             const authenticationDetails = new AuthenticationDetails({
                 Username: email,
                 Password: password,
@@ -77,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             cognitoUser.authenticateUser(authenticationDetails, {
                 onSuccess: async (result) => {
-                    const jwtToken = result.getIdToken().getJwtToken();
+                    const jwtToken = result.getAccessToken().getJwtToken();
                     const loggedInUser: User = {
                         userId: result.getIdToken().payload.sub as string,
                         name: result.getIdToken().payload.name || 'User',
@@ -91,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     resolve();
                 },
                 onFailure: (err) => {
-                    reject(err);
+                    reject(mapCognitoError(err));
                 },
             });
         });
@@ -99,32 +123,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const register = async (name: string, email: string, password: string, phone: string) => {
         return new Promise<void>((resolve, reject) => {
+            try {
+                assertCognitoConfigured();
+            } catch (err) {
+                reject(err);
+                return;
+            }
+
             const attributeList = [
                 new CognitoUserAttribute({ Name: 'name', Value: name }),
-                new CognitoUserAttribute({ Name: 'phone_number', Value: phone || '' })
+                ...(phone && phone.trim() !== '' ? [new CognitoUserAttribute({ Name: 'phone_number', Value: phone })] : [])
             ];
 
-            userPool.signUp(email, password, attributeList, [], async (err, result) => {
+            userPool.signUp(email, password, attributeList, [], async (err) => {
                 if (err) {
-                    reject(err);
+                    reject(mapCognitoError(err));
                     return;
                 }
-
-                // Usually user needs to verify email before login, but for the hackathon we can try to auto-login
-                // If your Cognito pool auto-verifies, logging in immediately might work.
-                // Otherwise they must verify their email. For now we will just log the user in locally to mock the successful signup.
-                if (result) {
-                    const newUser: User = {
-                        userId: result.userSub,
-                        name,
-                        email,
-                        phone,
-                        location: 'India',
-                        role: 'fisherman',
-                    };
-                    // Since they might need to log in to get a real token, we just resolve so the UI knows signup worked.
-                    resolve();
-                }
+                resolve();
             });
         });
     };

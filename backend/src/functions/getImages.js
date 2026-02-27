@@ -22,20 +22,40 @@ exports.handler = async (event) => {
     }
 
     const userId = decoded.sub;
+    const username = decoded.username;
+    const limit = Number(event.queryStringParameters?.limit || 50);
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 50;
 
-    try {
+    const queryByUserId = async (uid) => {
         const result = await ddb.send(
             new QueryCommand({
                 TableName: IMAGES_TABLE,
                 IndexName: "userId-createdAt-index",
                 KeyConditionExpression: "userId = :uid",
-                ExpressionAttributeValues: { ":uid": userId },
-                ScanIndexForward: false, // newest first
-                Limit: 50,
+                ExpressionAttributeValues: { ":uid": uid },
+                ScanIndexForward: false,
+                Limit: safeLimit,
             })
         );
+        return result.Items || [];
+    };
 
-        return ok({ images: result.Items || [] });
+    try {
+        const primaryItems = await queryByUserId(userId);
+        let merged = primaryItems;
+
+        if (username && username !== userId) {
+            const legacyItems = await queryByUserId(username);
+            const byId = new Map();
+            for (const item of [...primaryItems, ...legacyItems]) {
+                byId.set(item.imageId, item);
+            }
+            merged = [...byId.values()].sort((a, b) =>
+                (b.createdAt || "").localeCompare(a.createdAt || "")
+            );
+        }
+
+        return ok({ images: merged.slice(0, safeLimit) });
     } catch (err) {
         console.error("getImages error:", err);
         return serverError("Failed to fetch images");
