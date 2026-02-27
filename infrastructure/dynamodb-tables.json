@@ -1,0 +1,170 @@
+{
+    "Comment": "DynamoDB table definitions for AI-Powered Fisherman's Assistant",
+    "Tables": [
+        {
+            "TableName": "ai-bharat-users",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "userId",
+                    "KeyType": "HASH"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "userId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "email",
+                    "AttributeType": "S"
+                }
+            ],
+            "GlobalSecondaryIndexes": [
+                {
+                    "IndexName": "email-index",
+                    "KeySchema": [
+                        {
+                            "AttributeName": "email",
+                            "KeyType": "HASH"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "ALL"
+                    }
+                }
+            ],
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
+        },
+        {
+            "TableName": "ai-bharat-images",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "imageId",
+                    "KeyType": "HASH"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "imageId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "userId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "createdAt",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "status",
+                    "AttributeType": "S"
+                }
+            ],
+            "GlobalSecondaryIndexes": [
+                {
+                    "IndexName": "userId-createdAt-index",
+                    "KeySchema": [
+                        {
+                            "AttributeName": "userId",
+                            "KeyType": "HASH"
+                        },
+                        {
+                            "AttributeName": "createdAt",
+                            "KeyType": "RANGE"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "ALL"
+                    }
+                },
+                {
+                    "IndexName": "status-createdAt-index",
+                    "KeySchema": [
+                        {
+                            "AttributeName": "status",
+                            "KeyType": "HASH"
+                        },
+                        {
+                            "AttributeName": "createdAt",
+                            "KeyType": "RANGE"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "INCLUDE",
+                        "NonKeyAttributes": [
+                            "imageId",
+                            "userId",
+                            "analysisResult"
+                        ]
+                    }
+                }
+            ],
+            "TimeToLiveSpecification": {
+                "AttributeName": "ttl",
+                "Enabled": true
+            },
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
+        },
+        {
+            "TableName": "ai-bharat-chats",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "chatId",
+                    "KeyType": "HASH"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "chatId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "userId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "timestamp",
+                    "AttributeType": "S"
+                }
+            ],
+            "GlobalSecondaryIndexes": [
+                {
+                    "IndexName": "userId-timestamp-index",
+                    "KeySchema": [
+                        {
+                            "AttributeName": "userId",
+                            "KeyType": "HASH"
+                        },
+                        {
+                            "AttributeName": "timestamp",
+                            "KeyType": "RANGE"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "ALL"
+                    }
+                }
+            ],
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
+        }
+    ]
+}

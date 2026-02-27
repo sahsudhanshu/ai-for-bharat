@@ -1,0 +1,414 @@
+import React, { useState, useRef } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    Image,
+    Alert,
+    ActivityIndicator,
+    Animated,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { getPresignedUrl, uploadToS3, analyzeImage } from '../../lib/api-client';
+import type { FishAnalysisResult } from '../../lib/mock-api';
+import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
+import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+
+type Step = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
+
+export default function UploadScreen() {
+    const [imageUri, setImageUri] = useState<string | null>(null);
+    const [step, setStep] = useState<Step>('idle');
+    const [progress, setProgress] = useState(0);
+    const [result, setResult] = useState<FishAnalysisResult | null>(null);
+    const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+    const progressAnim = useRef(new Animated.Value(0)).current;
+
+    const isAnalyzing = step === 'uploading' || step === 'processing';
+
+    const animateProgress = (to: number) => {
+        Animated.timing(progressAnim, {
+            toValue: to,
+            duration: 300,
+            useNativeDriver: false,
+        }).start();
+        setProgress(to);
+    };
+
+    const captureLocation = async () => {
+        try {
+            const { status } = await Location.requestForegroundPermissionsAsync();
+            if (status === 'granted') {
+                const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+                setLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+            }
+        } catch { /* optional */ }
+    };
+
+    const pickFromGallery = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Please allow access to your photos.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: 'images',
+            quality: 0.8,
+            allowsEditing: false,
+        });
+        if (!result.canceled && result.assets[0]) {
+            setImageUri(result.assets[0].uri);
+            setResult(null);
+            setStep('idle');
+            captureLocation();
+        }
+    };
+
+    const captureFromCamera = async () => {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Permission Required', 'Please allow access to your camera.');
+            return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+            quality: 0.8,
+            allowsEditing: false,
+        });
+        if (!result.canceled && result.assets[0]) {
+            setImageUri(result.assets[0].uri);
+            setResult(null);
+            setStep('idle');
+            captureLocation();
+        }
+    };
+
+    const startAnalysis = async () => {
+        if (!imageUri) return;
+        try {
+            // Step 1: Get presigned URL
+            setStep('uploading');
+            animateProgress(0);
+            const fileName = `catch_${Date.now()}.jpg`;
+            const { uploadUrl, imageId } = await getPresignedUrl(
+                fileName, 'image/jpeg', location?.lat, location?.lng
+            );
+
+            // Step 2: Upload
+            await uploadToS3(uploadUrl, imageUri, 'image/jpeg', (pct) => animateProgress(pct));
+            animateProgress(100);
+
+            // Step 3: Analyze
+            setStep('processing');
+            animateProgress(0);
+            const interval = setInterval(() => {
+                setProgress((prev) => {
+                    const next = Math.min(prev + 12, 85);
+                    Animated.timing(progressAnim, { toValue: next, duration: 250, useNativeDriver: false }).start();
+                    return next;
+                });
+            }, 300);
+            const { analysisResult } = await analyzeImage(imageId);
+            clearInterval(interval);
+            animateProgress(100);
+            setResult(analysisResult);
+            setStep('done');
+        } catch (e: any) {
+            setStep('error');
+            Alert.alert('Analysis Failed', e.message || 'Please retry.');
+        }
+    };
+
+    const reset = () => {
+        setImageUri(null);
+        setResult(null);
+        setStep('idle');
+        setProgress(0);
+        progressAnim.setValue(0);
+        setLocation(null);
+    };
+
+    const gradeColor = result?.qualityGrade === 'Premium'
+        ? COLORS.success : result?.qualityGrade === 'Standard'
+            ? COLORS.warning : COLORS.error;
+
+    return (
+        <SafeAreaView style={styles.safe}>
+            <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+                {/* Header */}
+                <View style={styles.header}>
+                    <Text style={styles.title}>Catch Analysis</Text>
+                    <Text style={styles.subtitle}>AI-powered species ID & weight estimation</Text>
+                </View>
+
+                {/* Upload Zone */}
+                {!imageUri ? (
+                    <View style={styles.uploadZone}>
+                        <Text style={styles.uploadEmoji}>📸</Text>
+                        <Text style={styles.uploadTitle}>Upload Your Catch</Text>
+                        <Text style={styles.uploadHint}>
+                            High-resolution images get more accurate results
+                        </Text>
+                        <View style={styles.uploadBtns}>
+                            <Button
+                                label="📷  Camera"
+                                onPress={captureFromCamera}
+                                variant="primary"
+                                style={styles.uploadBtn}
+                            />
+                            <Button
+                                label="🖼️  Gallery"
+                                onPress={pickFromGallery}
+                                variant="outline"
+                                style={styles.uploadBtn}
+                            />
+                        </View>
+                        {/* Tips */}
+                        <View style={styles.tipsBox}>
+                            <Text style={styles.tipsTitle}>Pro Tips</Text>
+                            <Text style={styles.tipItem}>• Place a coin next to the fish for weight accuracy</Text>
+                            <Text style={styles.tipItem}>• Shoot from directly above with good lighting</Text>
+                            <Text style={styles.tipItem}>• Ensure the entire fish is visible</Text>
+                        </View>
+                    </View>
+                ) : (
+                    <>
+                        {/* Image Preview */}
+                        <View style={styles.previewCard}>
+                            <Image source={{ uri: imageUri }} style={styles.previewImage} resizeMode="cover" />
+                            {location && (
+                                <View style={styles.locationBadge}>
+                                    <Text style={styles.locationText}>
+                                        📍 {location.lat.toFixed(3)}°N, {location.lng.toFixed(3)}°E
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Progress */}
+                        {isAnalyzing && (
+                            <Card style={styles.progressCard} padding={SPACING.base}>
+                                <Text style={styles.progressLabel}>
+                                    {step === 'uploading' ? '☁️ Uploading to cloud...' : '🧠 Running AI models...'}
+                                </Text>
+                                <View style={styles.progressBar}>
+                                    <Animated.View
+                                        style={[
+                                            styles.progressFill,
+                                            {
+                                                width: progressAnim.interpolate({
+                                                    inputRange: [0, 100],
+                                                    outputRange: ['0%', '100%'],
+                                                }),
+                                            },
+                                        ]}
+                                    />
+                                </View>
+                                {step === 'processing' && (
+                                    <Text style={styles.progressHint}>YOLOv11 → Species Classification → Weight Estimation</Text>
+                                )}
+                            </Card>
+                        )}
+
+                        {/* Controls */}
+                        {step === 'idle' && (
+                            <View style={styles.controlRow}>
+                                <Button label="Start Analysis ⚡" onPress={startAnalysis} size="lg" style={styles.analyzeBtn} />
+                                <Button label="Remove" onPress={reset} variant="ghost" style={styles.removeBtn} />
+                            </View>
+                        )}
+                        {step === 'error' && (
+                            <View style={styles.controlRow}>
+                                <Button label="Retry" onPress={startAnalysis} style={{ flex: 1 }} />
+                                <Button label="Reset" onPress={reset} variant="outline" style={{ flex: 1 }} />
+                            </View>
+                        )}
+                        {step === 'done' && (
+                            <Button label="Upload Another" onPress={reset} variant="outline" fullWidth style={{ marginTop: SPACING.md }} />
+                        )}
+                    </>
+                )}
+
+                {/* Analysis Results */}
+                {result && (
+                    <View style={styles.resultsSection}>
+                        <Text style={styles.sectionTitle}>Analysis Results</Text>
+
+                        {/* Species Card */}
+                        <Card style={styles.resultCard} padding={SPACING.xl}>
+                            <View style={styles.sustainabilityBadge}>
+                                <Text style={[styles.sustainabilityText, { color: result.isSustainable ? COLORS.success : COLORS.warning }]}>
+                                    {result.isSustainable ? '✓ Sustainable' : '⚠ Check Regulations'}
+                                </Text>
+                            </View>
+
+                            <Text style={styles.speciesLabel}>DETECTED SPECIES</Text>
+                            <Text style={styles.speciesName}>{result.species}</Text>
+                            <Text style={styles.scientificName}>{result.scientificName}</Text>
+
+                            <View style={styles.confidenceRow}>
+                                <Text style={styles.confidenceLabel}>Confidence</Text>
+                                <Text style={styles.confidenceValue}>{(result.confidence * 100).toFixed(1)}%</Text>
+                            </View>
+                        </Card>
+
+                        {/* Metrics Grid */}
+                        <View style={styles.metricsGrid}>
+                            <Card style={styles.metricCard} padding={SPACING.base}>
+                                <Text style={styles.metricEmoji}>⚖️</Text>
+                                <Text style={styles.metricLabel}>Est. Weight</Text>
+                                <Text style={styles.metricValue}>
+                                    {(result.measurements.weight_g / 1000).toFixed(2)} KG
+                                </Text>
+                                <Text style={styles.metricSub}>{result.measurements.length_mm} mm</Text>
+                            </Card>
+                            <Card style={styles.metricCard} padding={SPACING.base}>
+                                <Text style={styles.metricEmoji}>🏷️</Text>
+                                <Text style={styles.metricLabel}>Quality Grade</Text>
+                                <Text style={[styles.metricValue, { color: gradeColor }]}>{result.qualityGrade}</Text>
+                                <Text style={styles.metricSub}>Physical markers</Text>
+                            </Card>
+                        </View>
+
+                        {/* Market Value */}
+                        <Card style={styles.marketCard} padding={SPACING.xl}>
+                            <View style={styles.marketRow}>
+                                <View>
+                                    <Text style={styles.marketLabel}>📈 Estimated Market Value</Text>
+                                    <Text style={styles.marketValue}>₹{result.marketEstimate.estimated_value.toLocaleString('en-IN')}</Text>
+                                    <Text style={styles.marketRate}>@ ₹{result.marketEstimate.price_per_kg}/kg</Text>
+                                </View>
+                                <View>
+                                    <Text style={styles.legalLabel}>Legal Size</Text>
+                                    <View style={[styles.legalBadge, { backgroundColor: result.compliance.is_legal_size ? COLORS.success + '20' : COLORS.error + '20' }]}>
+                                        <Text style={[styles.legalText, { color: result.compliance.is_legal_size ? COLORS.success : COLORS.error }]}>
+                                            {result.compliance.is_legal_size ? `≥${result.compliance.min_legal_size_mm}mm ✓` : 'Below Limit'}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+                        </Card>
+
+                        {/* Sustainability */}
+                        <Card
+                            style={{ ...styles.sustainCard, borderColor: result.isSustainable ? COLORS.success + '40' : COLORS.warning + '40' }}
+                            padding={SPACING.base}
+                        >
+                            <Text style={{ fontSize: 20, marginBottom: SPACING.xs }}>
+                                {result.isSustainable ? '✅' : '⚠️'}
+                            </Text>
+                            <Text style={styles.sustainText}>
+                                {result.isSustainable
+                                    ? 'This species is thriving in this region. Safe for harvesting — continue responsible fishing practices.'
+                                    : 'Warning: This specimen may be undersized. Consider releasing to preserve stock health and comply with regulations.'}
+                            </Text>
+                        </Card>
+                    </View>
+                )}
+            </ScrollView>
+        </SafeAreaView>
+    );
+}
+
+const styles = StyleSheet.create({
+    safe: { flex: 1, backgroundColor: COLORS.bgDark },
+    scroll: { flex: 1 },
+    content: { padding: SPACING.xl, paddingBottom: SPACING['4xl'] },
+
+    header: { marginBottom: SPACING.xl },
+    title: { fontSize: FONTS.sizes['3xl'], color: COLORS.textPrimary, fontWeight: FONTS.weights.extrabold },
+    subtitle: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted, marginTop: SPACING.xs },
+
+    uploadZone: {
+        backgroundColor: COLORS.bgCard,
+        borderRadius: RADIUS['2xl'],
+        borderWidth: 2,
+        borderColor: COLORS.border,
+        borderStyle: 'dashed',
+        padding: SPACING['2xl'],
+        alignItems: 'center',
+        marginBottom: SPACING.xl,
+    },
+    uploadEmoji: { fontSize: 48, marginBottom: SPACING.md },
+    uploadTitle: { fontSize: FONTS.sizes.xl, color: COLORS.textPrimary, fontWeight: FONTS.weights.bold, marginBottom: SPACING.sm },
+    uploadHint: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted, textAlign: 'center', marginBottom: SPACING.xl, paddingHorizontal: SPACING.xl },
+    uploadBtns: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.xl },
+    uploadBtn: { minWidth: 130 },
+
+    tipsBox: {
+        backgroundColor: COLORS.bgDark,
+        borderRadius: RADIUS.lg,
+        padding: SPACING.base,
+        width: '100%',
+    },
+    tipsTitle: { color: COLORS.primaryLight, fontWeight: FONTS.weights.bold, fontSize: FONTS.sizes.sm, marginBottom: SPACING.xs },
+    tipItem: { color: COLORS.textMuted, fontSize: FONTS.sizes.sm, lineHeight: 22 },
+
+    previewCard: {
+        borderRadius: RADIUS['2xl'],
+        overflow: 'hidden',
+        marginBottom: SPACING.md,
+        position: 'relative',
+    },
+    previewImage: { width: '100%', height: 280 },
+    locationBadge: {
+        position: 'absolute',
+        top: SPACING.md,
+        left: SPACING.md,
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        borderRadius: RADIUS.full,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.xs,
+    },
+    locationText: { color: '#fff', fontSize: FONTS.sizes.xs, fontFamily: 'monospace' },
+
+    progressCard: { marginBottom: SPACING.md },
+    progressLabel: { fontSize: FONTS.sizes.sm, color: COLORS.textPrimary, fontWeight: FONTS.weights.medium, marginBottom: SPACING.sm },
+    progressBar: { height: 8, backgroundColor: COLORS.border, borderRadius: RADIUS.full, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: COLORS.primary, borderRadius: RADIUS.full },
+    progressHint: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginTop: SPACING.xs, fontStyle: 'italic', textAlign: 'center' },
+
+    controlRow: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
+    analyzeBtn: { flex: 1 },
+    removeBtn: { minWidth: 90 },
+
+    resultsSection: { marginTop: SPACING.sm },
+    sectionTitle: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary, marginBottom: SPACING.md },
+
+    resultCard: { marginBottom: SPACING.md, position: 'relative' },
+    sustainabilityBadge: {
+        position: 'absolute',
+        top: SPACING.md,
+        right: SPACING.md,
+    },
+    sustainabilityText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
+    speciesLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, fontWeight: FONTS.weights.bold, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: SPACING.xs },
+    speciesName: { fontSize: FONTS.sizes['2xl'], color: COLORS.primaryLight, fontWeight: FONTS.weights.extrabold, marginBottom: SPACING.xs },
+    scientificName: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted, fontStyle: 'italic', marginBottom: SPACING.base },
+    confidenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    confidenceLabel: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted },
+    confidenceValue: { fontSize: FONTS.sizes.md, color: COLORS.textPrimary, fontWeight: FONTS.weights.bold },
+
+    metricsGrid: { flexDirection: 'row', gap: SPACING.md, marginBottom: SPACING.md },
+    metricCard: { flex: 1 },
+    metricEmoji: { fontSize: 22, marginBottom: SPACING.xs },
+    metricLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: SPACING.xs },
+    metricValue: { fontSize: FONTS.sizes.xl, color: COLORS.textPrimary, fontWeight: FONTS.weights.extrabold },
+    metricSub: { fontSize: FONTS.sizes.xs, color: COLORS.textSubtle, marginTop: SPACING.xs },
+
+    marketCard: { marginBottom: SPACING.md },
+    marketRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+    marketLabel: { fontSize: FONTS.sizes.xs, color: COLORS.primaryLight, fontWeight: FONTS.weights.bold, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: SPACING.xs },
+    marketValue: { fontSize: FONTS.sizes['3xl'], color: COLORS.textPrimary, fontWeight: FONTS.weights.extrabold },
+    marketRate: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },
+    legalLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, textAlign: 'right', marginBottom: SPACING.xs },
+    legalBadge: { borderRadius: RADIUS.full, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
+    legalText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
+
+    sustainCard: { borderWidth: 1, flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm },
+    sustainText: { flex: 1, fontSize: FONTS.sizes.sm, color: COLORS.textSecondary, lineHeight: 22 },
+});
