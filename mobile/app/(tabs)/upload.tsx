@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
@@ -9,16 +9,22 @@ import {
     Alert,
     ActivityIndicator,
     Animated,
+    Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { getPresignedUrl, uploadToS3, analyzeImage } from '../../lib/api-client';
 import type { FishAnalysisResult } from '../../lib/mock-api';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
 import { useLanguage } from '../../lib/i18n';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
+import { runDetection, loadModel, reloadModel, getModelDebugInfo, type BoundingBox } from '../../lib/detection';
+import { BoundingBoxOverlay } from '../../components/BoundingBoxOverlay';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type Step = 'idle' | 'uploading' | 'processing' | 'done' | 'error';
 
@@ -30,6 +36,49 @@ export default function UploadScreen() {
     const [result, setResult] = useState<FishAnalysisResult | null>(null);
     const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
     const progressAnim = useRef(new Animated.Value(0)).current;
+
+    // ── Detection state ──
+    const [detections, setDetections] = useState<BoundingBox[]>([]);
+    const [isDetecting, setIsDetecting] = useState(false);
+    const [detectionTime, setDetectionTime] = useState<number | null>(null);
+    const [cropUris, setCropUris] = useState<string[]>([]);
+    const [modelError, setModelError] = useState(false);
+    const [isReloadingModel, setIsReloadingModel] = useState(false);
+    const [modelName, setModelName] = useState<string>('detection_float32.tflite');
+    const [modelSource, setModelSource] = useState<string>('not loaded');
+
+    const refreshModelStatus = () => {
+        const info = getModelDebugInfo();
+        setModelName(info.modelName);
+        setModelSource(info.loadedUri ?? 'not loaded');
+        setModelError(!info.isLoaded);
+    };
+
+    // Preload the TFLite model on mount
+    useEffect(() => {
+        loadModel()
+            .then(() => {
+                refreshModelStatus();
+            })
+            .catch(() => {
+                setModelError(true);
+                setModelSource('missing');
+            });
+    }, []);
+
+    const handleReloadModel = async () => {
+        setIsReloadingModel(true);
+        try {
+            await reloadModel();
+            refreshModelStatus();
+        } catch {
+            setModelError(true);
+            setModelSource('missing');
+            Alert.alert('Model Reload Failed', 'Could not reload the model from device storage.');
+        } finally {
+            setIsReloadingModel(false);
+        }
+    };
 
     const isAnalyzing = step === 'uploading' || step === 'processing';
 
@@ -92,6 +141,54 @@ export default function UploadScreen() {
     const startAnalysis = async () => {
         if (!imageUri) return;
         try {
+            // Step 0: Run on-device TFLite detection
+            setIsDetecting(true);
+            setDetections([]);
+            setCropUris([]);
+            setDetectionTime(null);
+            const t0 = Date.now();
+            try {
+                const boxes = await runDetection(imageUri);
+                setDetections(boxes);
+                setDetectionTime(Date.now() - t0);
+
+                if (boxes.length > 0) {
+                    Image.getSize(
+                        imageUri,
+                        async (imgW, imgH) => {
+                            const nextCrops: string[] = [];
+                            for (const box of boxes.slice(0, 6)) {
+                                const originX = Math.max(0, Math.floor(box.x1 * imgW));
+                                const originY = Math.max(0, Math.floor(box.y1 * imgH));
+                                const width = Math.max(1, Math.floor((box.x2 - box.x1) * imgW));
+                                const height = Math.max(1, Math.floor((box.y2 - box.y1) * imgH));
+
+                                if (originX + width > imgW || originY + height > imgH) {
+                                    continue;
+                                }
+
+                                try {
+                                    const cropped = await ImageManipulator.manipulateAsync(
+                                        imageUri,
+                                        [{ crop: { originX, originY, width, height } }],
+                                        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+                                    );
+                                    nextCrops.push(cropped.uri);
+                                } catch {
+                                    // ignore individual crop failure
+                                }
+                            }
+                            setCropUris(nextCrops);
+                        },
+                        () => setCropUris([])
+                    );
+                }
+            } catch (detErr: any) {
+                console.warn('[Detection] Error:', detErr.message);
+                // Continue with mock analysis even if detection fails
+            }
+            setIsDetecting(false);
+
             // Step 1: Get presigned URL
             setStep('uploading');
             animateProgress(0);
@@ -132,6 +229,10 @@ export default function UploadScreen() {
         setProgress(0);
         progressAnim.setValue(0);
         setLocation(null);
+        setDetections([]);
+        setCropUris([]);
+        setDetectionTime(null);
+        setIsDetecting(false);
     };
 
     const gradeColor = result?.qualityGrade === 'Premium'
@@ -237,6 +338,70 @@ export default function UploadScreen() {
                     </>
                 )}
 
+                {/* On-device Detection Results */}
+                <Card style={styles.modelStatusCard} padding={SPACING.base}>
+                    <Text style={styles.modelStatusTitle}>🧩 Model: {modelName}</Text>
+                    <Text style={styles.modelStatusPath} numberOfLines={2}>
+                        Source: {modelSource}
+                    </Text>
+                    <View style={styles.modelActionsRow}>
+                        <Button
+                            label="Reload Model"
+                            onPress={handleReloadModel}
+                            variant="outline"
+                            size="sm"
+                            loading={isReloadingModel}
+                            style={styles.reloadButton}
+                        />
+                    </View>
+                    {modelError && (
+                        <Text style={styles.modelStatusError}>
+                            Push with: adb push detection_float32.tflite /sdcard/Android/data/com.aiforbharat.oceanai/files/
+                        </Text>
+                    )}
+                </Card>
+
+                {isDetecting && (
+                    <Card style={styles.detectionCard} padding={SPACING.base}>
+                        <View style={styles.detectingRow}>
+                            <ActivityIndicator size="small" color={COLORS.primaryLight} />
+                            <Text style={styles.detectingText}>Running on-device detection…</Text>
+                        </View>
+                    </Card>
+                )}
+
+                {detections.length > 0 && imageUri && (
+                    <View style={styles.detectionSection}>
+                        <Text style={styles.sectionTitle}>🔍 Detection Results</Text>
+                        <Card style={styles.detectionCard} padding={0}>
+                            <BoundingBoxOverlay
+                                imageUri={imageUri}
+                                detections={detections}
+                                containerWidth={SCREEN_WIDTH - SPACING.xl * 2}
+                                containerHeight={320}
+                            />
+                        </Card>
+                        {detectionTime !== null && (
+                            <Text style={styles.detectionMeta}>
+                                ⚡ {detections.length} fish detected in {detectionTime}ms (on-device)
+                            </Text>
+                        )}
+
+                        {cropUris.length > 0 && (
+                            <View style={styles.cropsSection}>
+                                <Text style={styles.cropsTitle}>Detected Crops</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cropsRow}>
+                                    {cropUris.map((uri, idx) => (
+                                        <View key={`${uri}-${idx}`} style={styles.cropItem}>
+                                            <Image source={{ uri }} style={styles.cropImage} resizeMode="cover" />
+                                        </View>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                    </View>
+                )}
+
                 {/* Analysis Results */}
                 {result && (
                     <View style={styles.resultsSection}>
@@ -244,15 +409,32 @@ export default function UploadScreen() {
 
                         {/* Species Card */}
                         <Card style={styles.resultCard} padding={SPACING.xl}>
-                            <View style={styles.sustainabilityBadge}>
-                                <Text style={[styles.sustainabilityText, { color: result.isSustainable ? COLORS.success : COLORS.warning }]}>
-                                    {result.isSustainable ? `✓ ${t('upload.sustainable')}` : `⚠ ${t('upload.notSustainable')}`}
-                                </Text>
+                            <View style={styles.statusRow}>
+                                <View
+                                    style={[
+                                        styles.statusChip,
+                                        {
+                                            backgroundColor: result.isSustainable
+                                                ? COLORS.success + '20'
+                                                : COLORS.warning + '20',
+                                        },
+                                    ]}
+                                >
+                                    <Text
+                                        style={[
+                                            styles.statusChipText,
+                                            { color: result.isSustainable ? COLORS.success : COLORS.warning },
+                                        ]}
+                                        numberOfLines={1}
+                                    >
+                                        {result.isSustainable ? '✓ Sustainable' : '⚠ Not sustainable'}
+                                    </Text>
+                                </View>
                             </View>
 
                             <Text style={styles.speciesLabel}>{t('upload.species')}</Text>
-                            <Text style={styles.speciesName}>{result.species}</Text>
-                            <Text style={styles.scientificName}>{result.scientificName}</Text>
+                            <Text style={styles.speciesName} numberOfLines={2}>{result.species}</Text>
+                            <Text style={styles.scientificName} numberOfLines={2}>{result.scientificName}</Text>
 
                             <View style={styles.confidenceRow}>
                                 <Text style={styles.confidenceLabel}>{t('upload.confidence')}</Text>
@@ -281,12 +463,12 @@ export default function UploadScreen() {
                         {/* Market Value */}
                         <Card style={styles.marketCard} padding={SPACING.xl}>
                             <View style={styles.marketRow}>
-                                <View>
+                                <View style={styles.marketPrimaryBlock}>
                                     <Text style={styles.marketLabel}>📈 {t('upload.marketValue')}</Text>
                                     <Text style={styles.marketValue}>₹{result.marketEstimate.estimated_value.toLocaleString('en-IN')}</Text>
                                     <Text style={styles.marketRate}>@ ₹{result.marketEstimate.price_per_kg}/kg</Text>
                                 </View>
-                                <View>
+                                <View style={styles.marketSecondaryBlock}>
                                     <Text style={styles.legalLabel}>{t('upload.legalSize')}</Text>
                                     <View style={[styles.legalBadge, { backgroundColor: result.compliance.is_legal_size ? COLORS.success + '20' : COLORS.error + '20' }]}>
                                         <Text style={[styles.legalText, { color: result.compliance.is_legal_size ? COLORS.success : COLORS.error }]}>
@@ -383,16 +565,39 @@ const styles = StyleSheet.create({
     resultsSection: { marginTop: SPACING.sm },
     sectionTitle: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold, color: COLORS.textPrimary, marginBottom: SPACING.md },
 
-    resultCard: { marginBottom: SPACING.md, position: 'relative' },
-    sustainabilityBadge: {
-        position: 'absolute',
-        top: SPACING.md,
-        right: SPACING.md,
+    resultCard: { marginBottom: SPACING.md },
+    statusRow: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginBottom: SPACING.sm,
     },
-    sustainabilityText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
+    statusChip: {
+        borderRadius: RADIUS.full,
+        paddingHorizontal: SPACING.sm,
+        paddingVertical: SPACING.xs,
+        maxWidth: '75%',
+    },
+    statusChipText: {
+        fontSize: FONTS.sizes.xs,
+        fontWeight: FONTS.weights.bold,
+    },
     speciesLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, fontWeight: FONTS.weights.bold, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: SPACING.xs },
-    speciesName: { fontSize: FONTS.sizes['2xl'], color: COLORS.primaryLight, fontWeight: FONTS.weights.extrabold, marginBottom: SPACING.xs },
-    scientificName: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted, fontStyle: 'italic', marginBottom: SPACING.base },
+    speciesName: {
+        fontSize: FONTS.sizes['2xl'],
+        color: COLORS.primaryLight,
+        fontWeight: FONTS.weights.extrabold,
+        marginBottom: SPACING.xs,
+        flexShrink: 1,
+        maxWidth: '100%',
+    },
+    scientificName: {
+        fontSize: FONTS.sizes.sm,
+        color: COLORS.textMuted,
+        fontStyle: 'italic',
+        marginBottom: SPACING.base,
+        flexShrink: 1,
+        maxWidth: '100%',
+    },
     confidenceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     confidenceLabel: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted },
     confidenceValue: { fontSize: FONTS.sizes.md, color: COLORS.textPrimary, fontWeight: FONTS.weights.bold },
@@ -405,9 +610,16 @@ const styles = StyleSheet.create({
     metricSub: { fontSize: FONTS.sizes.xs, color: COLORS.textSubtle, marginTop: SPACING.xs },
 
     marketCard: { marginBottom: SPACING.md },
-    marketRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+    marketRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: SPACING.md },
+    marketPrimaryBlock: { flexShrink: 1, minWidth: 170, maxWidth: '100%' },
+    marketSecondaryBlock: { marginLeft: 'auto', minWidth: 120, maxWidth: '100%' },
     marketLabel: { fontSize: FONTS.sizes.xs, color: COLORS.primaryLight, fontWeight: FONTS.weights.bold, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: SPACING.xs },
-    marketValue: { fontSize: FONTS.sizes['3xl'], color: COLORS.textPrimary, fontWeight: FONTS.weights.extrabold },
+    marketValue: {
+        fontSize: FONTS.sizes['2xl'],
+        color: COLORS.textPrimary,
+        fontWeight: FONTS.weights.extrabold,
+        flexShrink: 1,
+    },
     marketRate: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },
     legalLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, textAlign: 'right', marginBottom: SPACING.xs },
     legalBadge: { borderRadius: RADIUS.full, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs },
@@ -415,4 +627,42 @@ const styles = StyleSheet.create({
 
     sustainCard: { borderWidth: 1, flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm },
     sustainText: { flex: 1, fontSize: FONTS.sizes.sm, color: COLORS.textSecondary, lineHeight: 22 },
+
+    modelStatusCard: { marginBottom: SPACING.md },
+    modelStatusTitle: { color: COLORS.textPrimary, fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold, marginBottom: SPACING.xs },
+    modelStatusPath: { color: COLORS.textMuted, fontSize: FONTS.sizes.xs, fontFamily: 'monospace' },
+    modelActionsRow: { marginTop: SPACING.sm, flexDirection: 'row' },
+    reloadButton: { minWidth: 128 },
+    modelStatusError: { color: COLORS.warning, fontSize: FONTS.sizes.xs, marginTop: SPACING.xs },
+
+    // Detection styles
+    detectionSection: { marginTop: SPACING.sm, marginBottom: SPACING.md },
+    detectionCard: { marginBottom: SPACING.sm, overflow: 'hidden', borderRadius: RADIUS.xl },
+    detectingRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+    detectingText: { color: COLORS.textMuted, fontSize: FONTS.sizes.sm },
+    cropsSection: { marginTop: SPACING.sm },
+    cropsTitle: {
+        color: COLORS.textSecondary,
+        fontSize: FONTS.sizes.sm,
+        marginBottom: SPACING.sm,
+        fontWeight: FONTS.weights.semibold,
+    },
+    cropsRow: { gap: SPACING.sm, paddingRight: SPACING.sm },
+    cropItem: {
+        width: 100,
+        height: 100,
+        borderRadius: RADIUS.md,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        backgroundColor: COLORS.bgCard,
+    },
+    cropImage: { width: '100%', height: '100%' },
+    detectionMeta: {
+        fontSize: FONTS.sizes.xs,
+        color: COLORS.textMuted,
+        textAlign: 'center',
+        fontFamily: 'monospace',
+        marginTop: SPACING.xs,
+    },
 });
