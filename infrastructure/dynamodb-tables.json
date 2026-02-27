@@ -165,6 +165,113 @@
             "SSESpecification": {
                 "Enabled": true
             }
+        },
+        {
+            "TableName": "ai-bharat-conversations",
+            "Comment": "Agent chatbot conversations (multi-chat support)",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "conversationId",
+                    "KeyType": "HASH"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "conversationId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "userId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "updatedAt",
+                    "AttributeType": "S"
+                }
+            ],
+            "GlobalSecondaryIndexes": [
+                {
+                    "IndexName": "userId-updatedAt-index",
+                    "KeySchema": [
+                        {
+                            "AttributeName": "userId",
+                            "KeyType": "HASH"
+                        },
+                        {
+                            "AttributeName": "updatedAt",
+                            "KeyType": "RANGE"
+                        }
+                    ],
+                    "Projection": {
+                        "ProjectionType": "ALL"
+                    }
+                }
+            ],
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
+        },
+        {
+            "TableName": "ai-bharat-messages",
+            "Comment": "Individual messages within agent conversations",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "conversationId",
+                    "KeyType": "HASH"
+                },
+                {
+                    "AttributeName": "timestamp",
+                    "KeyType": "RANGE"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "conversationId",
+                    "AttributeType": "S"
+                },
+                {
+                    "AttributeName": "timestamp",
+                    "AttributeType": "S"
+                }
+            ],
+            "TimeToLiveSpecification": {
+                "AttributeName": "ttl",
+                "Enabled": true
+            },
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
+        },
+        {
+            "TableName": "ai-bharat-memory",
+            "Comment": "Long-term user memory (facts/preferences extracted across conversations)",
+            "BillingMode": "PAY_PER_REQUEST",
+            "KeySchema": [
+                {
+                    "AttributeName": "userId",
+                    "KeyType": "HASH"
+                }
+            ],
+            "AttributeDefinitions": [
+                {
+                    "AttributeName": "userId",
+                    "AttributeType": "S"
+                }
+            ],
+            "PointInTimeRecoverySpecification": {
+                "PointInTimeRecoveryEnabled": true
+            },
+            "SSESpecification": {
+                "Enabled": true
+            }
         }
     ]
 }
