@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YOLO + ResNet + Grad-CAM Test</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+
+    img {
+      max-width: 260px;
+      margin: 8px 0;
+      border: 1px solid #ccc;
+    }
+
+    .crop {
+      border: 1px solid #ddd;
+      padding: 12px;
+      margin: 12px 0;
+      border-radius: 6px;
+      background: #fafafa;
+    }
+
+    .images {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+    }
+
+    .label {
+      font-weight: bold;
+      margin-top: 5px;
+    }
+
+    .confidence {
+      color: #555;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>🐟 YOLO + ResNet + Grad-CAM API Test</h2>
+
+  <input type="file" id="imageInput" />
+  <br><br>
+  <button onclick="sendImage()">Send Image</button>
+
+  <hr>
+
+  <h3>YOLO Full Image</h3>
+  <div id="yoloResult"></div>
+
+  <h3>Detected Fish</h3>
+  <div id="cropsResult"></div>
+
+  <script>
+    const BASE_URL = "https://kyanmahajan-fish-pred.hf.space";
+
+    async function sendImage() {
+      const input = document.getElementById("imageInput");
+      if (!input.files.length) {
+        alert("Please select an image");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("image", input.files[0]);
+
+      const response = await fetch(`${BASE_URL}/predict`, {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+
+      // Show YOLO image
+      document.getElementById("yoloResult").innerHTML = `
+        <img src="${BASE_URL}${data.yolo_image_url}" />
+      `;
+
+      // Show crops + gradcam
+      const cropsDiv = document.getElementById("cropsResult");
+      cropsDiv.innerHTML = "";
+
+      for (const crop of Object.values(data.crops)) {
+        const div = document.createElement("div");
+        div.className = "crop";
+
+        div.innerHTML = `
+          <div class="label">${crop.resnet_label}</div>
+          <div class="confidence">
+            Confidence: ${(crop.resnet_confidence * 100).toFixed(2)}%
+          </div>
+
+          <div class="images">
+            <div>
+              <p>Crop</p>
+              <img src="${BASE_URL}${crop.crop_url}" />
+            </div>
+
+            <div>
+              <p>Grad-CAM</p>
+              <img src="${BASE_URL}${crop.gradcam_url}" />
+            </div>
+          </div>
+        `;
+
+        cropsDiv.appendChild(div);
+      }
+    }
+  </script>
+
+</body>
+</html>
