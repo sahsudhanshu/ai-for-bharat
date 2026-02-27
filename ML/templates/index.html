@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>YOLO + ResNet + Grad-CAM Test</title>
+  <title>YOLO + Species + Disease + Grad-CAM</title>
 
   <style>
     body {
@@ -32,11 +32,20 @@
 
     .label {
       font-weight: bold;
+      font-size: 16px;
       margin-top: 5px;
     }
 
     .confidence {
+      font-size: 14px;
       color: #555;
+    }
+
+    .disease {
+      margin-top: 6px;
+      padding: 6px;
+      background: #fff3cd;
+      border-left: 4px solid #ffc107;
       font-size: 14px;
     }
   </style>
@@ -44,7 +53,7 @@
 
 <body>
 
-  <h2>🐟 YOLO + ResNet + Grad-CAM API Test</h2>
+  <h2>🐟 YOLO + Species + Disease + Grad-CAM (Localhost)</h2>
 
   <input type="file" id="imageInput" />
   <br><br>
@@ -59,7 +68,7 @@
   <div id="cropsResult"></div>
 
   <script>
-    const BASE_URL = "https://kyanmahajan-fish-pred.hf.space";
+    const BASE_URL = "http://localhost:7860";
 
     async function sendImage() {
       const input = document.getElementById("imageInput");
@@ -78,12 +87,11 @@
 
       const data = await response.json();
 
-      // Show YOLO image
+      // Show YOLO annotated image
       document.getElementById("yoloResult").innerHTML = `
         <img src="${BASE_URL}${data.yolo_image_url}" />
       `;
 
-      // Show crops + gradcam
       const cropsDiv = document.getElementById("cropsResult");
       cropsDiv.innerHTML = "";
 
@@ -92,9 +100,18 @@
         div.className = "crop";
 
         div.innerHTML = `
-          <div class="label">${crop.resnet_label}</div>
+          <div class="label">🐟 Species: ${crop.species.label}</div>
           <div class="confidence">
-            Confidence: ${(crop.resnet_confidence * 100).toFixed(2)}%
+            Species Confidence: ${(crop.species.confidence * 100).toFixed(2)}%
+          </div>
+
+          <div class="disease">
+            🦠 Disease: <strong>${crop.disease.label}</strong><br>
+            Confidence: ${(crop.disease.confidence * 100).toFixed(2)}%
+          </div>
+
+          <div class="confidence">
+            YOLO Confidence: ${(crop.yolo_confidence * 100).toFixed(2)}%
           </div>
 
           <div class="images">
