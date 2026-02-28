@@ -1,14 +1,16 @@
-/**
- * Auth context — stub Cognito behaviour using AsyncStorage.
- * Swap out `mockLogin` / `mockRegister` for real Cognito SDK calls when backend is ready.
- */
-
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEMO_JWT } from './constants';
+import { AuthenticationDetails, CognitoUser, CognitoUserAttribute, CognitoUserPool } from 'amazon-cognito-identity-js';
 
 const TOKEN_KEY = 'ocean_ai_token';
 const USER_KEY = 'ocean_ai_user';
+
+const poolData = {
+    UserPoolId: process.env.EXPO_PUBLIC_COGNITO_USER_POOL_ID || '',
+    ClientId: process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID || ''
+};
+const userPool = new CognitoUserPool(poolData);
+const isCognitoConfigured = Boolean(poolData.UserPoolId && poolData.ClientId);
 
 export interface User {
     userId: string;
@@ -30,18 +32,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const DEMO_USER: User = {
-    userId: 'usr_demo_001',
-    name: 'Rajan Fisherman',
-    email: 'rajan@example.com',
-    phone: '+91 98765 43210',
-    location: 'Sassoon Dock, Mumbai',
-    role: 'fisherman',
-};
-
-function delay(ms: number) {
-    return new Promise<void>((r) => setTimeout(r, ms));
+function assertCognitoConfigured() {
+    if (!isCognitoConfigured) {
+        throw new Error('Cognito env is missing. Set EXPO_PUBLIC_COGNITO_USER_POOL_ID and EXPO_PUBLIC_COGNITO_CLIENT_ID in mobile/.env.');
+    }
 }
+
+function mapCognitoError(err: unknown): Error {
+    const maybeError = err as { code?: string; message?: string };
+    const code = maybeError?.code;
+
+    if (code === 'NotAuthorizedException') return new Error('Incorrect email or password.');
+    if (code === 'UserNotFoundException') return new Error('No account found for this email.');
+    if (code === 'UsernameExistsException') return new Error('An account with this email already exists. Please sign in.');
+    if (code === 'InvalidPasswordException') return new Error('Password does not meet Cognito policy requirements.');
+    if (code === 'InvalidParameterException' && maybeError?.message?.includes('SECRET_HASH')) {
+        return new Error('Cognito app client is misconfigured: use a public app client with no secret.');
+    }
+
+    return new Error(maybeError?.message || 'Authentication failed. Please try again.');
+}
+
+
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
@@ -68,32 +80,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         })();
     }, []);
 
-    const login = async (email: string, _password: string) => {
-        await delay(1000); // Simulate Cognito round-trip
-        const loggedInUser: User = { ...DEMO_USER, email };
-        await AsyncStorage.setItem(TOKEN_KEY, DEMO_JWT);
-        await AsyncStorage.setItem(USER_KEY, JSON.stringify(loggedInUser));
-        setToken(DEMO_JWT);
-        setUser(loggedInUser);
+    const login = async (email: string, password: string) => {
+        return new Promise<void>((resolve, reject) => {
+            try {
+                assertCognitoConfigured();
+            } catch (err) {
+                reject(err);
+                return;
+            }
+
+            const authenticationDetails = new AuthenticationDetails({
+                Username: email,
+                Password: password,
+            });
+
+            const cognitoUser = new CognitoUser({
+                Username: email,
+                Pool: userPool,
+            });
+
+            cognitoUser.authenticateUser(authenticationDetails, {
+                onSuccess: async (result) => {
+                    const jwtToken = result.getAccessToken().getJwtToken();
+                    const loggedInUser: User = {
+                        userId: result.getIdToken().payload.sub as string,
+                        name: result.getIdToken().payload.name || 'User',
+                        email: email,
+                        role: 'fisherman'
+                    };
+                    await AsyncStorage.setItem(TOKEN_KEY, jwtToken);
+                    await AsyncStorage.setItem(USER_KEY, JSON.stringify(loggedInUser));
+                    setToken(jwtToken);
+                    setUser(loggedInUser);
+                    resolve();
+                },
+                onFailure: (err) => {
+                    reject(mapCognitoError(err));
+                },
+            });
+        });
     };
 
-    const register = async (name: string, email: string, _password: string, phone: string) => {
-        await delay(1200);
-        const newUser: User = {
-            userId: `usr_${Date.now()}`,
-            name,
-            email,
-            phone,
-            location: 'India',
-            role: 'fisherman',
-        };
-        await AsyncStorage.setItem(TOKEN_KEY, DEMO_JWT);
-        await AsyncStorage.setItem(USER_KEY, JSON.stringify(newUser));
-        setToken(DEMO_JWT);
-        setUser(newUser);
+    const register = async (name: string, email: string, password: string, phone: string) => {
+        return new Promise<void>((resolve, reject) => {
+            try {
+                assertCognitoConfigured();
+            } catch (err) {
+                reject(err);
+                return;
+            }
+
+            const attributeList = [
+                new CognitoUserAttribute({ Name: 'name', Value: name }),
+                ...(phone && phone.trim() !== '' ? [new CognitoUserAttribute({ Name: 'phone_number', Value: phone })] : [])
+            ];
+
+            userPool.signUp(email, password, attributeList, [], async (err) => {
+                if (err) {
+                    reject(mapCognitoError(err));
+                    return;
+                }
+                resolve();
+            });
+        });
     };
 
     const logout = async () => {
+        const cognitoUser = userPool.getCurrentUser();
+        if (cognitoUser) {
+            cognitoUser.signOut();
+        }
         await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
         setToken(null);
         setUser(null);

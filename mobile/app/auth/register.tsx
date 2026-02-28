@@ -29,10 +29,15 @@ export default function RegisterScreen() {
             Alert.alert('Missing Fields', 'Please fill in all required fields.');
             return;
         }
+        const normalizedName = name.trim();
+        const normalizedEmail = email.trim();
+        const normalizedPassword = password.trim();
+        const normalizedPhone = phone.trim();
         setLoading(true);
         try {
-            await register(name.trim(), email.trim(), password, phone.trim());
-            router.replace('/(tabs)');
+            await register(normalizedName, normalizedEmail, normalizedPassword, normalizedPhone);
+            Alert.alert('Account Created', 'Your account has been created. Please sign in.');
+            router.replace('/auth/login');
         } catch (e: any) {
             Alert.alert('Registration Failed', e.message || 'Please try again.');
         } finally {

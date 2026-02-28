@@ -113,7 +113,7 @@ export default function SettingsScreen() {
                     </View>
                     <View style={styles.profileInfo}>
                         <Text style={styles.profileName}>{user?.name ?? 'Fisherman'}</Text>
-                        <Text style={styles.profileEmail}>{user?.email ?? 'demo@example.com'}</Text>
+                        <Text style={styles.profileEmail}>{user?.email ?? ''}</Text>
                         {user?.location && <Text style={styles.profileLocation}>📍 {user.location}</Text>}
                     </View>
                 </View>

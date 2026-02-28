@@ -35,16 +35,6 @@ async function verifyToken(event) {
 
     const token = authHeader.split(" ")[1];
 
-    // ── Demo mode bypass ────────────────────────────────────────────────────────
-    // Remove this block when real Cognito is configured!
-    if (token.startsWith("demo_jwt_token") || token.startsWith("cognito_jwt_")) {
-        return {
-            sub: "usr_demo_001",
-            email: "rajan.fisherman@example.com",
-            username: "Rajan Kumar",
-        };
-    }
-    // ───────────────────────────────────────────────────────────────────────────
 
     const payload = await getVerifier().verify(token);
     return payload;

@@ -27,22 +27,14 @@ export default function LoginScreen() {
             Alert.alert('Missing Fields', 'Please enter your email and password.');
             return;
         }
+        const normalizedEmail = email.trim();
+        const normalizedPassword = password.trim();
         setLoading(true);
         try {
-            await login(email.trim(), password);
+            await login(normalizedEmail, normalizedPassword);
             router.replace('/(tabs)');
         } catch (e: any) {
             Alert.alert('Login Failed', e.message || 'Please try again.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleDemoLogin = async () => {
-        setLoading(true);
-        try {
-            await login('rajan@example.com', 'demo123');
-            router.replace('/(tabs)');
         } finally {
             setLoading(false);
         }
@@ -106,21 +98,6 @@ export default function LoginScreen() {
                             size="lg"
                             style={styles.loginBtn}
                         />
-
-                        <View style={styles.dividerRow}>
-                            <View style={styles.dividerLine} />
-                            <Text style={styles.dividerText}>or</Text>
-                            <View style={styles.dividerLine} />
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.demoBtn}
-                            onPress={handleDemoLogin}
-                            disabled={loading}
-                            activeOpacity={0.75}
-                        >
-                            <Text style={styles.demoBtnLabel}>⚡ Continue with Demo Account</Text>
-                        </TouchableOpacity>
 
                         <View style={styles.footer}>
                             <Text style={styles.footerText}>Don't have an account? </Text>
@@ -226,28 +203,6 @@ const styles = StyleSheet.create({
     formGroup: { marginBottom: SPACING.base },
 
     loginBtn: { marginTop: SPACING.md },
-
-    dividerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginVertical: SPACING.base,
-        gap: SPACING.md,
-    },
-    dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
-    dividerText: { color: COLORS.textSubtle, fontSize: FONTS.sizes.sm },
-
-    demoBtn: {
-        borderWidth: 1.5,
-        borderColor: COLORS.accent,
-        borderRadius: RADIUS.lg,
-        paddingVertical: SPACING.md,
-        alignItems: 'center',
-    },
-    demoBtnLabel: {
-        color: COLORS.accentLight,
-        fontSize: FONTS.sizes.base,
-        fontWeight: FONTS.weights.bold,
-    },
 
     footer: {
         flexDirection: 'row',
