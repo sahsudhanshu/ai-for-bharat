@@ -23,10 +23,14 @@ from src.memory.dynamodb_store import (
 async def _call_bedrock_for_text(prompt: str) -> str:
     """Quick helper to call Gemini for a short text-generation task. Falls back gracefully."""
     try:
+        import os
         from langchain_google_genai import ChatGoogleGenerativeAI
+        api_key = os.getenv("GOOGLE_API_KEY", "")
+        if not api_key:
+            return "(Summary unavailable — GOOGLE_API_KEY not set)"
         llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key="AIzaSyDfLiU7JiiuUQwbgiMRNyubTt6inGA-0m0",
+            model="gemini-2.0-flash",
+            google_api_key=api_key,
             max_output_tokens=600,
             temperature=0.3,
         )

@@ -135,8 +135,8 @@ export const INDIAN_LANGUAGES = [
 
 // Default map center — Indian west coast
 export const DEFAULT_MAP_REGION = {
-  latitude: 15.5,
-  longitude: 73.8,
-  latitudeDelta: 8,
-  longitudeDelta: 6,
+  latitude: 16.0,
+  longitude: 76.0,
+  latitudeDelta: 25,
+  longitudeDelta: 25,
 };

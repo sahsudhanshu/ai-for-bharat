@@ -50,9 +50,13 @@ TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_ma
 
 # ── LLM with tools bound ────────────────────────────────────────────────────
 def _get_llm():
+    import os
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise ValueError("GOOGLE_API_KEY environment variable not set")
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash",
-        google_api_key="AIzaSyDfLiU7JiiuUQwbgiMRNyubTt6inGA-0m0",
+        model="gemini-2.0-flash",
+        google_api_key=api_key,
         max_output_tokens=2048,
         temperature=0.7,
     )
