@@ -13,6 +13,9 @@ Deployed on Lambda via Mangum (handler.py).
 """
 from __future__ import annotations
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 

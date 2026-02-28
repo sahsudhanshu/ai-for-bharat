@@ -29,7 +29,7 @@ Graph flow:
 from __future__ import annotations
 from typing import Any, Dict, Literal
 
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 
@@ -51,15 +51,28 @@ TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_ma
 # ── LLM with tools bound ────────────────────────────────────────────────────
 def _get_llm():
     import os
-    api_key = os.getenv("GOOGLE_API_KEY", "")
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY environment variable not set")
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",
-        google_api_key=api_key,
-        max_output_tokens=2048,
+    bedrock_api_key = os.getenv("BEDROCK_API_KEY", "")
+    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+    kwargs = dict(
+        model=model_id,
+        region_name=bedrock_region,
+        max_tokens=2048,
         temperature=0.7,
     )
+
+    if bedrock_api_key:
+        kwargs["api_key"] = bedrock_api_key
+    else:
+        # Fall back to standard AWS credentials from env / ~/.aws/credentials
+        aws_key = os.getenv("AWS_ACCESS_KEY_ID", "")
+        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+        if aws_key and aws_secret:
+            kwargs["aws_access_key_id"] = aws_key
+            kwargs["aws_secret_access_key"] = aws_secret
+
+    llm = ChatBedrockConverse(**kwargs)
     return llm.bind_tools(TOOLS)
 
 
@@ -197,6 +210,10 @@ async def tool_executor(state: AgentState) -> Dict[str, Any]:
         tool_name = call["name"]
         tool_args = call["args"]
 
+        # Auto-inject user_id for catch tools so the LLM doesn't need to guess it
+        if tool_name in ("get_catch_history", "get_catch_details"):
+            tool_args["user_id"] = state.get("user_id", "")
+
         if tool_name in TOOL_MAP:
             try:
                 result = await TOOL_MAP[tool_name].ainvoke(tool_args)
@@ -222,7 +239,18 @@ async def memory_update(state: AgentState) -> Dict[str, Any]:
     ai_response = ""
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-            ai_response = msg.content
+            content = msg.content
+            # Gemini 2.5 may return list of content blocks
+            if isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, str):
+                        parts.append(block)
+                    elif isinstance(block, dict) and block.get("type") == "text":
+                        parts.append(block.get("text", ""))
+                ai_response = "\n".join(parts)
+            else:
+                ai_response = str(content)
             break
 
     if ai_response:

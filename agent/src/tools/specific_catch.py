@@ -10,14 +10,15 @@ from src.utils.dynamodb import dynamodb
 
 
 @tool
-def get_catch_details(user_id: str, image_id: str) -> str:
+async def get_catch_details(image_id: str, user_id: str = "") -> str:
     """
     Get the detailed analysis of a specific catch (fish upload) using its image_id.
     This provides detailed metrics like length, weight, quality grade, and market value.
-    
+    Do NOT pass user_id — it is injected automatically.
+
     Args:
-        user_id: The ID of the user requesting the information.
         image_id: The unique identifier of the catch/image to look up.
+        user_id: Auto-injected by the system. Do not provide.
     """
     table = dynamodb.Table(IMAGES_TABLE)
 

@@ -15,18 +15,19 @@ from src.utils.dynamodb import dynamodb
 
 @tool
 async def get_catch_history(
-    user_id: str,
     page: int = 1,
     limit: Optional[int] = None,
+    user_id: str = "",
 ) -> str:
     """
     Get the user's recent catch history (fish species detected from images).
     Results are paginated — page 1 is the most recent.
+    Do NOT pass user_id — it is injected automatically.
 
     Args:
-        user_id: The user ID to look up catches for.
         page: Page number (1-based). Default 1.
         limit: Max results per page. Default from settings.
+        user_id: Auto-injected by the system. Do not provide.
     """
     page_size = limit or CATCH_HISTORY_PAGE_SIZE
     table = dynamodb.Table(IMAGES_TABLE)

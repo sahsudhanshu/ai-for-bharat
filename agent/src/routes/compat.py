@@ -29,6 +29,21 @@ from src.core.graph import graph
 router = APIRouter()
 
 
+def _extract_text(content) -> str:
+    """Normalize AIMessage.content — Gemini 2.5 may return a list of blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+        return "\n".join(parts)
+    return str(content)
+
+
 # ── Request models ───────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
@@ -96,7 +111,7 @@ async def send_chat(
     ai_content = ""
     for msg in reversed(result.get("messages", [])):
         if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
-            ai_content = msg.content
+            ai_content = _extract_text(msg.content)
             break
 
     if not ai_content:

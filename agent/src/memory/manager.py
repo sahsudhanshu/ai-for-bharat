@@ -21,19 +21,34 @@ from src.memory.dynamodb_store import (
 
 
 async def _call_bedrock_for_text(prompt: str) -> str:
-    """Quick helper to call Gemini for a short text-generation task. Falls back gracefully."""
+    """Quick helper to call Bedrock Claude for a short text-generation task. Falls back gracefully."""
     try:
         import os
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        api_key = os.getenv("GOOGLE_API_KEY", "")
-        if not api_key:
-            return "(Summary unavailable — GOOGLE_API_KEY not set)"
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=api_key,
-            max_output_tokens=600,
+        from langchain_aws import ChatBedrockConverse
+
+        bedrock_api_key = os.getenv("BEDROCK_API_KEY", "")
+        bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+        model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+        kwargs = dict(
+            model=model_id,
+            region_name=bedrock_region,
+            max_tokens=600,
             temperature=0.3,
         )
+
+        if bedrock_api_key:
+            kwargs["api_key"] = bedrock_api_key
+        else:
+            aws_key = os.getenv("AWS_ACCESS_KEY_ID", "")
+            aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+            if aws_key and aws_secret:
+                kwargs["aws_access_key_id"] = aws_key
+                kwargs["aws_secret_access_key"] = aws_secret
+            else:
+                return "(Summary unavailable — no Bedrock credentials)"
+
+        llm = ChatBedrockConverse(**kwargs)
         resp = await llm.ainvoke([HumanMessage(content=prompt)])
         return resp.content
     except Exception:
