@@ -21,6 +21,14 @@ export const DEMO_JWT = "demo_jwt_token_fisherman_001";
 /** Whether we are in demo mode (no real backend configured) */
 export const IS_DEMO_MODE = !API_BASE_URL;
 
+// Log configuration on module load
+if (typeof window !== 'undefined') {
+    console.log('🔧 API Configuration:');
+    console.log('  API_BASE_URL:', API_BASE_URL || '(not set)');
+    console.log('  IS_DEMO_MODE:', IS_DEMO_MODE);
+    console.log('  AGENT_BASE_URL:', AGENT_BASE_URL);
+}
+
 /** API endpoint paths */
 export const ENDPOINTS = {
   presignedUrl: "/images/presigned-url",
@@ -31,6 +39,16 @@ export const ENDPOINTS = {
   getChatHistory: "/chat",
   getAnalytics: "/analytics",
 } as const;
+
+/** ML Model API base URL for resolving static asset URLs (crop images, grad-cam, etc.) */
+export const ML_BASE_URL = process.env.NEXT_PUBLIC_ML_BASE_URL ?? "https://kyanmahajan-fish-pred.hf.space";
+
+/** Resolve ML API relative URL to absolute URL */
+export function resolveMLUrl(path: string): string {
+  if (!path) return "";
+  if (path.startsWith("http")) return path;
+  return `${ML_BASE_URL}${path}`;
+}
 
 /** App metadata */
 export const APP_NAME = "OceanAI";

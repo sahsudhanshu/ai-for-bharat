@@ -4,8 +4,39 @@
  * and return realistic data with simulated network delays.
  */
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── ML API Response Types (YOLO + Species + Disease model) ─────────────────
 
+export interface MLPrediction {
+  label: string;
+  confidence: number;
+  gradcam_url: string;
+}
+
+export interface MLCropResult {
+  bbox: number[];
+  crop_url: string;
+  species: MLPrediction;
+  disease: MLPrediction;
+  yolo_confidence: number;
+}
+
+export interface MLAnalysisResponse {
+  crops: Record<string, MLCropResult>;
+  yolo_image_url: string;
+}
+
+/** Mock supplementary data per crop (fields not provided by ML API) */
+export interface MockCropSupplement {
+  scientificName: string;
+  qualityGrade: "Premium" | "Standard" | "Low";
+  isSustainable: boolean;
+  weight_kg: number;
+  length_mm: number;
+  marketPricePerKg: number;
+  estimatedValue: number;
+}
+
+/** @deprecated Use MLAnalysisResponse instead */
 export interface FishAnalysisResult {
   species: string;
   scientificName: string;
@@ -47,14 +78,59 @@ export const SPECIES_DATA: { name: string; scientific: string; minSize: number; 
   { name: "Indo-Pacific Swordfish", scientific: "Xiphias gladius", minSize: 1200, pricePerKg: 820 },
   { name: "Seer Fish", scientific: "Scomberomorus guttatus", minSize: 300, pricePerKg: 850 },
   { name: "Hilsa Shad", scientific: "Tenualosa ilisha", minSize: 250, pricePerKg: 700 },
+  { name: "Pangasius", scientific: "Pangasianodon hypophthalmus", minSize: 200, pricePerKg: 180 },
+  { name: "Rohu", scientific: "Labeo rohita", minSize: 250, pricePerKg: 200 },
+  { name: "Catla", scientific: "Catla catla", minSize: 300, pricePerKg: 220 },
+  { name: "Tilapia", scientific: "Oreochromis niloticus", minSize: 150, pricePerKg: 160 },
+  { name: "Sardine", scientific: "Sardinella longiceps", minSize: 80, pricePerKg: 120 },
+  { name: "Barramundi", scientific: "Lates calcarifer", minSize: 300, pricePerKg: 450 },
 ];
 
-const CATCH_HISTORY_SPECIES = ["Pomfret", "Kingfish", "Tuna", "Mackerel", "Seer Fish", "Hilsa"];
+const DISEASES = ["Healthy", "White Tail Disease", "Epizootic Ulcerative Syndrome", "Bacterial Gill Disease", "Fin Rot"];
 const GRADES: ("Premium" | "Standard" | "Low")[] = ["Premium", "Standard", "Low"];
+
+// ── Mock Supplement Generator ────────────────────────────────────────────────
+
+/** Deterministic pseudo-random based on string hash */
+function seededRandom(seed: number): number {
+  return ((seed * 9301 + 49297) % 233280) / 233280;
+}
+
+/** Generate mock supplementary data for a crop (deterministic by species + index) */
+export function generateMockSupplement(speciesLabel: string, cropIndex: number = 0): MockCropSupplement {
+  const match = SPECIES_DATA.find(s =>
+    s.name.toLowerCase() === speciesLabel.toLowerCase() ||
+    s.name.toLowerCase().includes(speciesLabel.toLowerCase()) ||
+    speciesLabel.toLowerCase().includes(s.name.toLowerCase())
+  );
+  const data = match || { name: speciesLabel, scientific: `${speciesLabel} sp.`, minSize: 150, pricePerKg: 300 };
+
+  const hash = speciesLabel.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0) + cropIndex * 137;
+  const r1 = seededRandom(hash);
+  const r2 = seededRandom(hash + 31);
+  const r3 = seededRandom(hash + 67);
+
+  const length_mm = data.minSize + r1 * 200;
+  const weight_g = (length_mm / 1000) ** 3 * 1e6 * (0.01 + r2 * 0.005);
+  const grade = GRADES[Math.floor(r3 * 2.5)] ?? "Standard";
+
+  return {
+    scientificName: data.scientific,
+    qualityGrade: grade,
+    isSustainable: length_mm >= data.minSize,
+    weight_kg: Math.round(weight_g) / 1000,
+    length_mm: Math.round(length_mm),
+    marketPricePerKg: data.pricePerKg,
+    estimatedValue: Math.round((weight_g / 1000) * data.pricePerKg),
+  };
+}
+
+const CATCH_HISTORY_SPECIES = ["Pomfret", "Kingfish", "Tuna", "Mackerel", "Seer Fish", "Hilsa"];
 const STATUSES = ["Sold", "Stored", "Rejected"] as const;
 
 // ── Mock functions ────────────────────────────────────────────────────────────
 
+/** @deprecated Use analyzeCatchML instead */
 export const analyzeCatch = async (_imageFile: File): Promise<FishAnalysisResult> => {
   await new Promise((r) => setTimeout(r, 2500));
 
@@ -62,7 +138,8 @@ export const analyzeCatch = async (_imageFile: File): Promise<FishAnalysisResult
   const length_mm = fishData.minSize + Math.random() * 200;
   const weight_g = (length_mm / 1000) ** 3 * 1e6 * (0.01 + Math.random() * 0.005);
   const confidence = 0.85 + Math.random() * 0.13;
-  const grade = GRADES[Math.floor(Math.random() * 2.5)] ?? "Standard";
+  const grades: ("Premium" | "Standard" | "Low")[] = ["Premium", "Standard", "Low"];
+  const grade = grades[Math.floor(Math.random() * 2.5)] ?? "Standard";
   const isSustainable = length_mm >= fishData.minSize;
   const estimatedValue = (weight_g / 1000) * fishData.pricePerKg;
 
@@ -85,12 +162,32 @@ export const analyzeCatch = async (_imageFile: File): Promise<FishAnalysisResult
       price_per_kg: fishData.pricePerKg,
       estimated_value: Math.round(estimatedValue),
     },
-    // UI aliases
     weightEstimate: Math.round(weight_g) / 1000,
     weightConfidence: 0.78 + Math.random() * 0.15,
     marketPriceEstimate: fishData.pricePerKg,
     timestamp: new Date().toISOString(),
   };
+};
+
+/** Generate mock ML analysis response (new crops-based format) */
+export const analyzeCatchML = async (): Promise<MLAnalysisResponse> => {
+  await new Promise((r) => setTimeout(r, 2500));
+  const numCrops = 1 + Math.floor(Math.random() * 2);
+  const crops: Record<string, MLCropResult> = {};
+
+  for (let i = 0; i < numCrops; i++) {
+    const species = SPECIES_DATA[Math.floor(Math.random() * SPECIES_DATA.length)];
+    const disease = DISEASES[Math.floor(Math.random() * DISEASES.length)];
+    crops[`crop_${i}`] = {
+      bbox: [Math.round(Math.random() * 50), Math.round(Math.random() * 100), Math.round(500 + Math.random() * 500), Math.round(200 + Math.random() * 200)],
+      crop_url: "",
+      species: { label: species.name, confidence: 0.5 + Math.random() * 0.48, gradcam_url: "" },
+      disease: { label: disease, confidence: 0.3 + Math.random() * 0.6, gradcam_url: "" },
+      yolo_confidence: 0.4 + Math.random() * 0.55,
+    };
+  }
+
+  return { crops, yolo_image_url: "" };
 };
 
 export const getMarketPrices = async () => {
@@ -159,35 +256,26 @@ export interface ChatMessage {
 export const getMockImages = (): { items: MockImageRecord[]; lastKey?: string } => {
   const items: MockImageRecord[] = Array.from({ length: 10 }, (_, i) => {
     const speciesEntry = SPECIES_DATA[i % SPECIES_DATA.length];
-    const weight_g = 200 + i * 150 + Math.random() * 300;
+    const disease = DISEASES[i % DISEASES.length];
     return {
       imageId: `img_demo_${i + 1}`,
       userId: "usr_demo_001",
       s3Path: `s3://demo-bucket/uploads/demo_${i + 1}.jpg`,
       status: "completed",
       analysisResult: {
-        species: speciesEntry.name,
-        scientificName: speciesEntry.scientific,
-        confidence: 0.88 + Math.random() * 0.1,
-        qualityGrade: GRADES[i % 3],
-        isSustainable: i % 4 !== 0,
-        measurements: {
-          length_mm: 150 + i * 12,
-          weight_g: Math.round(weight_g),
-          width_mm: 80 + i * 4,
+        crops: {
+          crop_0: {
+            bbox: [10, 20, 500, 300],
+            crop_url: "",
+            species: { label: speciesEntry.name, confidence: 0.88 + (i * 0.01), gradcam_url: "" },
+            disease: { label: disease, confidence: 0.4 + (i * 0.05), gradcam_url: "" },
+            yolo_confidence: 0.7 + (i * 0.02),
+          },
         },
-        compliance: { is_legal_size: i % 4 !== 0, min_legal_size_mm: speciesEntry.minSize },
-        marketEstimate: {
-          price_per_kg: speciesEntry.pricePerKg,
-          estimated_value: Math.round((weight_g / 1000) * speciesEntry.pricePerKg),
-        },
-        weightEstimate: weight_g / 1000,
-        weightConfidence: 0.82,
-        marketPriceEstimate: speciesEntry.pricePerKg,
-        timestamp: new Date(Date.now() - 86400000 * i).toISOString(),
-      } as FishAnalysisResult,
-      latitude: 16.0 + Math.random() * 4,
-      longitude: 72.0 + Math.random() * 4,
+        yolo_image_url: "",
+      } as MLAnalysisResponse,
+      latitude: 16.0 + i * 0.3,
+      longitude: 72.0 + i * 0.3,
       createdAt: new Date(Date.now() - 86400000 * i).toISOString(),
     };
   });
@@ -199,7 +287,7 @@ export interface MockImageRecord {
   userId: string;
   s3Path: string;
   status: string;
-  analysisResult?: FishAnalysisResult;
+  analysisResult?: MLAnalysisResponse;
   latitude?: number;
   longitude?: number;
   createdAt: string;
@@ -243,3 +331,188 @@ export const getMockAnalytics = () => ({
     { grade: "Low", count: 15 },
   ],
 });
+
+// ── Group-based Multi-Image Mock Data ─────────────────────────────────────────
+
+export interface GroupAnalysis {
+  images: Array<{
+    imageIndex: number;
+    s3Key: string;
+    crops: Record<string, MLCropResult>;
+    yolo_image_url: string;
+    error?: string;
+  }>;
+  aggregateStats: {
+    totalFishCount: number;
+    speciesDistribution: Record<string, number>;
+    averageConfidence: number;
+    diseaseDetected: boolean;
+    totalEstimatedWeight: number;
+    totalEstimatedValue: number;
+  };
+  processedAt: string;
+}
+
+export const getMockGroupAnalysis = async (imageCount: number = 3): Promise<GroupAnalysis> => {
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  
+  const species = ["Bangus", "Tilapia", "Indian Mackerel", "Yellowfin Tuna", "Seer Fish"];
+  const diseases = ["Healthy Fish", "Healthy Fish", "Healthy Fish", "Parasitic Disease", "Fungal Infection"];
+  
+  const images = Array.from({ length: imageCount }, (_, imageIndex) => {
+    const cropCount = Math.floor(Math.random() * 4) + 2;
+    const crops: Record<string, MLCropResult> = {};
+    
+    for (let i = 0; i < cropCount; i++) {
+      const speciesLabel = species[Math.floor(Math.random() * species.length)];
+      const diseaseLabel = diseases[Math.floor(Math.random() * diseases.length)];
+      
+      crops[`crop_${imageIndex}_${i}`] = {
+        bbox: [100 + i * 50, 100, 200 + i * 50, 200],
+        crop_url: `/static/crops/demo_${imageIndex}_${i}.jpg`,
+        disease: {
+          confidence: 0.85 + Math.random() * 0.1,
+          gradcam_url: `/static/gradcam/demo_${imageIndex}_${i}_disease.jpg`,
+          label: diseaseLabel,
+        },
+        species: {
+          confidence: 0.88 + Math.random() * 0.1,
+          gradcam_url: `/static/gradcam/demo_${imageIndex}_${i}_species.jpg`,
+          label: speciesLabel,
+        },
+        yolo_confidence: 0.92 + Math.random() * 0.05,
+      };
+    }
+    
+    return {
+      imageIndex,
+      s3Key: `groups/demo_group/image_${imageIndex}.jpg`,
+      crops,
+      yolo_image_url: `/static/yolo_outputs/demo_${imageIndex}_yolo.jpg`,
+    };
+  });
+  
+  const allCrops = images.flatMap(img => Object.values(img.crops));
+  const totalFishCount = allCrops.length;
+  const speciesDistribution: Record<string, number> = {};
+  let totalConfidence = 0;
+  let diseaseDetected = false;
+  
+  allCrops.forEach(crop => {
+    speciesDistribution[crop.species.label] = (speciesDistribution[crop.species.label] || 0) + 1;
+    totalConfidence += crop.species.confidence;
+    if (crop.disease.label !== "Healthy Fish") diseaseDetected = true;
+  });
+  
+  return {
+    images,
+    aggregateStats: {
+      totalFishCount,
+      speciesDistribution,
+      averageConfidence: totalConfidence / totalFishCount,
+      diseaseDetected,
+      totalEstimatedWeight: totalFishCount * 1.2,
+      totalEstimatedValue: totalFishCount * 450,
+    },
+    processedAt: new Date().toISOString(),
+  };
+};
+
+// Persistent store for demo groups (survives page refresh via localStorage)
+const DEMO_GROUPS_STORAGE_KEY = 'ocean_ai_group_history';
+
+function loadPersistedGroups(): any[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(DEMO_GROUPS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistGroups(groups: any[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(DEMO_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+  } catch {
+    // localStorage full or unavailable — ignore
+  }
+}
+
+// Initialize from localStorage on module load
+let demoGroupsStore: any[] = loadPersistedGroups();
+
+export const getMockGroups = () => {
+  // Only return dynamically created groups from the current session
+  // No static mock data - all data should come from the real database
+  const allGroups = [...demoGroupsStore].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  
+  console.log('getMockGroups called - returning', allGroups.length, 'groups (fallback mode)');
+  console.log('Dynamic groups:', demoGroupsStore.length);
+  
+  return {
+    groups: allGroups,
+    lastKey: undefined,
+  };
+};
+
+export const addDemoGroup = (group: any) => {
+  console.log('Adding demo group to store:', group);
+  // Avoid duplicates
+  demoGroupsStore = demoGroupsStore.filter(g => g.groupId !== group.groupId);
+  demoGroupsStore.unshift(group);
+  // Keep max 50 groups to avoid localStorage overflow
+  if (demoGroupsStore.length > 50) demoGroupsStore = demoGroupsStore.slice(0, 50);
+  persistGroups(demoGroupsStore);
+  console.log('Demo groups store now has:', demoGroupsStore.length, 'groups (persisted)');
+};
+
+export const removeDemoGroup = (groupId: string) => {
+  demoGroupsStore = demoGroupsStore.filter(g => g.groupId !== groupId);
+  persistGroups(demoGroupsStore);
+};
+
+export const getMockGroupDetails = (groupId: string) => {
+  // Refresh from localStorage in case another tab added groups
+  demoGroupsStore = loadPersistedGroups();
+  // Check if it's a dynamically created group
+  const dynamicGroup = demoGroupsStore.find(g => g.groupId === groupId);
+  if (dynamicGroup) {
+    return {
+      ...dynamicGroup,
+      updatedAt: dynamicGroup.createdAt,
+      presignedViewUrls: dynamicGroup.s3Keys.map((_: string, i: number) => `/demo/image_${i}.jpg`),
+    };
+  }
+  
+  // Return static mock data for demo groups
+  return {
+    groupId,
+    userId: "demo_user",
+    imageCount: 3,
+    s3Keys: ["groups/demo/image_0.jpg", "groups/demo/image_1.jpg", "groups/demo/image_2.jpg"],
+    status: "completed" as const,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    analysisResult: {
+      images: [],
+      aggregateStats: {
+        totalFishCount: 8,
+        speciesDistribution: { "Bangus": 3, "Tilapia": 5 },
+        averageConfidence: 0.92,
+        diseaseDetected: false,
+        totalEstimatedWeight: 9.6,
+        totalEstimatedValue: 3600,
+      },
+      processedAt: new Date().toISOString(),
+    },
+    presignedViewUrls: [
+      "/demo/image_0.jpg",
+      "/demo/image_1.jpg",
+      "/demo/image_2.jpg",
+    ],
+  };
+};

@@ -12,7 +12,8 @@ node_modules
 
 # testing
 /coverage
-
+.kiro
+.vscode
 # next.js
 /.next/
 /out/

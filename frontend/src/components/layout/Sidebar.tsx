@@ -13,6 +13,7 @@ import {
   HelpCircle,
   LogOut,
   Menu,
+  Images,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -32,6 +33,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { titleKey: "nav.dashboard", href: "/", icon: LayoutDashboard },
   { titleKey: "nav.upload", href: "/upload", icon: Upload },
+  { titleKey: "nav.groups", href: "/groups", icon: Images },
   { titleKey: "nav.ocean", href: "/ocean-data", icon: Map },
   { titleKey: "nav.chat", href: "/chatbot", icon: MessageSquare },
   { titleKey: "nav.analytics", href: "/analytics", icon: BarChart3 },
