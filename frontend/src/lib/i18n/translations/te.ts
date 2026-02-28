@@ -5,6 +5,7 @@ const te: TranslationStrings = {
     ...en,
     'nav.dashboard': 'డాష్‌బోర్డ్',
     'nav.upload': 'చేప అప్‌లోడ్',
+    'nav.groups': 'చరిత్ర',
     'nav.ocean': 'సముద్ర డేటా',
     'nav.chat': 'AI సహాయకుడు',
     'nav.analytics': 'విశ్లేషణ',

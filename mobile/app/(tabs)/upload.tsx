@@ -479,20 +479,6 @@ export default function UploadScreen() {
                             </View>
                         </Card>
 
-                        {/* Share with Chatbot */}
-                        <Button
-                            label="💬 Share with Chatbot"
-                            onPress={() => {
-                                const summary = `I just caught a ${result.species} (${(result.measurements.weight_g / 1000).toFixed(2)}kg, ${result.measurements.length_mm}mm). It was graded as ${result.qualityGrade} quality. Expected market value is ₹${result.marketEstimate.estimated_value}. Can you give me some advice on storing it or finding a buyer?`;
-                                import('expo-router').then(({ router }) => {
-                                    router.push({ pathname: '/(tabs)/chat', params: { initialMessage: summary } });
-                                });
-                            }}
-                            variant="primary"
-                            fullWidth
-                            style={{ marginBottom: SPACING.md }}
-                        />
-
                         {/* Sustainability */}
                         <Card
                             style={{ ...styles.sustainCard, borderColor: result.isSustainable ? COLORS.success + '40' : COLORS.warning + '40' }}
@@ -507,33 +493,6 @@ export default function UploadScreen() {
                                     : t('upload.warningMsg')}
                             </Text>
                         </Card>
-                    </View>
-                )}
-
-                {/* Debug Outputs */}
-                {result?.debugUrls && (
-                    <View style={styles.debugSection}>
-                        <Text style={styles.debugTitle}>🧪 Debug — ML Model Outputs</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.debugScroll}>
-                            {result.debugUrls.yoloImageUrl && (
-                                <View style={styles.debugImageContainer}>
-                                    <Text style={styles.debugLabel}>YOLO Detection</Text>
-                                    <Image source={{ uri: result.debugUrls.yoloImageUrl }} style={styles.debugImage} resizeMode="contain" />
-                                </View>
-                            )}
-                            {result.debugUrls.cropImageUrl && (
-                                <View style={styles.debugImageContainer}>
-                                    <Text style={styles.debugLabel}>Cropped Fish</Text>
-                                    <Image source={{ uri: result.debugUrls.cropImageUrl }} style={styles.debugImage} resizeMode="contain" />
-                                </View>
-                            )}
-                            {result.debugUrls.gradcamUrl && (
-                                <View style={styles.debugImageContainer}>
-                                    <Text style={styles.debugLabel}>Grad-CAM Heatmap</Text>
-                                    <Image source={{ uri: result.debugUrls.gradcamUrl }} style={styles.debugImage} resizeMode="contain" />
-                                </View>
-                            )}
-                        </ScrollView>
                     </View>
                 )}
             </ScrollView>
@@ -706,11 +665,4 @@ const styles = StyleSheet.create({
         fontFamily: 'monospace',
         marginTop: SPACING.xs,
     },
-
-    debugSection: { marginTop: SPACING.xl, padding: SPACING.md, backgroundColor: COLORS.warning + '10', borderRadius: RADIUS.lg, borderWidth: 1, borderColor: COLORS.warning + '30' },
-    debugTitle: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold, color: COLORS.warning, textTransform: 'uppercase', marginBottom: SPACING.md },
-    debugScroll: { flexDirection: 'row', gap: SPACING.md },
-    debugImageContainer: { marginRight: SPACING.md },
-    debugLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginBottom: SPACING.xs },
-    debugImage: { width: 160, height: 160, borderRadius: RADIUS.md, backgroundColor: 'rgba(0,0,0,0.1)' }
 });

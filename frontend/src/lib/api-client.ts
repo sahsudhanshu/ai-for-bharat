@@ -33,7 +33,7 @@ export interface PresignedUrlResponse {
 
 export interface AnalyzeImageResponse {
     imageId: string;
-    analysisResult: Mock.FishAnalysisResult;
+    analysisResult: Mock.MLAnalysisResponse;
 }
 
 export interface MapMarker {
@@ -92,7 +92,7 @@ export interface ImageRecord {
     userId: string;
     s3Path: string;
     status: "pending" | "processing" | "completed" | "failed";
-    analysisResult?: Mock.FishAnalysisResult;
+    analysisResult?: Mock.MLAnalysisResponse;
     latitude?: number;
     longitude?: number;
     createdAt: string;
@@ -107,6 +107,31 @@ export interface AnalyticsResponse {
     weeklyTrend: { date: string; earnings: number; catches: number }[];
     speciesBreakdown: { name: string; count: number; percentage: number }[];
     qualityDistribution: { grade: string; count: number }[];
+}
+
+// Group-based multi-image types
+export interface GroupPresignedUrlRequest {
+    files: { fileName: string; fileType: string }[];
+}
+
+export interface GroupPresignedUrlResponse {
+    groupId: string;
+    presignedUrls: { index: number; uploadUrl: string; s3Key: string }[];
+}
+
+export interface GroupRecord {
+    groupId: string;
+    userId: string;
+    imageCount: number;
+    s3Keys: string[];
+    status: "pending" | "processing" | "completed" | "partial" | "failed";
+    analysisResult?: Mock.GroupAnalysis;
+    createdAt: string;
+}
+
+export interface GroupListResponse {
+    groups: GroupRecord[];
+    lastKey?: string;
 }
 
 // ── Core fetch helper ─────────────────────────────────────────────────────────
@@ -253,7 +278,7 @@ export function uploadToS3(
  */
 export async function analyzeImage(imageId: string): Promise<AnalyzeImageResponse> {
     if (IS_DEMO_MODE) {
-        const mockResult = await Mock.analyzeCatch(new File([], "demo.jpg"));
+        const mockResult = await Mock.analyzeCatchML();
         return { imageId, analysisResult: mockResult };
     }
     return apiFetch<AnalyzeImageResponse>(ENDPOINTS.analyzeImage(imageId), {
@@ -394,7 +419,199 @@ export async function getAnalytics(): Promise<AnalyticsResponse> {
     return apiFetch<AnalyticsResponse>(ENDPOINTS.getAnalytics);
 }
 
+// ── Group-based Multi-Image API ───────────────────────────────────────────────
+
+/**
+ * Request presigned URLs for multiple images in a group.
+ */
+export async function createGroupPresignedUrls(
+    files: { fileName: string; fileType: string }[]
+): Promise<GroupPresignedUrlResponse> {
+    if (IS_DEMO_MODE) {
+        await delay(400);
+        const groupId = `demo_group_${Date.now()}`;
+        return {
+            groupId,
+            presignedUrls: files.map((_, index) => ({
+                index,
+                uploadUrl: "",
+                s3Key: `groups/${groupId}/image_${index}.jpg`,
+            })),
+        };
+    }
+    
+    // Try real API, fallback to mock if it fails
+    try {
+        const result = await apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
+            method: "POST",
+            body: JSON.stringify({ files }),
+        });
+        console.log('✅ Created presigned URLs for', files.length, 'files');
+        return result;
+    } catch (error) {
+        console.error('❌ Failed to create presigned URLs:', error);
+        // In demo mode, return mock URLs
+        if (IS_DEMO_MODE) {
+            await delay(400);
+            const groupId = `demo_group_${Date.now()}`;
+            return {
+                groupId,
+                presignedUrls: files.map((_, index) => ({
+                    index,
+                    uploadUrl: "",
+                    s3Key: `groups/${groupId}/image_${index}.jpg`,
+                })),
+            };
+        }
+        // Re-throw error if database should be connected
+        throw error;
+    }
+}
+
+/**
+ * Upload multiple files to S3 concurrently.
+ */
+export async function uploadGroupToS3(
+    presignedUrls: { index: number; uploadUrl: string }[],
+    files: File[],
+    onProgress?: (index: number, pct: number) => void
+): Promise<void> {
+    const uploads = presignedUrls.map(({ index, uploadUrl }) => {
+        const file = files[index];
+        if (!file) return Promise.resolve();
+        return uploadToS3(uploadUrl, file, (pct) => onProgress?.(index, pct));
+    });
+    await Promise.all(uploads);
+}
+
+/**
+ * Trigger ML analysis for a group of images.
+ */
+export async function analyzeGroup(groupId: string, imageCount?: number): Promise<{ groupId: string; analysisResult: Mock.GroupAnalysis }> {
+    console.log('🔬 analyzeGroup called for:', groupId, 'imageCount:', imageCount);
+    console.log('🔍 IS_DEMO_MODE:', IS_DEMO_MODE);
+    
+    if (IS_DEMO_MODE) {
+        console.log('📝 Demo mode - generating mock analysis');
+        await delay(2000);
+        const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
+        
+        // Store the group in demo storage so it appears in history
+        const newGroup: GroupRecord = {
+            groupId,
+            userId: "demo_user",
+            imageCount: imageCount || 3,
+            s3Keys: Array.from({ length: imageCount || 3 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
+            status: "completed",
+            analysisResult: mockResult,
+            createdAt: new Date().toISOString(),
+        };
+        console.log('💾 Storing group in demo storage:', newGroup);
+        Mock.addDemoGroup(newGroup);
+        
+        return { groupId, analysisResult: mockResult };
+    }
+    
+    // Call real API - database should handle persistence
+    console.log('🌐 Calling real API for analysis:', `${API_BASE_URL}/groups/${groupId}/analyze`);
+    try {
+        const result = await apiFetch<{ groupId: string; analysisResult: Mock.GroupAnalysis }>(`/groups/${groupId}/analyze`, {
+            method: "POST",
+        });
+        console.log('✅ Analysis completed and saved to database');
+        console.log('📊 Analysis result:', result);
+        return result;
+    } catch (error) {
+        console.error('❌ Analysis API failed:', error);
+        throw error;
+    }
+}
+
+/**
+ * Fetch user's group history from the database.
+ * No mock data - only real database records.
+ */
+export async function getGroups(limit = 20, lastKey?: string): Promise<GroupListResponse> {
+    console.log('🔍 getGroups called, IS_DEMO_MODE:', IS_DEMO_MODE);
+    
+    if (IS_DEMO_MODE) {
+        // In pure demo mode, only show session uploads (no static mocks)
+        console.log('📝 Demo mode - fetching from mock storage');
+        await delay(300);
+        const localData = Mock.getMockGroups();
+        console.log('📦 Mock data returned:', localData);
+        return { groups: localData.groups || [], lastKey: undefined };
+    }
+    
+    // Fetch from real database
+    console.log('🌐 Fetching from real API:', `${API_BASE_URL}/groups`);
+    try {
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (lastKey) params.set("lastKey", lastKey);
+        const apiResponse = await apiFetch<any>(`/groups?${params}`);
+        console.log('✅ API Response:', apiResponse);
+        
+        // Handle different response formats
+        // Backend returns: { success: true, items: [...], lastKey: {...} }
+        // We need: { groups: [...], lastKey: ... }
+        const groups = apiResponse.items || apiResponse.groups || [];
+        const responseLastKey = apiResponse.lastKey;
+        
+        console.log('✅ Fetched', groups.length, 'groups from database');
+        return { groups, lastKey: responseLastKey };
+    } catch (error) {
+        console.error('❌ Database fetch failed:', error);
+        console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
+        // Return empty list if database fails (no mock fallback)
+        return { groups: [], lastKey: undefined };
+    }
+}
+
+/**
+ * Fetch detailed group analysis results.
+ */
+export async function getGroupDetails(groupId: string): Promise<GroupRecord> {
+    if (IS_DEMO_MODE) {
+        await delay(500);
+        return Mock.getMockGroupDetails(groupId);
+    }
+    
+    // Fetch from real database
+    const result = await apiFetch<GroupRecord>(`/groups/${groupId}`);
+    console.log('✅ Fetched group details from database:', groupId);
+    return result;
+}
+
+/**
+ * Delete a group record by groupId.
+ * Removes from both the backend API and local demo storage.
+ */
+export async function deleteGroup(groupId: string): Promise<void> {
+    // Always remove from local storage
+    Mock.removeDemoGroup(groupId);
+
+    if (IS_DEMO_MODE) {
+        await delay(200);
+        return;
+    }
+
+    // Try real API deletion
+    try {
+        await apiFetch(`/groups/${groupId}`, { method: "DELETE" });
+    } catch (error) {
+        console.warn('Real API failed for deleteGroup:', error);
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Get the primary (highest species confidence) crop from an ML analysis response */
+export function getPrimaryCrop(result: Mock.MLAnalysisResponse | undefined): Mock.MLCropResult | null {
+    if (!result?.crops) return null;
+    const entries = Object.values(result.crops);
+    if (entries.length === 0) return null;
+    return entries.sort((a, b) => b.species.confidence - a.species.confidence)[0];
+}
 
 function delay(ms: number) {
     return new Promise<void>((r) => setTimeout(r, ms));

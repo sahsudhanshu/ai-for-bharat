@@ -116,7 +116,6 @@ exports.handler = async (event) => {
 
         if (!hfRes.ok) throw new Error(`HF returned ${hfRes.status}`);
         const hfData = await hfRes.json();
-        console.log("🐟 RAW HF DATA:", JSON.stringify(hfData, null, 2));
 
         const rawCrops = Object.values(hfData?.crops ?? {});
         if (!rawCrops.length) {
@@ -190,7 +189,7 @@ exports.handler = async (event) => {
                 },
             })
         );
-
+        console.log(ok({ imageId, analysisResult }))
         return ok({ imageId, analysisResult });
     } catch (err) {
         console.error("analyzeImage ML call error:", err);

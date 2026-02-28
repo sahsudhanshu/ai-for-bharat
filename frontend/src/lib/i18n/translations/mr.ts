@@ -5,6 +5,7 @@ const mr: TranslationStrings = {
     ...en,
     'nav.dashboard': 'डॅशबोर्ड',
     'nav.upload': 'मासा अपलोड',
+    'nav.groups': 'इतिहास',
     'nav.ocean': 'समुद्र डेटा',
     'nav.chat': 'AI सहाय्यक',
     'nav.analytics': 'विश्लेषण',

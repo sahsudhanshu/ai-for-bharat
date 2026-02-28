@@ -4,6 +4,7 @@ const en: TranslationStrings = {
   // Nav
   'nav.dashboard': 'Dashboard',
   'nav.upload': 'Upload Catch',
+  'nav.groups': 'History',
   'nav.ocean': 'Ocean Data',
   'nav.chat': 'AI Assistant',
   'nav.analytics': 'Analytics',

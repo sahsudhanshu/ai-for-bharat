@@ -4,8 +4,11 @@
   "description": "Node.js Lambda backend for AI-Powered Fisherman's Assistant",
   "main": "index.js",
   "scripts": {
+    "go": "nodemon server.js",
     "start": "node server.js",
     "test": "node test-local.js",
+    "test:pbt": "jest --testMatch='**/*.test.js' --verbose",
+    "test:all": "npm run test && npm run test:pbt",
     "zip": "zip -r function.zip src/ node_modules/ -x '*.test.js'"
   },
   "dependencies": {
@@ -21,5 +24,10 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "fast-check": "^4.5.3",
+    "jest": "^30.2.0",
+    "nodemon": "^3.1.14"
   }
 }

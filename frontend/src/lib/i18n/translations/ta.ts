@@ -6,6 +6,7 @@ const ta: TranslationStrings = {
     ...en,
     'nav.dashboard': 'டாஷ்போர்டு',
     'nav.upload': 'மீன் பதிவேற்றம்',
+    'nav.groups': 'வரலாறு',
     'nav.ocean': 'கடல் தரவு',
     'nav.chat': 'AI உதவியாளர்',
     'nav.analytics': 'பகுப்பாய்வு',

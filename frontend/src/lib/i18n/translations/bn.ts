@@ -3,6 +3,7 @@ import type { TranslationStrings } from '../types';
 const bn: TranslationStrings = {
     'nav.dashboard': 'ড্যাশবোর্ড',
     'nav.upload': 'মাছ আপলোড',
+    'nav.groups': 'ইতিহাস',
     'nav.ocean': 'সমুদ্র ডেটা',
     'nav.chat': 'AI সহায়ক',
     'nav.analytics': 'বিশ্লেষণ',

@@ -4,6 +4,7 @@ const hi: TranslationStrings = {
     // Nav
     'nav.dashboard': 'डैशबोर्ड',
     'nav.upload': 'मछली अपलोड करें',
+    'nav.groups': 'इतिहास',
     'nav.ocean': 'समुद्र डेटा',
     'nav.chat': 'AI सहायक',
     'nav.analytics': 'विश्लेषण',
