@@ -2,14 +2,14 @@ import os
 import uuid
 import cv2
 import torch
+import torch.nn as nn
+from torchvision import models, transforms
+from ultralytics import YOLO 
 import numpy as np
 from PIL import Image
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-import torch.nn as nn
-from torchvision import models, transforms
-from ultralytics import YOLO
 
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.image import show_cam_on_image
@@ -52,12 +52,12 @@ SPECIES_LABELS = {
 
 DISEASE_LABELS = {
     0: "Bacterial Red disease",
-    1: "Bacterial diseases - Aeromoniasis",
-    2: "Bacterial gill disease",
-    3: "Fungal diseases Saprolegniasis",
+    1: "Aeromoniasis",
+    2: "Bacterial Gill Disease",
+    3: "Saprolegniasis",
     4: "Healthy Fish",
-    5: "Parasitic diseases",
-    6: "Viral diseases White tail disease"
+    5: "Parasitic Disease",
+    6: "White Tail Disease"
 }
 
 NUM_SPECIES = len(SPECIES_LABELS)
@@ -117,22 +117,23 @@ def classify(model, pil_img):
         conf, cls = torch.max(probs, 1)
     return int(cls.item()), float(conf.item())
 
-def run_gradcam(model, pil_img, class_idx, image_id):
+def run_gradcam(model, pil_img, class_idx, filename_prefix):
     input_tensor = img_transform(pil_img).unsqueeze(0)
+
     cam = GradCAM(
         model=model,
-        target_layers=[model.layer4[-1]],
-       
+        target_layers=[model.layer4[-1]]
     )
-    targets=[ClassifierOutputTarget(class_idx)]
-    grayscale_cam = cam(input_tensor=input_tensor, targets = targets )[0]
+
+    targets = [ClassifierOutputTarget(class_idx)]
+    grayscale_cam = cam(input_tensor=input_tensor, targets=targets)[0]
 
     rgb = np.array(pil_img).astype(np.float32) / 255.0
     rgb = cv2.resize(rgb, (256, 256))
 
     cam_img = show_cam_on_image(rgb, grayscale_cam, use_rgb=True)
 
-    cam_name = f"{image_id}_gradcam.jpg"
+    cam_name = f"{filename_prefix}.jpg"
     cam_path = os.path.join(GRADCAM_DIR, cam_name)
     cv2.imwrite(cam_path, cv2.cvtColor(cam_img, cv2.COLOR_RGB2BGR))
 
@@ -169,19 +170,25 @@ def predict():
             continue
 
         crop_name = f"{image_id}_{i}.jpg"
-        crop_path = os.path.join(CROP_DIR, crop_name)
-        cv2.imwrite(crop_path, crop)
+        cv2.imwrite(os.path.join(CROP_DIR, crop_name), crop)
 
         pil_crop = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
 
         sp_cls, sp_conf = classify(species_model, pil_crop)
         ds_cls, ds_conf = classify(disease_model, pil_crop)
 
-        gradcam_url = run_gradcam(
+        species_cam = run_gradcam(
             species_model,
             pil_crop,
             sp_cls,
-            f"{image_id}_{i}"
+            f"{image_id}_{i}_species"
+        )
+
+        disease_cam = run_gradcam(
+            disease_model,
+            pil_crop,
+            ds_cls,
+            f"{image_id}_{i}_disease"
         )
 
         cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -191,14 +198,15 @@ def predict():
             "yolo_confidence": float(box.conf[0]),
             "species": {
                 "label": SPECIES_LABELS[sp_cls],
-                "confidence": sp_conf
+                "confidence": sp_conf,
+                "gradcam_url": species_cam
             },
             "disease": {
                 "label": DISEASE_LABELS[ds_cls],
-                "confidence": ds_conf
+                "confidence": ds_conf,
+                "gradcam_url": disease_cam
             },
-            "crop_url": f"/static/crops/{crop_name}",
-            "gradcam_url": gradcam_url
+            "crop_url": f"/static/crops/{crop_name}"
         }
 
     yolo_img_name = f"{image_id}_yolo.jpg"
