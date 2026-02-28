@@ -69,6 +69,7 @@ async def send_chat(
         "messages": [],
         "tool_outputs": [],
     }
+    print(f"DEBUG /chat: Invoking graph with selected_language: '{language}'")
 
     try:
         result = await graph.ainvoke(initial_state)

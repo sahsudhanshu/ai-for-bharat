@@ -19,6 +19,8 @@ import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
 import { useAuth } from '../../lib/auth-context';
 import { useLanguage } from '../../lib/i18n';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useLocalSearchParams } from 'expo-router';
+import * as Speech from 'expo-speech';
 
 interface UIMessage {
     id: string;
@@ -29,7 +31,8 @@ interface UIMessage {
 
 export default function ChatScreen() {
     const { user } = useAuth();
-    const { t, isLoaded } = useLanguage();
+    const { t, locale, isLoaded } = useLanguage();
+    const params = useLocalSearchParams();
 
     const QUICK_ACTIONS = [
         t('chat.actionFishToday'),
@@ -50,11 +53,97 @@ export default function ChatScreen() {
     ]);
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
+    const [isSpeaking, setIsSpeaking] = useState(false);
+    const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+    const [chats, setChats] = useState<{ id: string, title: string }[]>([]);
+    const [showSidebar, setShowSidebar] = useState(false);
+
     const flatListRef = useRef<FlatList>(null);
+    const initialMessageSent = useRef(false);
+
+    useEffect(() => {
+        if (params.initialMessage && !initialMessageSent.current) {
+            initialMessageSent.current = true;
+            // Create a new chat context and send the initial message
+            setCurrentChatId(null);
+            setMessages([]);
+            setTimeout(() => {
+                sendMessage(params.initialMessage as string);
+            }, 500);
+        }
+    }, [params]);
+
+    useEffect(() => {
+        // Load past chats on mount
+        import('../../lib/api-client').then(m => {
+            m.getConversationsList().then(res => {
+                setChats(res.map(c => ({ id: c.conversationId, title: c.title })));
+                if (res.length > 0 && !params.initialMessage) {
+                    loadChat(res[0].conversationId);
+                }
+            }).catch(console.warn);
+        });
+    }, []);
+
+    const speakMessage = (text: string) => {
+        if (isSpeaking) {
+            Speech.stop();
+            setIsSpeaking(false);
+        } else {
+            setIsSpeaking(true);
+            Speech.speak(text, { onDone: () => setIsSpeaking(false), onError: () => setIsSpeaking(false) });
+        }
+    };
+
+    const loadChat = async (chatId: string) => {
+        setCurrentChatId(chatId);
+        setShowSidebar(false);
+        setMessages([]);
+        setIsTyping(true);
+        Speech.stop();
+        setIsSpeaking(false);
+        try {
+            const { getChatHistory } = await import('../../lib/api-client');
+            const history = await getChatHistory(50, chatId);
+            const formatted = history.map(msg => ({
+                id: msg.id,
+                role: msg.role as 'user' | 'assistant',
+                text: msg.text,
+                timestamp: new Date(msg.timestamp)
+            }));
+            setMessages(formatted.length > 0 ? formatted : [{
+                id: 'welcome',
+                role: 'assistant',
+                text: t('chat.welcome'),
+                timestamp: new Date(),
+            }]);
+        } catch (e) {
+            console.warn(e);
+        } finally {
+            setIsTyping(false);
+        }
+    };
+
+    const createNewChat = () => {
+        setCurrentChatId(null);
+        setMessages([{
+            id: 'welcome',
+            role: 'assistant',
+            text: t('chat.welcome'),
+            timestamp: new Date(),
+        }]);
+        setShowSidebar(false);
+        Speech.stop();
+        setIsSpeaking(false);
+    };
 
     const sendMessage = async (text: string) => {
         const trimmed = text.trim();
         if (!trimmed || isTyping) return;
+
+        Speech.stop();
+        setIsSpeaking(false);
+
         setInputText('');
         Keyboard.dismiss();
 
@@ -70,7 +159,29 @@ export default function ChatScreen() {
         setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
         try {
-            const res = await sendChat(trimmed);
+            let targetChatId = currentChatId;
+
+            if (!targetChatId) {
+                try {
+                    const { createConversation } = await import('../../lib/api-client');
+                    const newConv = await createConversation(trimmed.substring(0, 40), locale);
+                    targetChatId = newConv.conversationId;
+                    setCurrentChatId(targetChatId);
+                    if (targetChatId) {
+                        setChats(prev => [{ id: targetChatId as string, title: trimmed.substring(0, 40) }, ...prev]);
+                    }
+                } catch (e) {
+                    console.warn("Failed to explicitly create conversation", e);
+                }
+            }
+
+            const { sendChat } = await import('../../lib/api-client');
+            const res = await sendChat(trimmed, targetChatId ?? undefined, locale);
+
+            if (!targetChatId && res.chatId && !res.chatId.startsWith('demo_')) {
+                setCurrentChatId(res.chatId);
+                setChats(prev => [{ id: res.chatId, title: trimmed }, ...prev]);
+            }
             const botMsg: UIMessage = {
                 id: `bot_${Date.now()}`,
                 role: 'assistant',
@@ -78,6 +189,8 @@ export default function ChatScreen() {
                 timestamp: new Date(res.timestamp),
             };
             setMessages((prev) => [...prev, botMsg]);
+
+            // Optional auto speech: speakMessage(res.response); // Removing auto-TTS for noise control, user can click to play
         } catch {
             setMessages((prev) => [
                 ...prev,
@@ -105,9 +218,16 @@ export default function ChatScreen() {
                 )}
                 <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleBot]}>
                     <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>{item.text}</Text>
-                    <Text style={[styles.bubbleTime, isUser && styles.bubbleTimeUser]}>
-                        {item.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
+                    <View style={styles.bubbleFooter}>
+                        {!isUser && (
+                            <TouchableOpacity onPress={() => speakMessage(item.text)} style={styles.ttsBtn}>
+                                <Ionicons name={isSpeaking ? "volume-mute" : "volume-high"} size={14} color={COLORS.primaryLight} />
+                            </TouchableOpacity>
+                        )}
+                        <Text style={[styles.bubbleTime, isUser && styles.bubbleTimeUser]}>
+                            {item.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                    </View>
                 </View>
                 {isUser && (
                     <View style={[styles.avatar, styles.avatarUser]}>
@@ -127,14 +247,39 @@ export default function ChatScreen() {
                 <View style={styles.headerLeft}>
                     <Text style={styles.headerEmoji}>🤖</Text>
                     <View>
-                        <Text style={styles.headerTitle}>{t('chat.title')}</Text>
+                        <Text style={styles.headerTitle}>{currentChatId ? chats.find(c => c.id === currentChatId)?.title || t('chat.title') : 'New Chat'}</Text>
                         <View style={styles.onlineRow}>
                             <View style={styles.onlineDot} />
                             <Text style={styles.onlineText}>{t('chat.status')}</Text>
                         </View>
                     </View>
                 </View>
+                <TouchableOpacity onPress={() => setShowSidebar(!showSidebar)}>
+                    <Ionicons name="menu" size={28} color={COLORS.textPrimary} />
+                </TouchableOpacity>
             </View>
+
+            {/* Chats Drawer Modal inline */}
+            {showSidebar && (
+                <View style={styles.sidebar}>
+                    <TouchableOpacity style={styles.newChatBtn} onPress={createNewChat}>
+                        <Ionicons name="add" size={20} color="#fff" />
+                        <Text style={styles.newChatText}>New Chat</Text>
+                    </TouchableOpacity>
+                    <ScrollView style={styles.chatListScroll}>
+                        {chats.map(chat => (
+                            <TouchableOpacity
+                                key={chat.id}
+                                style={[styles.chatListItem, currentChatId === chat.id && styles.chatListItemActive]}
+                                onPress={() => loadChat(chat.id)}
+                            >
+                                <Ionicons name="chatbubble-outline" size={16} color={currentChatId === chat.id ? COLORS.primary : COLORS.textMuted} />
+                                <Text style={[styles.chatListText, currentChatId === chat.id && styles.chatListTextActive]} numberOfLines={1}>{chat.title}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
 
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -281,8 +426,10 @@ const styles = StyleSheet.create({
     },
     bubbleText: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary, lineHeight: 22 },
     bubbleTextUser: { color: '#fff' },
-    bubbleTime: { fontSize: FONTS.sizes.xs, color: COLORS.textSubtle, alignSelf: 'flex-end' },
+    bubbleFooter: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', marginTop: 4, gap: SPACING.md },
+    bubbleTime: { fontSize: FONTS.sizes.xs, color: COLORS.textSubtle },
     bubbleTimeUser: { color: 'rgba(255,255,255,0.6)' },
+    ttsBtn: { padding: 2 },
 
     typingRow: {
         flexDirection: 'row',
@@ -376,4 +523,13 @@ const styles = StyleSheet.create({
         marginBottom: 2, // Ensure it stays aligned with the bottom of the input
     },
     sendBtnDisabled: { backgroundColor: COLORS.border },
+
+    sidebar: { backgroundColor: COLORS.bgDark, borderBottomWidth: 1, borderBottomColor: COLORS.border, padding: SPACING.md, maxHeight: 250 },
+    newChatBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary, padding: SPACING.sm, borderRadius: RADIUS.md, gap: SPACING.sm, justifyContent: 'center', marginBottom: SPACING.sm },
+    newChatText: { color: '#fff', fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold },
+    chatListScroll: { flexGrow: 1 },
+    chatListItem: { flexDirection: 'row', alignItems: 'center', padding: SPACING.sm, gap: SPACING.sm, borderRadius: RADIUS.sm },
+    chatListItemActive: { backgroundColor: COLORS.bgCard },
+    chatListText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, flex: 1 },
+    chatListTextActive: { color: COLORS.primaryLight, fontWeight: FONTS.weights.bold },
 });
