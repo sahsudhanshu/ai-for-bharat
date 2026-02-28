@@ -102,7 +102,9 @@
                         "NonKeyAttributes": [
                             "imageId",
                             "userId",
-                            "analysisResult"
+                            "analysisResult",
+                            "latitude",
+                            "longitude"
                         ]
                     }
                 }

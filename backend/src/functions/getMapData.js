@@ -25,12 +25,10 @@ exports.handler = async (event) => {
     const { species, from, to } = event.queryStringParameters || {};
 
     try {
-        let keyCondition = "userId = :uid";
-        const expressionValues = { ":uid": userId };
-        let filterExpression = "attribute_exists(latitude) AND attribute_exists(longitude) AND attribute_type(latitude, :numType) AND attribute_type(longitude, :numType) AND #s = :completed";
+        let keyCondition = "#s = :completed";
+        const expressionValues = { ":completed": "completed", ":numType": "N" };
+        let filterExpression = "attribute_exists(latitude) AND attribute_exists(longitude) AND attribute_type(latitude, :numType) AND attribute_type(longitude, :numType)";
         const expressionNames = { "#s": "status" };
-        expressionValues[":completed"] = "completed";
-        expressionValues[":numType"] = "N";
 
         // Optional date range filter
         if (from && to) {
@@ -48,7 +46,7 @@ exports.handler = async (event) => {
         const result = await ddb.send(
             new QueryCommand({
                 TableName: IMAGES_TABLE,
-                IndexName: "userId-createdAt-index",
+                IndexName: "status-createdAt-index",
                 KeyConditionExpression: keyCondition,
                 FilterExpression: filterExpression,
                 ExpressionAttributeNames: expressionNames,

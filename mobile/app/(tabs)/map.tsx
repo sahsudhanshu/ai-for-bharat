@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View,
     Text,
@@ -9,7 +9,7 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Callout, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Marker, UrlTile, PROVIDER_DEFAULT } from 'react-native-maps';
 import { getMapData } from '../../lib/api-client';
 import type { MapMarker } from '../../lib/api-client';
 import { COLORS, FONTS, SPACING, RADIUS, DEFAULT_MAP_REGION, FISH_SPECIES } from '../../lib/constants';
@@ -23,6 +23,28 @@ const GRADE_COLORS: Record<string, string> = {
     Low: COLORS.error,
 };
 
+// OpenWeatherMap API Key (same as web frontend)
+const OWM_API_KEY = 'fec44e52bbe936720236b2c1d4610750';
+
+const WEATHER_LAYERS = [
+    { id: 'none', label: '🐟 Catches', shortLabel: '🐟' },
+    { id: 'temp_new', label: '🌡️ Temp', shortLabel: '🌡️' },
+    { id: 'wind_new', label: '💨 Wind', shortLabel: '💨' },
+    { id: 'pressure_new', label: '🔵 Pressure', shortLabel: '🔵' },
+    { id: 'clouds_new', label: '☁️ Clouds', shortLabel: '☁️' },
+];
+
+interface TappedWeather {
+    latitude: number;
+    longitude: number;
+    temp?: number;
+    feelsLike?: number;
+    wind?: number;
+    humidity?: number;
+    description?: string;
+    loading: boolean;
+}
+
 export default function MapScreen() {
     const { t, isLoaded } = useLanguage();
     const [markers, setMarkers] = useState<MapMarker[]>([]);
@@ -30,6 +52,8 @@ export default function MapScreen() {
     const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
     const [filterSpecies, setFilterSpecies] = useState(t('map.allSpecies'));
     const [filterModalVisible, setFilterModalVisible] = useState(false);
+    const [activeWeatherLayer, setActiveWeatherLayer] = useState('none');
+    const [tappedWeather, setTappedWeather] = useState<TappedWeather | null>(null);
     const mapRef = useRef<MapView>(null);
 
     useEffect(() => {
@@ -54,7 +78,36 @@ export default function MapScreen() {
         ? markers
         : markers.filter((m) => m.species === filterSpecies);
 
+    // Handle map press to fetch weather at that point
+    const handleMapPress = useCallback(async (e: any) => {
+        const { latitude, longitude } = e.nativeEvent.coordinate;
+        setSelectedMarker(null);
+        setTappedWeather({ latitude, longitude, loading: true });
+        try {
+            const res = await fetch(
+                `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${OWM_API_KEY}&units=metric`
+            );
+            const data = await res.json();
+            setTappedWeather({
+                latitude,
+                longitude,
+                temp: data.main?.temp,
+                feelsLike: data.main?.feels_like,
+                wind: data.wind?.speed,
+                humidity: data.main?.humidity,
+                description: data.weather?.[0]?.description,
+                loading: false,
+            });
+        } catch {
+            setTappedWeather(null);
+        }
+    }, []);
+
     if (!isLoaded) return null;
+
+    const weatherTileUrl = activeWeatherLayer !== 'none'
+        ? `https://tile.openweathermap.org/map/${activeWeatherLayer}/{z}/{x}/{y}.png?appid=${OWM_API_KEY}`
+        : null;
 
     return (
         <SafeAreaView style={styles.safe}>
@@ -73,6 +126,30 @@ export default function MapScreen() {
                 </TouchableOpacity>
             </View>
 
+            {/* Weather Layer Tabs */}
+            <View style={styles.layerTabsContainer}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.layerTabsScroll}>
+                    {WEATHER_LAYERS.map((layer) => (
+                        <TouchableOpacity
+                            key={layer.id}
+                            style={[
+                                styles.layerTab,
+                                activeWeatherLayer === layer.id && styles.layerTabActive,
+                            ]}
+                            onPress={() => setActiveWeatherLayer(layer.id)}
+                            activeOpacity={0.8}
+                        >
+                            <Text style={[
+                                styles.layerTabText,
+                                activeWeatherLayer === layer.id && styles.layerTabTextActive,
+                            ]}>
+                                {layer.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            </View>
+
             {/* Map */}
             <View style={styles.mapContainer}>
                 {loading && (
@@ -88,12 +165,24 @@ export default function MapScreen() {
                     mapType="satellite"
                     showsUserLocation
                     showsCompass
+                    onPress={handleMapPress}
                 >
+                    {/* Weather overlay tiles */}
+                    {weatherTileUrl && (
+                        <UrlTile
+                            urlTemplate={weatherTileUrl}
+                            maximumZ={19}
+                            opacity={1.0}
+                            zIndex={1}
+                        />
+                    )}
+
+                    {/* Catch markers */}
                     {filteredMarkers.map((marker) => (
                         <Marker
                             key={marker.imageId}
                             coordinate={{ latitude: marker.latitude, longitude: marker.longitude }}
-                            onPress={() => setSelectedMarker(marker)}
+                            onPress={() => { setTappedWeather(null); setSelectedMarker(marker); }}
                             pinColor={GRADE_COLORS[marker.qualityGrade ?? 'Standard']}
                         >
                             <View style={[styles.markerDot, { backgroundColor: GRADE_COLORS[marker.qualityGrade ?? 'Standard'] }]}>
@@ -103,6 +192,57 @@ export default function MapScreen() {
                     ))}
                 </MapView>
             </View>
+
+            {/* Tapped Weather Info Sheet */}
+            {tappedWeather && !selectedMarker && (
+                <View style={styles.infoSheet}>
+                    <View style={styles.infoSheetHandle} />
+                    <View style={styles.infoSheetContent}>
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoSpecies}>📍 Weather at Point</Text>
+                            <TouchableOpacity onPress={() => setTappedWeather(null)}>
+                                <Text style={{ color: COLORS.textMuted, fontSize: 18 }}>✕</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.coordText}>
+                            {tappedWeather.latitude.toFixed(4)}°N, {tappedWeather.longitude.toFixed(4)}°E
+                        </Text>
+                        {tappedWeather.loading ? (
+                            <ActivityIndicator size="small" color={COLORS.primaryLight} style={{ marginVertical: SPACING.md }} />
+                        ) : (
+                            <View style={styles.weatherGrid}>
+                                <View style={styles.weatherItem}>
+                                    <Text style={styles.weatherIcon}>🌡️</Text>
+                                    <Text style={styles.weatherLabel}>Temp</Text>
+                                    <Text style={styles.weatherValue}>{tappedWeather.temp?.toFixed(1)}°C</Text>
+                                </View>
+                                <View style={styles.weatherItem}>
+                                    <Text style={styles.weatherIcon}>🤔</Text>
+                                    <Text style={styles.weatherLabel}>Feels Like</Text>
+                                    <Text style={styles.weatherValue}>{tappedWeather.feelsLike?.toFixed(1)}°C</Text>
+                                </View>
+                                <View style={styles.weatherItem}>
+                                    <Text style={styles.weatherIcon}>💨</Text>
+                                    <Text style={styles.weatherLabel}>Wind</Text>
+                                    <Text style={styles.weatherValue}>{tappedWeather.wind} m/s</Text>
+                                </View>
+                                <View style={styles.weatherItem}>
+                                    <Text style={styles.weatherIcon}>💧</Text>
+                                    <Text style={styles.weatherLabel}>Humidity</Text>
+                                    <Text style={styles.weatherValue}>{tappedWeather.humidity}%</Text>
+                                </View>
+                                {tappedWeather.description && (
+                                    <View style={[styles.weatherItem, { minWidth: 140 }]}>
+                                        <Text style={styles.weatherIcon}>⛅</Text>
+                                        <Text style={styles.weatherLabel}>Conditions</Text>
+                                        <Text style={[styles.weatherValue, { textTransform: 'capitalize' }]}>{tappedWeather.description}</Text>
+                                    </View>
+                                )}
+                            </View>
+                        )}
+                    </View>
+                </View>
+            )}
 
             {/* Marker Info Sheet */}
             {selectedMarker && (
@@ -148,27 +288,7 @@ export default function MapScreen() {
                 </View>
             )}
 
-            {/* Fishing Zone Cards */}
-            <View style={styles.zonesSection}>
-                <Text style={styles.zonesTitle}>{t('map.recommendedZones')}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.zonesScroll}>
-                    {[
-                        { zone: 'Zone A', lat: '17°–19°N', species: 'Indian Pomfret', density: t('map.densityHigh'), emoji: '⭐' },
-                        { zone: 'Zone B', lat: '15°–17°N', species: 'Kingfish', density: t('map.densityMedium'), emoji: '🎯' },
-                        { zone: 'Zone C', lat: '11°–14°N', species: 'Yellowfin Tuna', density: t('map.densityHigh'), emoji: '🔥' },
-                    ].map((z) => (
-                        <View key={z.zone} style={styles.zoneCard}>
-                            <Text style={styles.zoneEmoji}>{z.emoji}</Text>
-                            <Text style={styles.zoneName}>{z.zone}</Text>
-                            <Text style={styles.zoneLocation}>{z.lat}</Text>
-                            <Text style={styles.zoneSpecies}>{z.species}</Text>
-                            <Text style={[styles.zoneDensity, { color: z.density === String(t('map.densityHigh')) ? COLORS.success : COLORS.warning }]}>
-                                {z.density}
-                            </Text>
-                        </View>
-                    ))}
-                </ScrollView>
-            </View>
+
 
             {/* Species Filter Modal */}
             <Modal
@@ -217,7 +337,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: SPACING.xl,
-        paddingBottom: SPACING.md,
+        paddingBottom: SPACING.sm,
     },
     title: { fontSize: FONTS.sizes['2xl'], fontWeight: FONTS.weights.bold, color: COLORS.textPrimary },
     subtitle: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted },
@@ -230,6 +350,36 @@ const styles = StyleSheet.create({
         paddingVertical: SPACING.sm,
     },
     filterBtnText: { color: COLORS.textSecondary, fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
+
+    // Weather Layer Tabs
+    layerTabsContainer: {
+        paddingHorizontal: SPACING.md,
+        paddingBottom: SPACING.sm,
+    },
+    layerTabsScroll: {
+        gap: SPACING.sm,
+        paddingHorizontal: SPACING.xs,
+    },
+    layerTab: {
+        backgroundColor: COLORS.bgCard,
+        borderRadius: RADIUS.lg,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        paddingHorizontal: SPACING.md,
+        paddingVertical: SPACING.sm,
+    },
+    layerTabActive: {
+        backgroundColor: COLORS.primaryDark,
+        borderColor: COLORS.primaryLight,
+    },
+    layerTabText: {
+        color: COLORS.textMuted,
+        fontSize: FONTS.sizes.sm,
+        fontWeight: FONTS.weights.semibold,
+    },
+    layerTabTextActive: {
+        color: COLORS.primaryLight,
+    },
 
     mapContainer: { flex: 1, position: 'relative' },
     map: { flex: 1 },
@@ -284,6 +434,30 @@ const styles = StyleSheet.create({
     infoDetailLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginBottom: SPACING.xs },
     infoDetailValue: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary, fontWeight: FONTS.weights.semibold },
     dismissBtn: { alignSelf: 'center' },
+
+    // Weather info styles
+    coordText: {
+        fontSize: FONTS.sizes.xs,
+        color: COLORS.textMuted,
+        fontFamily: 'monospace',
+        marginBottom: SPACING.md,
+    },
+    weatherGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: SPACING.md,
+        marginBottom: SPACING.md,
+    },
+    weatherItem: {
+        backgroundColor: COLORS.bgSurface,
+        borderRadius: RADIUS.md,
+        padding: SPACING.md,
+        minWidth: 90,
+        alignItems: 'center',
+    },
+    weatherIcon: { fontSize: 20, marginBottom: SPACING.xs },
+    weatherLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginBottom: SPACING.xs },
+    weatherValue: { fontSize: FONTS.sizes.base, color: COLORS.textPrimary, fontWeight: FONTS.weights.bold },
 
     zonesSection: { padding: SPACING.xl, paddingTop: SPACING.md },
     zonesTitle: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold, color: COLORS.textMuted, textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: SPACING.md },
