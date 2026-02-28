@@ -24,6 +24,11 @@ node_modules
 .DS_Store
 *.pem
 
+# environment variables — NEVER commit secrets
+.env
+.env.local
+.env.*.local
+
 # debug
 npm-debug.log*
 yarn-debug.log*
