@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   Upload,
   Camera,
@@ -15,6 +15,7 @@ import {
   Info,
   MapPin,
   Loader2,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,23 +31,10 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { FishAnalysisResult } from "@/lib/mock-api";
-import { SPECIES_DATA } from "@/lib/mock-api";
+import { jsPDF } from "jspdf";
+import { getPresignedUrl, uploadToS3, analyzeImage as apiAnalyzeImage, getImages, type ImageRecord } from "@/lib/api-client";
 import { useLanguage } from "@/lib/i18n";
 import CameraModal from "@/components/CameraModal";
-
-const HF_BASE_URL = "https://kyanmahajan-fish-pred.hf.space";
-
-/** Fuzzy-match a resnet_label to our species catalogue for mock fields. */
-function matchSpecies(label: string) {
-  const lower = label.toLowerCase();
-  return (
-    SPECIES_DATA.find(
-      (s) =>
-        lower.includes(s.name.split(" ")[0].toLowerCase()) ||
-        s.name.toLowerCase().includes(lower),
-    ) ?? SPECIES_DATA[0]
-  );
-}
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -67,9 +55,28 @@ export default function UploadPage() {
   const [yoloImageUrl, setYoloImageUrl] = useState<string | null>(null);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [history, setHistory] = useState<ImageRecord[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mobileFileInputRef = useRef<HTMLInputElement>(null);
+  const resultsCardRef = useRef<HTMLDivElement>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setIsLoadingHistory(true);
+      const response = await getImages(10);
+      setHistory(response.items || []);
+    } catch (err) {
+      console.error("Failed to load upload history", err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
 
   // ── Drag & Drop ─────────────────────────────────────────────────────────────
   const handleDrag = useCallback((e: React.DragEvent) => {
@@ -140,24 +147,36 @@ export default function UploadPage() {
     if (!file) return;
 
     try {
-      // ── Step 1: Simulate upload progress while sending to HF ────────────────
       setStep("uploading");
       setUploadProgress(0);
       setScanError(null);
       setResult(null);
 
-      const formData = new FormData();
-      formData.append("image", file);
+      // Step 1: Get presigned URL from backend
+      const { uploadUrl, imageId, locationMapped, locationMapReason } = await getPresignedUrl(
+        file.name,
+        file.type,
+        location?.lat,
+        location?.lng
+      );
 
-      // Animate upload bar while the request is in-flight
-      let pct = 0;
-      const uploadInterval = setInterval(() => {
-        pct = Math.min(pct + 18, 90);
-        setUploadProgress(pct);
-        if (pct >= 90) clearInterval(uploadInterval);
-      }, 150);
+      if (location && locationMapped === false) {
+        const reason = locationMapReason === "location_not_in_ocean"
+          ? "Location is on land. Catch is saved, but it will not be mapped."
+          : locationMapReason === "location_validation_unavailable"
+            ? "Could not validate ocean location. Catch is saved, but it will not be mapped."
+            : "Location could not be mapped to ocean. Catch is saved, but it will not be mapped.";
+        toast.warning(reason);
+      }
 
-      // ── Step 2: Call HF /predict ─────────────────────────────────────────────
+      if (location && locationMapped === true) {
+        toast.success("Ocean location detected. Catch will be mapped on Ocean Data.");
+      }
+
+      // Step 2: Upload image to S3 (or mock upload in demo mode)
+      await uploadToS3(uploadUrl, file, (pct) => setUploadProgress(pct));
+
+      // Step 3: Call backend to trigger ML analysis
       setStep("processing");
       setAnalysisProgress(0);
       const progressInterval = setInterval(() => {
@@ -170,118 +189,93 @@ export default function UploadPage() {
         });
       }, 300);
 
-      const hfResponse = await fetch(`${HF_BASE_URL}/predict`, {
-        method: "POST",
-        body: formData,
-      });
-
-      clearInterval(uploadInterval);
-      setUploadProgress(100);
-
-      if (!hfResponse.ok) throw new Error(`Model error ${hfResponse.status}`);
-      const hfData = await hfResponse.json();
-      console.log("ML API /predict response:", hfData);
+      const response = await apiAnalyzeImage(imageId);
 
       clearInterval(progressInterval);
       setAnalysisProgress(100);
 
-      // ── Step 3: Club same-species crops, use API species + confidence ─────
-      const rawCrops = Object.values(hfData?.crops ?? {}) as {
-        resnet_label: string;
-        resnet_confidence: number;
-        crop_url: string;
-        gradcam_url: string;
-      }[];
+      const analysisResult = response.analysisResult;
 
-      if (!rawCrops.length) {
-        const failMessage = "Fish scan failed, No fish detected.";
-        setStep("error");
-        setResult(null);
+      // Extract debug URLs if the backend returned them
+      if (analysisResult.debugUrls) {
+        setYoloImageUrl(analysisResult.debugUrls.yoloImageUrl);
+        setCropImageUrl(analysisResult.debugUrls.cropImageUrl);
+        setGradcamUrl(analysisResult.debugUrls.gradcamUrl);
+      } else {
         setYoloImageUrl(null);
         setCropImageUrl(null);
         setGradcamUrl(null);
-        setScanError(failMessage);
-        toast.error(failMessage);
-        return;
       }
-
-      // Club duplicates: group by resnet_label, keep max confidence crop
-      const speciesMap = new Map<
-        string,
-        { confidence: number; crop: (typeof rawCrops)[0] }
-      >();
-      for (const crop of rawCrops) {
-        const key = crop.resnet_label.toLowerCase();
-        const existing = speciesMap.get(key);
-        if (!existing || crop.resnet_confidence > existing.confidence) {
-          speciesMap.set(key, { confidence: crop.resnet_confidence, crop });
-        }
-      }
-
-      // Pick the species with highest confidence across all clubbed entries
-      const best = [...speciesMap.values()].reduce((a, b) =>
-        b.confidence > a.confidence ? b : a,
-      );
-      const bestCrop = best.crop;
-      const speciesLabel = bestCrop.resnet_label; // ✅ real from API
-      const confidence = best.confidence; // ✅ real (max) from API
-
-      // Mock the remaining fields using our catalogue
-      const matched = matchSpecies(speciesLabel);
-      const length_mm = matched.minSize + Math.round(Math.random() * 200);
-      const weight_g = Math.round(
-        (length_mm / 1000) ** 3 * 1e6 * (0.012 + Math.random() * 0.004),
-      );
-      const grade: FishAnalysisResult["qualityGrade"] =
-        confidence >= 0.9 ? "Premium" : confidence >= 0.75 ? "Standard" : "Low";
-      const isSustainable = length_mm >= matched.minSize;
-      const estimated_value = Math.round(
-        (weight_g / 1000) * matched.pricePerKg,
-      );
-
-      const analysisResult: FishAnalysisResult = {
-        // ✅ Real from API
-        species: speciesLabel,
-        confidence,
-        // 🔶 Mocked / derived from catalogue
-        scientificName: matched.scientific,
-        qualityGrade: grade,
-        isSustainable,
-        measurements: {
-          length_mm,
-          weight_g,
-          width_mm: Math.round(length_mm * 0.35),
-        },
-        compliance: {
-          is_legal_size: isSustainable,
-          min_legal_size_mm: matched.minSize,
-        },
-        marketEstimate: { price_per_kg: matched.pricePerKg, estimated_value },
-        weightEstimate: weight_g / 1000,
-        weightConfidence: 0.78,
-        marketPriceEstimate: matched.pricePerKg,
-        timestamp: new Date().toISOString(),
-      };
-
-      setYoloImageUrl(
-        hfData?.yolo_image_url
-          ? `${HF_BASE_URL}${hfData.yolo_image_url}`
-          : null,
-      );
-      setCropImageUrl(
-        bestCrop.crop_url ? `${HF_BASE_URL}${bestCrop.crop_url}` : null,
-      );
-      setGradcamUrl(
-        bestCrop.gradcam_url ? `${HF_BASE_URL}${bestCrop.gradcam_url}` : null,
-      );
 
       setResult(analysisResult);
       setStep("done");
+      loadHistory();
       toast.success(t("upload.success"));
     } catch (err) {
       setStep("error");
       toast.error(err instanceof Error ? err.message : t("upload.error"));
     }
+  };
+
+  const exportToPdf = () => {
+    if (!result) return;
+
+    const doc = new jsPDF();
+    const generatedAt = new Date().toLocaleString("en-IN");
+    const weightKg = result.measurements
+      ? (result.measurements.weight_g / 1000).toFixed(2)
+      : result.weightEstimate.toFixed(2);
+    const estimatedValue = result.marketEstimate?.estimated_value ?? Math.round(result.marketPriceEstimate * result.weightEstimate);
+    const sustainability = result.isSustainable ? "Sustainable" : "Limited";
+
+    doc.setFontSize(18);
+    doc.text("OceanAI - Catch Analysis Report", 14, 20);
+
+    doc.setFontSize(11);
+    const lines = [
+      `Generated: ${generatedAt}`,
+      `Species: ${result.species}`,
+      `Scientific Name: ${result.scientificName}`,
+      `Confidence: ${(result.confidence * 100).toFixed(1)}%`,
+      `Weight: ${weightKg} KG`,
+      `Quality: ${result.qualityGrade}`,
+      `Market Price / KG: INR ${result.marketEstimate?.price_per_kg ?? result.marketPriceEstimate}`,
+      `Estimated Value: INR ${estimatedValue}`,
+      `Legal Size: ${result.compliance?.is_legal_size ? "Yes" : "No"}`,
+      `Sustainability: ${sustainability}`,
+    ];
+
+    let cursorY = 34;
+    lines.forEach((line) => {
+      doc.text(line, 14, cursorY);
+      cursorY += 8;
+    });
+
+    doc.save(`oceanai-catch-${Date.now()}.pdf`);
+    toast.success("PDF exported successfully.");
+  };
+
+  const openHistoryResult = (item: ImageRecord) => {
+    if (!item.analysisResult) {
+      toast.error("Analysis is not ready for this upload yet.");
+      return;
+    }
+
+    setResult(item.analysisResult);
+    setStep("done");
+    setScanError(null);
+
+    if (item.analysisResult.debugUrls) {
+      setYoloImageUrl(item.analysisResult.debugUrls.yoloImageUrl);
+      setCropImageUrl(item.analysisResult.debugUrls.cropImageUrl);
+      setGradcamUrl(item.analysisResult.debugUrls.gradcamUrl);
+    } else {
+      setYoloImageUrl(null);
+      setCropImageUrl(null);
+      setGradcamUrl(null);
+    }
+
+    resultsCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const reset = () => {
@@ -515,7 +509,7 @@ export default function UploadPage() {
         </div>
 
         {/* Right Column: Results */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 space-y-6" ref={resultsCardRef}>
           <Card
             className={cn(
               "rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm h-full flex flex-col transition-all duration-500",
@@ -632,7 +626,7 @@ export default function UploadPage() {
                           {result.marketEstimate?.estimated_value ??
                             Math.round(
                               result.marketPriceEstimate *
-                                result.weightEstimate,
+                              result.weightEstimate,
                             )}
                         </p>
                         <p className="text-xs text-muted-foreground">
@@ -703,11 +697,9 @@ export default function UploadPage() {
 
             {result && (
               <CardFooter className="p-6 sm:p-8 pt-0 gap-4">
-                <Button className="flex-1 h-12 sm:h-14 rounded-xl bg-primary font-bold shadow-lg shadow-primary/20">
-                  {t("upload.save")}
-                </Button>
                 <Button
                   variant="outline"
+                  onClick={exportToPdf}
                   className="flex-1 h-12 sm:h-14 rounded-xl border-border font-bold"
                 >
                   {t("upload.export")}
@@ -718,7 +710,9 @@ export default function UploadPage() {
         </div>
       </div>
 
+
       {/* Camera Modal */}
+      
       <CameraModal
         isOpen={showCamera}
         onClose={() => setShowCamera(false)}
@@ -773,6 +767,72 @@ export default function UploadPage() {
           </div>
         </div>
       )}
+      <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+        <CardHeader className="p-6 sm:p-8 pb-3">
+          <CardTitle className="text-xl sm:text-2xl font-bold">Recent Upload History</CardTitle>
+          <CardDescription>Your latest uploads and analysis results from backend</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 sm:p-8 pt-2">
+          {isLoadingHistory ? (
+            <div className="text-sm text-muted-foreground">Loading history...</div>
+          ) : history.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No uploads yet.</div>
+          ) : (
+            <div className="space-y-3">
+              {history.map((item) => (
+                <div key={item.imageId} className="rounded-xl border border-border/60 bg-muted/20 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {item.analysisResult?.debugUrls?.cropImageUrl ? (
+                        <img
+                          src={item.analysisResult.debugUrls.cropImageUrl}
+                          alt={item.analysisResult.species}
+                          className="w-12 h-12 rounded-lg border border-border object-cover"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg border border-border bg-muted/40 flex items-center justify-center text-muted-foreground">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm truncate">
+                          {item.analysisResult?.species ?? "Pending analysis"}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {new Date(item.createdAt).toLocaleString("en-IN")}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="secondary" className="uppercase text-[10px] shrink-0">
+                      {item.status}
+                    </Badge>
+                  </div>
+                  {item.analysisResult && (
+                    <div className="mt-3 text-xs text-muted-foreground grid grid-cols-2 gap-2">
+                      <span>Weight: {(item.analysisResult.measurements?.weight_g ? item.analysisResult.measurements.weight_g / 1000 : item.analysisResult.weightEstimate).toFixed(2)} KG</span>
+                      <span>Quality: {item.analysisResult.qualityGrade}</span>
+                      <span>Confidence: {(item.analysisResult.confidence * 100).toFixed(1)}%</span>
+                      <span>Value: ₹{item.analysisResult.marketEstimate?.estimated_value ?? Math.round(item.analysisResult.marketPriceEstimate * item.analysisResult.weightEstimate)}</span>
+                    </div>
+                  )}
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-lg text-xs"
+                      disabled={!item.analysisResult}
+                      onClick={() => openHistoryResult(item)}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" />
+                      View details
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -94,9 +94,7 @@
             "RequireNumbers": true,
             "RequireSymbols": false
         },
-        "AutoVerifiedAttributes": [
-            "email"
-        ],
+        "AutoVerifiedAttributes": [],
         "UsernameAttributes": [
             "email"
         ],

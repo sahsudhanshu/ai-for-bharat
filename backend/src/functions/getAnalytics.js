@@ -49,9 +49,9 @@ exports.handler = async (event) => {
         // ── Compute stats ─────────────────────────────────────────────────────────
         let totalEarnings = 0;
         let totalWeight = 0;
-        const speciesCounts: Record<string, number> = {};
-        const qualityCounts: Record<string, number> = {};
-        const weeklyMap: Record<string, { earnings: number; catches: number }> = {};
+        const speciesCounts = {};
+        const qualityCounts = {};
+        const weeklyMap = {};
 
         for (const item of items) {
             const ar = item.analysisResult || {};

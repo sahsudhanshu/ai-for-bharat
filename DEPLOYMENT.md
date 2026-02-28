@@ -13,7 +13,6 @@
 ```bash
 aws cognito-idp create-user-pool \
   --pool-name ai-bharat-users \
-  --auto-verified-attributes email \
   --username-attributes email \
   --policies PasswordPolicy="{MinimumLength=8,RequireUppercase=false,RequireLowercase=true,RequireNumbers=true,RequireSymbols=false}" \
   --region ap-south-1
@@ -128,6 +127,58 @@ aws iam put-role-policy \
   --role-name ai-bharat-lambda-role \
   --policy-name ai-bharat-lambda-policy \
   --policy-document file://infrastructure/iam-policies.json
+```
+
+---
+
+## Step 4.1: Disable Cognito Verification Emails (Auto-confirm users)
+
+Create trigger source file at `backend/src/functions/preSignUpAutoConfirm.js`:
+
+```js
+exports.handler = async (event) => {
+  event.response.autoConfirmUser = true;
+  event.response.autoVerifyEmail = true;
+  return event;
+};
+```
+
+Deploy the trigger Lambda:
+
+```bash
+cd backend
+zip -r preSignUpAutoConfirm.zip src/functions/preSignUpAutoConfirm.js
+
+aws lambda create-function \
+  --function-name ai-bharat-preSignUpAutoConfirm \
+  --runtime nodejs20.x \
+  --role arn:aws:iam::<ACCOUNT_ID>:role/ai-bharat-lambda-role \
+  --handler src/functions/preSignUpAutoConfirm.handler \
+  --zip-file fileb://preSignUpAutoConfirm.zip \
+  --timeout 10 \
+  --memory-size 128 \
+  --region ap-south-1
+```
+
+Allow Cognito to invoke the trigger:
+
+```bash
+aws lambda add-permission \
+  --function-name ai-bharat-preSignUpAutoConfirm \
+  --statement-id cognito-presignup-invoke \
+  --action lambda:InvokeFunction \
+  --principal cognito-idp.amazonaws.com \
+  --source-arn arn:aws:cognito-idp:ap-south-1:<ACCOUNT_ID>:userpool/<YOUR_POOL_ID> \
+  --region ap-south-1
+```
+
+Attach trigger to user pool:
+
+```bash
+aws cognito-idp update-user-pool \
+  --user-pool-id <YOUR_POOL_ID> \
+  --lambda-config PreSignUp=arn:aws:lambda:ap-south-1:<ACCOUNT_ID>:function:ai-bharat-preSignUpAutoConfirm \
+  --region ap-south-1
 ```
 
 ---

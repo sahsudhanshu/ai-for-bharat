@@ -30,6 +30,11 @@ export interface FishAnalysisResult {
   weightConfidence: number;
   marketPriceEstimate: number;
   timestamp: string;
+  debugUrls?: {
+    yoloImageUrl: string | null;
+    cropImageUrl: string | null;
+    gradcamUrl: string | null;
+  };
 }
 
 // ── Mock data pools ───────────────────────────────────────────────────────────

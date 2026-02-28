@@ -13,7 +13,7 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8001";
 
 /** Whether the LangGraph agent is available */
-export const IS_AGENT_CONFIGURED = false;
+export const IS_AGENT_CONFIGURED = true;
 
 /** Demo JWT that bypasses Cognito verification on the Lambda side */
 export const DEMO_JWT = "demo_jwt_token_fisherman_001";

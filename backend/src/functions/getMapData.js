@@ -27,9 +27,10 @@ exports.handler = async (event) => {
     try {
         let keyCondition = "userId = :uid";
         const expressionValues = { ":uid": userId };
-        let filterExpression = "attribute_exists(latitude) AND attribute_exists(longitude) AND #s = :completed";
+        let filterExpression = "attribute_exists(latitude) AND attribute_exists(longitude) AND attribute_type(latitude, :numType) AND attribute_type(longitude, :numType) AND #s = :completed";
         const expressionNames = { "#s": "status" };
         expressionValues[":completed"] = "completed";
+        expressionValues[":numType"] = "N";
 
         // Optional date range filter
         if (from && to) {
@@ -66,7 +67,7 @@ exports.handler = async (event) => {
             qualityGrade: item.analysisResult?.qualityGrade,
             weight_g: item.analysisResult?.measurements?.weight_g,
             createdAt: item.createdAt,
-        }));
+        })).filter((item) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude));
 
         return ok({ markers });
     } catch (err) {

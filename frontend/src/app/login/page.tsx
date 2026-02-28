@@ -1,21 +1,20 @@
 "use client"
 
 import React, { useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Fish, Mail, Lock, Eye, EyeOff, ArrowRight, Anchor, Waves } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 export default function LoginPage() {
-    const { login } = useAuth();
+    const { login, register } = useAuth();
     const router = useRouter();
+    const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
@@ -25,24 +24,23 @@ export default function LoginPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!email.trim()) { toast.error("Email is required"); return; }
+        if (!password.trim()) { toast.error("Password is required"); return; }
+        const normalizedEmail = email.trim();
+        const normalizedPassword = password.trim();
         setIsLoading(true);
         try {
-            await login(email, password);
-            toast.success("Welcome back! 🐟");
-            router.push("/");
-        } catch {
-            toast.error("Login failed. Please try again.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleDemo = async () => {
-        setIsLoading(true);
-        try {
-            await login("demo@oceanai.in", "demo123");
-            toast.success("Signed in as demo user 🎣");
-            router.push("/");
+            if (mode === "login") {
+                await login(normalizedEmail, normalizedPassword);
+                toast.success("Welcome back! 🐟");
+                router.push("/");
+            } else {
+                if (!name.trim()) { toast.error("Name is required"); setIsLoading(false); return; }
+                await register(name.trim(), normalizedEmail, normalizedPassword, "");
+                toast.success("Account created! Please sign in.");
+                setMode("login");
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Request failed. Please try again.");
         } finally {
             setIsLoading(false);
         }
@@ -55,7 +53,7 @@ export default function LoginPage() {
                 {/* Decorative circles */}
                 <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full border border-white/5" />
                 <div className="absolute -bottom-16 -left-16 w-64 h-64 rounded-full border border-white/5" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] rounded-full border border-white/5" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-125 h-125 rounded-full border border-white/5" />
                 <svg className="absolute inset-0 w-full h-full opacity-5" viewBox="0 0 800 600">
                     <path d="M0 300 Q200 100 400 300 Q600 500 800 300" stroke="white" fill="none" strokeWidth="2" />
                     <path d="M0 400 Q200 200 400 400 Q600 600 800 400" stroke="white" fill="none" strokeWidth="2" />
@@ -142,7 +140,13 @@ export default function LoginPage() {
                         {mode === "signup" && (
                             <div className="space-y-2">
                                 <Label htmlFor="name" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Full Name</Label>
-                                <Input id="name" placeholder="Ram Mohan" className="h-13 rounded-xl bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 px-4 font-medium" />
+                                <Input
+                                    id="name"
+                                    placeholder="Ram Mohan"
+                                    value={name}
+                                    onChange={(e) => setName(e.target.value)}
+                                    className="h-13 rounded-xl bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 px-4 font-medium"
+                                />
                             </div>
                         )}
                         <div className="space-y-2">
@@ -181,14 +185,6 @@ export default function LoginPage() {
                             </div>
                         </div>
 
-                        {mode === "login" && (
-                            <div className="flex justify-end">
-                                <button type="button" className="text-xs font-bold text-primary hover:underline">
-                                    Forgot password?
-                                </button>
-                            </div>
-                        )}
-
                         <Button
                             type="submit"
                             disabled={isLoading}
@@ -207,24 +203,6 @@ export default function LoginPage() {
                             )}
                         </Button>
                     </form>
-
-                    {/* Divider */}
-                    <div className="flex items-center gap-4">
-                        <div className="flex-1 h-px bg-border" />
-                        <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">or</span>
-                        <div className="flex-1 h-px bg-border" />
-                    </div>
-
-                    {/* Demo Button */}
-                    <Button
-                        variant="outline"
-                        onClick={handleDemo}
-                        disabled={isLoading}
-                        className="w-full h-13 rounded-xl border-border font-bold text-base hover:bg-primary/5 hover:border-primary/30 transition-all"
-                    >
-                        <Fish className="mr-2 w-5 h-5 text-primary" />
-                        Continue as Demo User
-                    </Button>
 
                     <p className="text-center text-xs text-muted-foreground">
                         By continuing, you agree to our{" "}
