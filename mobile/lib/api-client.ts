@@ -48,6 +48,29 @@ export interface SendChatResponse {
     timestamp: string;
 }
 
+export interface Conversation {
+    conversationId: string;
+    title: string;
+    language: string;
+    messageCount: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface ConversationMessage {
+    messageId: string;
+    role: 'user' | 'assistant';
+    content: string;
+    timestamp: string;
+}
+
+export interface UnifiedMessage {
+    id: string;
+    role: 'user' | 'assistant';
+    text: string;
+    timestamp: string;
+}
+
 export interface ImageRecord {
     imageId: string;
     userId: string;
@@ -227,11 +250,18 @@ export async function getMapData(
     return apiFetch(`${ENDPOINTS.getMapData}${query}`);
 }
 
-export async function sendChat(message: string): Promise<SendChatResponse> {
+export async function sendChat(message: string, overrideChatId?: string, language?: string): Promise<SendChatResponse> {
     if (IS_AGENT_CONFIGURED) {
+        if (overrideChatId) {
+            const res = await agentFetch<{ success: boolean; response: { content: string, messageId: string } }>(`/conversations/${overrideChatId}/messages`, {
+                method: 'POST',
+                body: JSON.stringify({ message, language }),
+            });
+            return { chatId: overrideChatId, response: res.response.content, timestamp: new Date().toISOString() };
+        }
         return agentFetch<SendChatResponse>('/chat', {
             method: 'POST',
-            body: JSON.stringify({ message }),
+            body: JSON.stringify({ message, language }),
         });
     }
     if (IS_DEMO_MODE) {
@@ -244,15 +274,62 @@ export async function sendChat(message: string): Promise<SendChatResponse> {
     });
 }
 
-export async function getChatHistory(limit = 30): Promise<Mock.ChatMessage[]> {
+export async function getChatHistory(limit = 30, overrideChatId?: string): Promise<UnifiedMessage[]> {
     if (IS_AGENT_CONFIGURED) {
-        return agentFetch<Mock.ChatMessage[]>(`/chat?limit=${limit}`);
+        if (overrideChatId) {
+            const res = await agentFetch<{ messages: ConversationMessage[] }>(`/conversations/${overrideChatId}/messages?limit=${limit}`);
+            return res.messages.map(m => ({
+                id: m.messageId,
+                role: m.role,
+                text: m.content,
+                timestamp: m.timestamp
+            }));
+        }
+        // Fallback for old /chat enpoint
+        const oldLog = await agentFetch<Mock.ChatMessage[]>(`/chat?limit=${limit}`);
+        return oldLog.map(m => ({
+            id: m.chatId,
+            role: 'assistant',
+            text: m.response,
+            timestamp: m.timestamp
+        }));
     }
     if (IS_DEMO_MODE) {
         await delay(400);
-        return Mock.getMockChatHistory();
+        const mockLog = await Mock.getMockChatHistory();
+        return mockLog.map(m => ({
+            id: m.chatId,
+            role: 'assistant',
+            text: m.response,
+            timestamp: m.timestamp
+        }));
     }
-    return apiFetch<Mock.ChatMessage[]>(`${ENDPOINTS.getChatHistory}?limit=${limit}`);
+    const apiLog = await apiFetch<Mock.ChatMessage[]>(`${ENDPOINTS.getChatHistory}?limit=${limit}`);
+    return apiLog.map(m => ({
+        id: m.chatId,
+        role: 'assistant',
+        text: m.response,
+        timestamp: m.timestamp
+    }));
+}
+
+export async function createConversation(title: string = "New Chat", language: string = "en"): Promise<Conversation> {
+    if (IS_AGENT_CONFIGURED) {
+        const res = await agentFetch<{ conversation: Conversation }>('/conversations', {
+            method: 'POST',
+            body: JSON.stringify({ title, language })
+        });
+        return res.conversation;
+    }
+    return { conversationId: `demo_${Date.now()}`, title, language, messageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+}
+
+export async function getConversationsList(): Promise<Conversation[]> {
+    if (IS_AGENT_CONFIGURED) {
+        const res = await agentFetch<{ conversations: Conversation[] }>('/conversations?limit=20');
+        return res.conversations;
+    }
+    return [];
 }
 
 export async function getAnalytics(): Promise<AnalyticsResponse> {

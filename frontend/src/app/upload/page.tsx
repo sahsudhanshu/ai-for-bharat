@@ -16,7 +16,9 @@ import {
   MapPin,
   Loader2,
   Eye,
+  Bot,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -39,6 +41,7 @@ import CameraModal from "@/components/CameraModal";
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
 export default function UploadPage() {
+  const router = useRouter();
   const { t } = useLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -55,6 +58,7 @@ export default function UploadPage() {
   const [yoloImageUrl, setYoloImageUrl] = useState<string | null>(null);
   const [cropImageUrl, setCropImageUrl] = useState<string | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [currentImageId, setCurrentImageId] = useState<string | null>(null);
   const [history, setHistory] = useState<ImageRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
@@ -159,6 +163,7 @@ export default function UploadPage() {
         location?.lat,
         location?.lng
       );
+      setCurrentImageId(imageId);
 
       if (location && locationMapped === false) {
         const reason = locationMapReason === "location_not_in_ocean"
@@ -262,6 +267,7 @@ export default function UploadPage() {
     }
 
     setResult(item.analysisResult);
+    setCurrentImageId(item.imageId);
     setStep("done");
     setScanError(null);
 
@@ -290,6 +296,7 @@ export default function UploadPage() {
     setYoloImageUrl(null);
     setCropImageUrl(null);
     setScanError(null);
+    setCurrentImageId(null);
   };
 
   const isAnalyzing = step === "uploading" || step === "processing";
@@ -696,13 +703,21 @@ export default function UploadPage() {
             </CardContent>
 
             {result && (
-              <CardFooter className="p-6 sm:p-8 pt-0 gap-4">
+              <CardFooter className="p-6 sm:p-8 pt-0 gap-4 flex-col sm:flex-row">
                 <Button
                   variant="outline"
                   onClick={exportToPdf}
-                  className="flex-1 h-12 sm:h-14 rounded-xl border-border font-bold"
+                  className="flex-1 w-full h-12 sm:h-14 rounded-xl border-border font-bold"
                 >
                   {t("upload.export")}
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => currentImageId && router.push(`/chatbot?analysisId=${currentImageId}`)}
+                  className="flex-1 w-full h-12 sm:h-14 rounded-xl font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-95"
+                >
+                  <Bot className="w-5 h-5 mr-2" />
+                  Ask OceanAI
                 </Button>
               </CardFooter>
             )}
@@ -712,7 +727,7 @@ export default function UploadPage() {
 
 
       {/* Camera Modal */}
-      
+
       <CameraModal
         isOpen={showCamera}
         onClose={() => setShowCamera(false)}
@@ -796,7 +811,11 @@ export default function UploadPage() {
                       )}
                       <div className="min-w-0">
                         <p className="font-semibold text-sm truncate">
-                          {item.analysisResult?.species ?? "Pending analysis"}
+                          {item.status === 'completed' || item.analysisResult
+                            ? (item.analysisResult?.species || "Unknown Species")
+                            : item.status === 'failed'
+                              ? "Analysis Failed"
+                              : "Pending analysis"}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
                           {new Date(item.createdAt).toLocaleString("en-IN")}

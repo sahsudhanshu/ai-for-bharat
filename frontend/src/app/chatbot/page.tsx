@@ -3,16 +3,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Mic, Bot, User, RotateCcw, Download, Info,
-  Waves, Fish, CloudRain, BookOpen, HelpCircle, Plus, Loader2,
+  Waves, Fish, CloudRain, BookOpen, HelpCircle, Plus, Loader2, Volume2,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { sendChat, getChatHistory } from "@/lib/api-client";
+import { sendChat, getChatHistory, getConversationsList, createConversation } from "@/lib/api-client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/i18n";
@@ -25,9 +24,19 @@ interface Message {
   timestamp: Date;
 }
 
+const parseSafeDate = (dateInput: string | Date | undefined): Date => {
+  if (!dateInput) return new Date();
+  let d = new Date(dateInput);
+  if (isNaN(d.getTime()) && typeof dateInput === 'string') {
+    // Backend may have generated a hex string in the ms part, clean it up
+    d = new Date(dateInput.replace(/\.[0-9a-fA-F]{3}Z$/, '.000Z'));
+  }
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
 export default function ChatbotPage() {
   const { user } = useAuth();
-  const { t, speechCode } = useLanguage();
+  const { t, locale, speechCode } = useLanguage();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -39,8 +48,23 @@ export default function ChatbotPage() {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [chats, setChats] = useState<{ id: string, title: string }[]>([]);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const hasInitialized = useRef(false);
+
+  // ── Text To Speech ──────────────────────────────────────────────────────────
+  const handlePlayAudio = (text: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = speechCode || 'en-US';
+      window.speechSynthesis.speak(utterance);
+    } else {
+      toast.error('Text-to-speech is not supported in your browser.');
+    }
+  };
 
   // ── Voice Input ─────────────────────────────────────────────────────────────
   const { isListening, transcript, isSupported: voiceSupported, startListening, stopListening } = useVoiceInput({
@@ -77,36 +101,44 @@ export default function ChatbotPage() {
     "Sustainable net mesh size recommendations for the Konkan coast.",
   ];
 
-  // ── Load chat history on mount ─────────────────────────────────────────────
-  useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const history = await getChatHistory(20);
-        if (history.length > 0) {
-          const historicalMessages: Message[] = history.flatMap((chat) => [
-            {
-              id: `${chat.chatId}_user`,
-              role: 'user' as const,
-              content: chat.message,
-              timestamp: new Date(chat.timestamp),
-            },
-            {
-              id: `${chat.chatId}_ai`,
-              role: 'assistant' as const,
-              content: chat.response,
-              timestamp: new Date(chat.timestamp),
-            },
-          ]);
-          setMessages((prev) => [...historicalMessages, ...prev]);
-        }
-      } catch {
-        // Silently ignore history load errors
-      } finally {
-        setIsLoadingHistory(false);
-      }
-    };
-    loadHistory();
-  }, []);
+
+
+  const loadChat = async (chatId: string) => {
+    setCurrentChatId(chatId);
+    setMessages([]);
+    setIsLoadingHistory(true);
+    try {
+      const history = await getChatHistory(50, chatId);
+      const formatted: Message[] = history.map(msg => ({
+        id: msg.id,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.text,
+        timestamp: parseSafeDate(msg.timestamp)
+      }));
+      setMessages(formatted.length > 0 ? formatted : [{
+        id: 'welcome',
+        role: 'assistant',
+        content: t('chat.welcome'),
+        timestamp: new Date(),
+      }]);
+    } catch {
+      toast.error("Failed to load conversation");
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+
+
+  const createNewChat = () => {
+    setCurrentChatId(null);
+    setMessages([{
+      id: 'welcome',
+      role: 'assistant',
+      content: t('chat.welcome'),
+      timestamp: new Date(),
+    }]);
+  };
 
   // ── Auto-scroll to bottom ──────────────────────────────────────────────────
   useEffect(() => {
@@ -130,12 +162,33 @@ export default function ChatbotPage() {
     setIsTyping(true);
 
     try {
-      const { response, timestamp } = await sendChat(text);
+      let targetChatId = currentChatId;
+
+      // If we are starting a new chat, explicitly create the conversation on the backend
+      if (!targetChatId) {
+        try {
+          const newConv = await createConversation(text.substring(0, 40), locale);
+          targetChatId = newConv.conversationId;
+          setCurrentChatId(targetChatId);
+          setChats(prev => [{ id: newConv.conversationId, title: text.substring(0, 40) }, ...prev]);
+        } catch (e) {
+          console.error("Failed to explicitly create conversation", e);
+        }
+      }
+
+      const res = await sendChat(text, targetChatId ?? undefined, locale);
+
+      // Fallback in case the createConversation step failed or was skipped
+      if (!targetChatId && res.chatId && !res.chatId.startsWith('demo_')) {
+        setCurrentChatId(res.chatId);
+        setChats(prev => [{ id: res.chatId, title: text }, ...prev]);
+      }
+
       const assistantMessage: Message = {
         id: `ai_${Date.now()}`,
         role: 'assistant',
-        content: response,
-        timestamp: new Date(timestamp),
+        content: res.response,
+        timestamp: parseSafeDate(res.timestamp),
       };
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
@@ -144,7 +197,39 @@ export default function ChatbotPage() {
     } finally {
       setIsTyping(false);
     }
-  }, [input, isTyping, t]);
+  }, [input, isTyping, t, currentChatId]);
+
+  // ── Load conversations and History on mount ──────────────────────────────────
+  useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    const init = async () => {
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const analysisId = urlParams.get('analysisId');
+
+        const convList = await getConversationsList();
+        setChats(convList.map(c => ({ id: c.conversationId, title: c.title })));
+
+        if (analysisId) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          setIsLoadingHistory(false);
+          // Wait briefly, then pre-fill and send
+          setTimeout(() => {
+            handleSend(`Look up the details of my catch with Image ID: ${analysisId} and provide advice on its market value and sustainability.`);
+          }, 800);
+        } else if (convList.length > 0) {
+          await loadChat(convList[0].conversationId);
+        } else {
+          setIsLoadingHistory(false);
+        }
+      } catch {
+        setIsLoadingHistory(false);
+      }
+    };
+    init();
+  }, [handleSend]);
 
   // ── Export chat ────────────────────────────────────────────────────────────
   const exportChat = () => {
@@ -161,13 +246,8 @@ export default function ChatbotPage() {
     toast.success(t('chat.exported'));
   };
 
-  const clearChat = () => {
-    setMessages([{
-      id: 'welcome_fresh',
-      role: 'assistant',
-      content: t('chat.cleared'),
-      timestamp: new Date(),
-    }]);
+  const handleClearChat = () => {
+    createNewChat();
   };
 
   const handleMicClick = () => {
@@ -183,7 +263,7 @@ export default function ChatbotPage() {
   };
 
   return (
-    <div className="h-full sm:h-[calc(100vh-140px)] flex flex-col space-y-4 sm:space-y-6">
+    <div className="flex flex-col space-y-4 sm:space-y-6 h-[calc(100dvh-185px)] sm:h-[calc(100dvh-210px)] lg:h-[calc(100dvh-185px)]">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('chat.title')}</h1>
@@ -192,11 +272,11 @@ export default function ChatbotPage() {
         <div className="flex gap-2">
           <Button
             variant="outline"
-            className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-12 text-xs sm:text-sm"
-            onClick={clearChat}
+            className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-12 text-xs sm:text-sm transition-colors hover:bg-primary/5 hover:text-primary"
+            onClick={createNewChat}
           >
-            <RotateCcw className="mr-2 w-4 h-4" />
-            {t('chat.reset')}
+            <Plus className="mr-2 w-4 h-4" />
+            New Chat
           </Button>
           <Button
             variant="outline"
@@ -212,16 +292,14 @@ export default function ChatbotPage() {
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 min-h-0">
         {/* Chat Area */}
         <Card className="lg:col-span-8 rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col h-[500px] sm:h-full overflow-hidden order-1">
-          <ScrollArea className="flex-1 p-4 sm:p-6 lg:p-10" ref={scrollAreaRef}>
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10" ref={scrollAreaRef}>
             <div className="space-y-6 sm:space-y-8 pb-4">
-              {isLoadingHistory && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              {isLoadingHistory ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2 animate-pulse">
                   <Loader2 className="w-3 h-3 animate-spin" />
                   {t('chat.loadingHistory')}
                 </div>
-              )}
-
-              {messages.map((msg) => (
+              ) : messages.map((msg) => (
                 <div
                   key={msg.id}
                   className={cn(
@@ -256,10 +334,19 @@ export default function ChatbotPage() {
                       {msg.content}
                     </div>
                     <div className={cn(
-                      "text-[8px] sm:text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2",
-                      msg.role === 'user' && "text-right"
+                      "flex items-center gap-2 text-[8px] sm:text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2",
+                      msg.role === 'user' ? "justify-end" : "justify-start"
                     )}>
-                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {msg.role === 'assistant' && (
+                        <button
+                          onClick={() => handlePlayAudio(msg.content)}
+                          className="hover:text-primary transition-colors flex items-center gap-1.5"
+                          title="Play Audio"
+                        >
+                          <Volume2 className="w-3 h-3" />
+                        </button>
+                      )}
+                      <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   </div>
                 </div>
@@ -281,7 +368,7 @@ export default function ChatbotPage() {
               )}
               <div ref={bottomRef} />
             </div>
-          </ScrollArea>
+          </div>
 
           {/* Voice listening indicator */}
           {isListening && (
@@ -339,64 +426,61 @@ export default function ChatbotPage() {
             <div className="absolute top-0 right-0 p-6 opacity-5">
               <Bot className="w-16 sm:w-24 h-16 sm:h-24" />
             </div>
-            <div className="relative z-10 space-y-4 sm:space-y-6">
+            <div className="relative z-10 space-y-4 sm:space-y-6 h-full flex flex-col">
               <div className="space-y-1">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('chat.quickActions')}</h3>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">{t('chat.quickActionsDesc')}</p>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-2 sm:gap-3">
-                {QUICK_ACTIONS.map((action, i) => (
-                  <Button
-                    key={i}
-                    variant="outline"
-                    className="h-12 sm:h-14 justify-start gap-3 sm:gap-4 px-4 sm:px-5 rounded-xl sm:rounded-2xl border-border/50 bg-background/30 hover:bg-primary hover:text-white transition-all duration-300 group"
-                    onClick={() => handleSend(action.query)}
-                    disabled={isTyping}
-                  >
-                    <div className="p-1.5 sm:p-2 rounded-lg sm:rounded-xl bg-primary/5 text-primary group-hover:bg-white/20 group-hover:text-white transition-colors">
-                      <action.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                    </div>
-                    <span className="font-bold text-xs sm:text-sm tracking-tight">{action.label}</span>
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          <Card className="rounded-3xl border-none bg-blue-500/5 p-6 flex-1 overflow-hidden">
-            <div className="space-y-6 h-full flex flex-col">
-              <div className="space-y-1">
-                <h3 className="text-sm font-bold uppercase tracking-widest text-blue-500">{t('chat.suggestedTopics')}</h3>
-                <p className="text-xs text-blue-400/80">{t('chat.suggestedTopicsDesc')}</p>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Past Conversations</h3>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">Select a previous chat to resume</p>
               </div>
 
-              <ScrollArea className="flex-1">
-                <div className="space-y-4">
-                  {SUGGESTED_TOPICS.map((topic, i) => (
+              <div className="flex-1 h-0 min-h-0 overflow-y-auto">
+                <div className="space-y-2 pr-4">
+                  {chats.length > 0 ? chats.map((chat) => (
                     <div
-                      key={i}
-                      className="p-4 rounded-xl border border-blue-500/10 bg-white/5 hover:bg-blue-500/10 transition-colors cursor-pointer text-[13px] font-medium leading-relaxed group"
-                      onClick={() => handleSend(topic)}
+                      key={chat.id}
+                      className={cn(
+                        "p-3 rounded-xl border transition-colors cursor-pointer text-xs sm:text-[13px] font-medium leading-relaxed group",
+                        currentChatId === chat.id
+                          ? "bg-primary/20 border-primary/30 text-primary"
+                          : "border-border/50 bg-background/30 hover:bg-primary/5 text-muted-foreground hover:text-primary"
+                      )}
+                      onClick={() => loadChat(chat.id)}
                     >
-                      <div className="flex gap-3">
-                        <Plus className="w-4 h-4 text-blue-500 shrink-0 mt-0.5 group-hover:scale-125 transition-transform" />
-                        {topic}
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <HelpCircle className={cn(
+                          "w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110",
+                          currentChatId === chat.id ? "text-primary" : "text-muted-foreground"
+                        )} />
+                        <span className="truncate whitespace-nowrap overflow-hidden block flex-1">
+                          {chat.title}
+                        </span>
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-xs text-muted-foreground italic px-2">No past chats yet.</p>
+                  )}
                 </div>
-              </ScrollArea>
+              </div>
 
-              <div className="pt-4 border-t border-blue-500/10">
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                  <Info className="w-4 h-4 shrink-0" />
-                  <p className="text-[11px] font-semibold italic">
-                    {t('chat.dataSource')}
-                  </p>
+              <div className="space-y-4 border-t border-border/50 pt-4 mt-auto">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('chat.quickActions')}</h3>
+                <div className="grid grid-cols-1 gap-2">
+                  {QUICK_ACTIONS.slice(0, 3).map((action, i) => (
+                    <Button
+                      key={i}
+                      variant="outline"
+                      className="h-10 justify-start gap-3 px-4 rounded-xl border-border/50 bg-background/30 hover:bg-primary hover:text-white transition-all duration-300 group"
+                      onClick={() => handleSend(action.query)}
+                      disabled={isTyping}
+                    >
+                      <action.icon className="w-3.5 h-3.5" />
+                      <span className="font-bold text-xs tracking-tight truncate">{action.label}</span>
+                    </Button>
+                  ))}
                 </div>
               </div>
             </div>
           </Card>
+
         </div>
       </div>
     </div>

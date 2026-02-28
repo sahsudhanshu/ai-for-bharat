@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from src.config.settings import SHORT_TERM_MESSAGE_LIMIT, BEDROCK_MODEL_ID, BEDROCK_REGION
+from src.config.settings import SHORT_TERM_MESSAGE_LIMIT
 from src.memory.dynamodb_store import (
     get_messages,
     get_long_term_memory,
@@ -21,19 +21,20 @@ from src.memory.dynamodb_store import (
 
 
 async def _call_bedrock_for_text(prompt: str) -> str:
-    """Quick helper to call Bedrock for a short text-generation task. Falls back gracefully."""
+    """Quick helper to call Gemini for a short text-generation task. Falls back gracefully."""
     try:
-        from langchain_aws import ChatBedrock
-        llm = ChatBedrock(
-            model_id=BEDROCK_MODEL_ID,
-            region_name=BEDROCK_REGION,
-            model_kwargs={"max_tokens": 600, "temperature": 0.3},
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-1.5-flash",
+            google_api_key="AIzaSyDfLiU7JiiuUQwbgiMRNyubTt6inGA-0m0",
+            max_output_tokens=600,
+            temperature=0.3,
         )
         resp = await llm.ainvoke([HumanMessage(content=prompt)])
         return resp.content
     except Exception:
-        # Bedrock not available — return a simple fallback
-        return "(Summary unavailable — Bedrock not configured)"
+        # LLM not available — return a simple fallback
+        return "(Summary unavailable — LLM not configured)"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

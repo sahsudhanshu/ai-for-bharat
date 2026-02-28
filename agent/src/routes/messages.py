@@ -59,6 +59,7 @@ async def send_message(
         "messages": [],
         "tool_outputs": [],
     }
+    print(f"DEBUG /messages: Invoking graph with selected_language: '{language}'")
 
     try:
         result = await graph.ainvoke(initial_state)

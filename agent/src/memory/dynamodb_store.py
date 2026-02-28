@@ -106,7 +106,8 @@ def save_message(
     # Use ISO timestamp as sort key (matches table schema: conversationId HASH + timestamp RANGE)
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
     # Append random suffix to avoid collisions within the same second
-    now_iso = now_iso.replace(".000Z", f".{uuid.uuid4().hex[:3]}Z")
+    ms = str(uuid.uuid4().int % 1000).zfill(3)
+    now_iso = now_iso.replace(".000Z", f".{ms}Z")
     item: Dict[str, Any] = {
         "conversationId": conversation_id,
         "messageId": message_id,
@@ -129,12 +130,21 @@ def get_messages(
 ) -> List[Dict[str, Any]]:
     """Get all messages for a conversation, sorted by timestamp."""
     table = dynamodb.Table(MESSAGES_TABLE)
+    
+    # Always query descending (newest first) so we get the most recent `limit` messages
     resp = table.query(
         KeyConditionExpression=Key("conversationId").eq(conversation_id),
-        ScanIndexForward=ascending,
+        ScanIndexForward=False,
         Limit=limit,
     )
-    return resp.get("Items", [])
+    
+    items = resp.get("Items", [])
+    
+    # If the caller wants chronological order, reverse the descending results
+    if ascending:
+        items = items[::-1]
+        
+    return items
 
 
 def get_recent_messages(conversation_id: str) -> List[Dict[str, Any]]:

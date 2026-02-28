@@ -479,6 +479,20 @@ export default function UploadScreen() {
                             </View>
                         </Card>
 
+                        {/* Share with Chatbot */}
+                        <Button
+                            label="💬 Share with Chatbot"
+                            onPress={() => {
+                                const summary = `I just caught a ${result.species} (${(result.measurements.weight_g / 1000).toFixed(2)}kg, ${result.measurements.length_mm}mm). It was graded as ${result.qualityGrade} quality. Expected market value is ₹${result.marketEstimate.estimated_value}. Can you give me some advice on storing it or finding a buyer?`;
+                                import('expo-router').then(({ router }) => {
+                                    router.push({ pathname: '/(tabs)/chat', params: { initialMessage: summary } });
+                                });
+                            }}
+                            variant="primary"
+                            fullWidth
+                            style={{ marginBottom: SPACING.md }}
+                        />
+
                         {/* Sustainability */}
                         <Card
                             style={{ ...styles.sustainCard, borderColor: result.isSustainable ? COLORS.success + '40' : COLORS.warning + '40' }}

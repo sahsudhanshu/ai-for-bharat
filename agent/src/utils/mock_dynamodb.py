@@ -48,13 +48,10 @@ def _extract_condition(condition) -> tuple[str, Any]:
     This peeks into boto3 internal structures — wrapped in try/except for safety.
     """
     try:
-        # condition.expression_values → [key_builder, value_builder]
-        vals = condition.expression_values
-        # key_builder._value is AttributePath; ._path is the list of path components
-        field = vals[0]._value._path[0]
-        # value_builder._value is AttributeValue; ._value holds the actual value
-        value = vals[1]._value._value
-        return field, value
+        vals = condition._values
+        field_name = vals[0].name
+        field_value = vals[1]
+        return field_name, field_value
     except (AttributeError, IndexError, TypeError):
         pass
 
@@ -97,6 +94,39 @@ class MockTable:
         schema = TABLE_SCHEMAS.get(name, {"pk": "id", "sk": None})
         self._pk = schema["pk"]
         self._sk = schema.get("sk")
+
+        # Automatically seed the database with a demonstration conversation if empty
+        if name == "ai-bharat-conversations":
+            import time
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            self._items.append({
+                "conversationId": "demo_conv_999",
+                "userId": "usr_demo_001",
+                "title": "Weather & Catch near Malabar",
+                "language": "en",
+                "messageCount": 2,
+                "createdAt": now,
+                "updatedAt": now,
+            })
+        elif name == "ai-bharat-messages":
+            import time
+            now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
+            self._items.extend([
+                {
+                    "conversationId": "demo_conv_999",
+                    "messageId": "msg_999_1",
+                    "role": "user",
+                    "content": "Is it safe to fish near Malabar coast today?",
+                    "timestamp": now.replace(".000Z", ".111Z")
+                },
+                {
+                    "conversationId": "demo_conv_999",
+                    "messageId": "msg_999_2",
+                    "role": "assistant",
+                    "content": "Yes, the current conditions near Malabar are safe with low winds. Happy fishing!",
+                    "timestamp": now.replace(".000Z", ".222Z")
+                }
+            ])
 
     # ── Write ────────────────────────────────────────────────────────────────
 
