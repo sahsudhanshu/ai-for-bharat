@@ -116,6 +116,7 @@ exports.handler = async (event) => {
 
         if (!hfRes.ok) throw new Error(`HF returned ${hfRes.status}`);
         const hfData = await hfRes.json();
+        console.log("🐟 RAW HF DATA:", JSON.stringify(hfData, null, 2));
 
         const rawCrops = Object.values(hfData?.crops ?? {});
         if (!rawCrops.length) {
@@ -124,10 +125,12 @@ exports.handler = async (event) => {
 
         const speciesMap = new Map();
         for (const crop of rawCrops) {
-            const key = crop?.resnet_label?.toLowerCase() || 'unknown';
+            const speciesData = crop?.species || {};
+            const key = speciesData.label?.toLowerCase() || 'unknown';
+            const cropConfidence = speciesData.confidence || 0;
             const existing = speciesMap.get(key);
-            if (!existing || crop.resnet_confidence > existing.confidence) {
-                speciesMap.set(key, { confidence: crop.resnet_confidence || 0, crop });
+            if (!existing || cropConfidence > existing.confidence) {
+                speciesMap.set(key, { confidence: cropConfidence, crop });
             }
         }
         let best = [...speciesMap.values()][0];
@@ -136,8 +139,9 @@ exports.handler = async (event) => {
         }
 
         const bestCrop = best.crop;
-        const speciesLabel = bestCrop.resnet_label;
-        const confidence = best.confidence;
+        const speciesOption = bestCrop?.species || {};
+        const speciesLabel = speciesOption.label || 'Unknown';
+        const confidence = speciesOption.confidence || 0;
 
         const matched = matchSpecies(speciesLabel);
         const length_mm = matched.minSize + Math.round(Math.random() * 200);
@@ -167,7 +171,7 @@ exports.handler = async (event) => {
             debugUrls: {
                 yoloImageUrl: hfData.yolo_image_url ? `https://kyanmahajan-fish-pred.hf.space${hfData.yolo_image_url}` : null,
                 cropImageUrl: bestCrop.crop_url ? `https://kyanmahajan-fish-pred.hf.space${bestCrop.crop_url}` : null,
-                gradcamUrl: bestCrop.gradcam_url ? `https://kyanmahajan-fish-pred.hf.space${bestCrop.gradcam_url}` : null
+                gradcamUrl: bestCrop?.species?.gradcam_url ? `https://kyanmahajan-fish-pred.hf.space${bestCrop.species.gradcam_url}` : null
             }
         };
 

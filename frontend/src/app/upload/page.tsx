@@ -822,7 +822,12 @@ export default function UploadPage() {
                         </p>
                       </div>
                     </div>
-                    <Badge variant="secondary" className="uppercase text-[10px] shrink-0">
+                    <Badge variant="secondary" className={cn(
+                      "uppercase text-[10px] shrink-0",
+                      item.status === 'failed' ? "bg-red-500 hover:bg-red-600 text-white" :
+                        item.status === 'completed' ? "bg-emerald-500 hover:bg-emerald-600 text-white" :
+                          "bg-amber-500 hover:bg-amber-600 text-white"
+                    )}>
                       {item.status}
                     </Badge>
                   </div>

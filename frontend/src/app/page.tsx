@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import {
   Upload,
@@ -16,10 +16,21 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/lib/i18n";
+import { getAnalytics, AnalyticsResponse } from "@/lib/api-client";
 
 export default function Home() {
   const { t } = useLanguage();
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  React.useEffect(() => {
+    getAnalytics()
+      .then(setAnalytics)
+      .catch((err) => console.error("Failed to load dashboard analytics:", err))
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const features = [
     {
@@ -97,24 +108,38 @@ export default function Home() {
 
       {/* Quick Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        {[
-          { label: t('dash.stat.totalCatch'), value: "1,284 kg", icon: Fish, color: "text-blue-500" },
-          { label: t('dash.stat.avgPrice'), value: "₹420/kg", icon: TrendingUp, color: "text-emerald-500" },
-          { label: t('dash.stat.zones'), value: "12", icon: Anchor, color: "text-amber-500" },
-          { label: t('dash.stat.sustainability'), value: "88/100", icon: Droplets, color: "text-cyan-500" },
-        ].map((stat, i) => (
-          <Card key={i} className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
-            <CardContent className="p-4 sm:p-6 flex items-center gap-3 sm:gap-4">
-              <div className={stat.color + " bg-current/10 p-2.5 sm:p-3 rounded-xl"}>
-                <stat.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-6">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <Skeleton className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl" />
+                <div className="space-y-2">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-6 w-24" />
+                </div>
               </div>
-              <div className="min-w-0">
-                <p className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">{stat.label}</p>
-                <p className="text-lg sm:text-2xl font-bold">{stat.value}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+            </Card>
+          ))
+        ) : (
+          [
+            { label: t('dash.stat.totalCatch'), value: analytics ? `${analytics.totalCatches}` : "—", icon: Fish, color: "text-blue-500" },
+            { label: t('dash.stat.avgPrice'), value: analytics ? `₹${(analytics.totalEarnings / 1000).toFixed(1)}k` : "—", icon: TrendingUp, color: "text-emerald-500" },
+            { label: t('dash.stat.zones'), value: "12", icon: Anchor, color: "text-amber-500" },
+            { label: t('dash.stat.sustainability'), value: "88/100", icon: Droplets, color: "text-cyan-500" },
+          ].map((stat, i) => (
+            <Card key={i} className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm hover:shadow-lg transition-all duration-300">
+              <CardContent className="p-4 sm:p-6 flex items-center gap-3 sm:gap-4">
+                <div className={stat.color + " bg-current/10 p-2.5 sm:p-3 rounded-xl"}>
+                  <stat.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] sm:text-sm font-medium text-muted-foreground truncate">{stat.label}</p>
+                  <p className="text-lg sm:text-2xl font-bold">{stat.value}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
 
       {/* Features Grid */}
