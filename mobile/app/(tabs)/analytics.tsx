@@ -171,24 +171,38 @@ export default function AnalyticsScreen() {
                             <View style={styles.catchLeft}>
                                 <Text style={styles.catchEmoji}>🐟</Text>
                                 <View>
-                                    <Text style={styles.catchSpecies}>{img.analysisResult?.species ?? '—'}</Text>
+                                    <Text style={styles.catchSpecies}>
+                                        {img.status === 'failed' ? 'Analysis Failed' : (img.analysisResult?.species ?? 'Pending')}
+                                    </Text>
                                     <Text style={styles.catchDate}>
                                         {new Date(img.createdAt).toLocaleDateString('en-IN')}
                                     </Text>
                                 </View>
                             </View>
                             <View style={styles.catchRight}>
-                                <View style={[styles.catchGrade, { backgroundColor: GRADE_COLORS[img.analysisResult?.qualityGrade ?? 'Standard'] + '20' }]}>
-                                    <Text style={[styles.catchGradeText, { color: GRADE_COLORS[img.analysisResult?.qualityGrade ?? 'Standard'] }]}>
-                                        {img.analysisResult?.qualityGrade ?? '—'}
-                                    </Text>
-                                </View>
-                                <Text style={styles.catchWeight}>
-                                    {img.analysisResult ? `${(img.analysisResult.measurements.weight_g / 1000).toFixed(2)} kg` : '—'}
-                                </Text>
-                                <Text style={styles.catchValue}>
-                                    {img.analysisResult ? `₹${img.analysisResult.marketEstimate.estimated_value}` : ''}
-                                </Text>
+                                {img.status === 'failed' ? (
+                                    <View style={[styles.catchGrade, { backgroundColor: COLORS.error + '20' }]}>
+                                        <Text style={[styles.catchGradeText, { color: COLORS.error }]}>FAILED</Text>
+                                    </View>
+                                ) : img.analysisResult ? (
+                                    <>
+                                        <View style={[styles.catchGrade, { backgroundColor: GRADE_COLORS[img.analysisResult.qualityGrade ?? 'Standard'] + '20' }]}>
+                                            <Text style={[styles.catchGradeText, { color: GRADE_COLORS[img.analysisResult.qualityGrade ?? 'Standard'] }]}>
+                                                {img.analysisResult.qualityGrade ?? '—'}
+                                            </Text>
+                                        </View>
+                                        <Text style={styles.catchWeight}>
+                                            {(img.analysisResult.measurements?.weight_g ? img.analysisResult.measurements.weight_g / 1000 : img.analysisResult.weightEstimate).toFixed(2)} kg
+                                        </Text>
+                                        <Text style={styles.catchValue}>
+                                            ₹{img.analysisResult.marketEstimate?.estimated_value ?? Math.round(img.analysisResult.marketPriceEstimate * img.analysisResult.weightEstimate)}
+                                        </Text>
+                                    </>
+                                ) : (
+                                    <View style={[styles.catchGrade, { backgroundColor: COLORS.warning + '20' }]}>
+                                        <Text style={[styles.catchGradeText, { color: COLORS.warning }]}>PENDING</Text>
+                                    </View>
+                                )}
                             </View>
                         </View>
                     </Card>
