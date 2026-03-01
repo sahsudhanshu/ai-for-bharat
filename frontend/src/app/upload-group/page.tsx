@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useRef } from "react";
-import { Upload, Trash2, Zap, X, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
+import { Upload, Trash2, Zap, X, CheckCircle2, AlertCircle, Loader2, MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -28,7 +28,29 @@ export default function UploadGroupPage() {
   const [groupId, setGroupId] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<GroupAnalysis | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<"idle" | "requesting" | "granted" | "denied">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Request location on component mount
+  React.useEffect(() => {
+    if ("geolocation" in navigator && locationStatus === "idle") {
+      setLocationStatus("requesting");
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setLocationStatus("granted");
+          toast.success("Location captured for ocean detection");
+        },
+        (error) => {
+          setLocationStatus("denied");
+          console.warn("Location access denied:", error);
+          toast.info("Location not available - analysis will proceed without location data");
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+  }, [locationStatus]);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -72,8 +94,33 @@ export default function UploadGroupPage() {
       setUploadProgress({});
 
       const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
-      const { groupId: newGroupId, presignedUrls } = await createGroupPresignedUrls(fileMetadata);
+      
+      // Include location data if available
+      const { groupId: newGroupId, presignedUrls, locationMapped, locationMapReason } = await createGroupPresignedUrls(
+        fileMetadata,
+        location?.lat,
+        location?.lng
+      );
+      
       setGroupId(newGroupId);
+
+      // Show location mapping result
+      if (locationMapped) {
+        toast.success("✓ Location stored: Ocean location detected and mapped", {
+          duration: 4000,
+        });
+      } else if (locationMapReason) {
+        const reasonMessages: Record<string, string> = {
+          location_not_provided: "⚠ Location not stored: Location permission not granted",
+          location_invalid: "⚠ Location not stored: Invalid coordinates",
+          location_not_in_ocean: "⚠ Location not stored: Not in ocean (land location detected)",
+          location_validation_unavailable: "⚠ Location not stored: Could not validate location",
+        };
+        const message = reasonMessages[locationMapReason] || "⚠ Location not stored";
+        toast.warning(message, {
+          duration: 5000,
+        });
+      }
 
       await uploadGroupToS3(presignedUrls, files, (index, pct) => {
         setUploadProgress(prev => ({ ...prev, [index]: pct }));
@@ -107,7 +154,21 @@ export default function UploadGroupPage() {
     <div className="max-w-6xl mx-auto space-y-6 pb-10">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold">Multi-Image Group Analysis</h1>
-        <p className="text-muted-foreground">Upload multiple fish images for batch analysis</p>
+        <div className="flex items-center gap-4">
+          <p className="text-muted-foreground">Upload multiple fish images for batch analysis</p>
+          {locationStatus === "granted" && location && (
+            <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-500/10 px-3 py-1.5 rounded-full">
+              <MapPin className="w-3 h-3" />
+              <span>Location captured</span>
+            </div>
+          )}
+          {locationStatus === "denied" && (
+            <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-500/10 px-3 py-1.5 rounded-full">
+              <MapPin className="w-3 h-3" />
+              <span>No location</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <Card className="rounded-3xl border-2 border-dashed">
@@ -274,7 +335,7 @@ export default function UploadGroupPage() {
               <Button onClick={reset} variant="outline" className="flex-1">
                 New Analysis
               </Button>
-              <Button onClick={() => groupId && router.push(`/groups/${groupId}`)} className="flex-1">
+              <Button onClick={() => groupId && router.push(`/history/${groupId}`)} className="flex-1">
                 View Details
               </Button>
             </div>

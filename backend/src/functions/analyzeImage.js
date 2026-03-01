@@ -109,7 +109,7 @@ exports.handler = async (event) => {
         const blob = new Blob([buffer], { type: getObj.ContentType || 'image/jpeg' });
         formData.append('image', blob, image.s3Key.split('/').pop() || 'image.jpg');
 
-        const hfRes = await fetch("https://kyanmahajan-fish-pred.hf.space/predict", {
+        const hfRes = await fetch(ML_API_URL, {
             method: "POST",
             body: formData,
         });

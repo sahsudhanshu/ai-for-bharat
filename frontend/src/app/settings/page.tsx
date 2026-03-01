@@ -1,6 +1,6 @@
 "use client"
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   User, 
   Shield, 
@@ -26,7 +26,24 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 
+// TODO: Connect to user settings from ai-bharat-users DynamoDB table
+// Currently using hardcoded demo data until user authentication and settings API is implemented
+
 export default function SettingsPage() {
+  // Hardcoded user data - will be replaced with API call to fetch user settings
+  const [userData, setUserData] = useState({
+    name: "Ram Mohan",
+    email: "ram.mohan@konkanfisher.in",
+    phone: "+91 98765 43210",
+    port: "ratnagiri",
+    role: "Professional Fisher",
+    region: "Konkan Region",
+    avatar: "https://github.com/shadcn.png",
+    language: "english",
+    notifications: true,
+    offlineSync: true,
+  });
+
   return (
     <div className="max-w-4xl mx-auto space-y-12 pb-20">
       <div className="space-y-2">
@@ -47,16 +64,16 @@ export default function SettingsPage() {
               <div className="flex flex-col sm:flex-row items-center gap-8">
                 <div className="relative group">
                   <Avatar className="h-24 w-24 border-4 border-primary/10 shadow-xl">
-                    <AvatarImage src="https://github.com/shadcn.png" />
-                    <AvatarFallback>RM</AvatarFallback>
+                    <AvatarImage src={userData.avatar} />
+                    <AvatarFallback>{userData.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
                   </Avatar>
                   <Button size="icon" className="absolute bottom-0 right-0 h-8 w-8 rounded-full bg-primary shadow-lg group-hover:scale-110 transition-transform">
                     <Camera className="w-4 h-4" />
                   </Button>
                 </div>
                 <div className="space-y-1 text-center sm:text-left">
-                  <h3 className="text-2xl font-bold">Ram Mohan</h3>
-                  <p className="text-muted-foreground font-medium">Professional Fisher • Konkan Region</p>
+                  <h3 className="text-2xl font-bold">{userData.name}</h3>
+                  <p className="text-muted-foreground font-medium">{userData.role} • {userData.region}</p>
                   <div className="flex flex-wrap justify-center sm:justify-start gap-2 pt-2">
                     <Badge className="bg-emerald-500/10 text-emerald-500 border-none px-3 py-1 font-bold text-[10px] uppercase">Verified Account</Badge>
                     <Badge className="bg-primary/10 text-primary border-none px-3 py-1 font-bold text-[10px] uppercase">Premium Tier</Badge>
@@ -70,19 +87,37 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
                 <div className="space-y-2">
                   <Label htmlFor="full-name" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Full Name</Label>
-                  <Input id="full-name" defaultValue="Ram Mohan" className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" />
+                  <Input 
+                    id="full-name" 
+                    value={userData.name}
+                    onChange={(e) => setUserData({...userData, name: e.target.value})}
+                    className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Email Address</Label>
-                  <Input id="email" defaultValue="ram.mohan@konkanfisher.in" className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" />
+                  <Input 
+                    id="email" 
+                    value={userData.email}
+                    onChange={(e) => setUserData({...userData, email: e.target.value})}
+                    className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="phone" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Phone Number</Label>
-                  <Input id="phone" defaultValue="+91 98765 43210" className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" />
+                  <Input 
+                    id="phone" 
+                    value={userData.phone}
+                    onChange={(e) => setUserData({...userData, phone: e.target.value})}
+                    className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="port" className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Primary Fishing Port</Label>
-                  <Select defaultValue="ratnagiri">
+                  <Select 
+                    value={userData.port}
+                    onValueChange={(value) => setUserData({...userData, port: value})}
+                  >
                     <SelectTrigger className="h-12 rounded-xl bg-muted/30 border-none px-4 font-medium">
                       <SelectValue placeholder="Select Port" />
                     </SelectTrigger>
@@ -123,7 +158,10 @@ export default function SettingsPage() {
                     <p className="text-sm text-muted-foreground">Select your preferred Indian language</p>
                   </div>
                 </div>
-                <Select defaultValue="english">
+                <Select 
+                  value={userData.language}
+                  onValueChange={(value) => setUserData({...userData, language: value})}
+                >
                   <SelectTrigger className="w-40 h-10 rounded-lg border-border font-bold text-xs uppercase tracking-widest">
                     <SelectValue />
                   </SelectTrigger>
@@ -147,7 +185,10 @@ export default function SettingsPage() {
                     <p className="text-sm text-muted-foreground">Alerts for market prices and migration changes</p>
                   </div>
                 </div>
-                <Switch defaultChecked />
+                <Switch 
+                  checked={userData.notifications}
+                  onCheckedChange={(checked) => setUserData({...userData, notifications: checked})}
+                />
               </div>
 
               <div className="flex items-center justify-between p-4 rounded-2xl hover:bg-muted/30 transition-colors">
@@ -160,7 +201,10 @@ export default function SettingsPage() {
                     <p className="text-sm text-muted-foreground">Sync data when moving between sea and land</p>
                   </div>
                 </div>
-                <Switch defaultChecked />
+                <Switch 
+                  checked={userData.offlineSync}
+                  onCheckedChange={(checked) => setUserData({...userData, offlineSync: checked})}
+                />
               </div>
             </CardContent>
           </Card>

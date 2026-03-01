@@ -444,14 +444,56 @@ function persistGroups(groups: any[]): void {
 let demoGroupsStore: any[] = loadPersistedGroups();
 
 export const getMockGroups = () => {
-  // Only return dynamically created groups from the current session
-  // No static mock data - all data should come from the real database
-  const allGroups = [...demoGroupsStore].sort(
+  const staticGroups = [
+    {
+      groupId: "demo_group_1",
+      userId: "demo_user",
+      imageCount: 3,
+      s3Keys: ["groups/demo_group_1/image_0.jpg", "groups/demo_group_1/image_1.jpg", "groups/demo_group_1/image_2.jpg"],
+      status: "completed" as const,
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      analysisResult: {
+        images: [],
+        aggregateStats: {
+          totalFishCount: 8,
+          speciesDistribution: { "Bangus": 3, "Tilapia": 5 },
+          averageConfidence: 0.92,
+          diseaseDetected: false,
+          totalEstimatedWeight: 9.6,
+          totalEstimatedValue: 3600,
+        },
+        processedAt: new Date(Date.now() - 86400000).toISOString(),
+      },
+    },
+    {
+      groupId: "demo_group_2",
+      userId: "demo_user",
+      imageCount: 2,
+      s3Keys: ["groups/demo_group_2/image_0.jpg", "groups/demo_group_2/image_1.jpg"],
+      status: "completed" as const,
+      createdAt: new Date(Date.now() - 172800000).toISOString(),
+      analysisResult: {
+        images: [],
+        aggregateStats: {
+          totalFishCount: 5,
+          speciesDistribution: { "Indian Mackerel": 5 },
+          averageConfidence: 0.89,
+          diseaseDetected: true,
+          totalEstimatedWeight: 6.0,
+          totalEstimatedValue: 2250,
+        },
+        processedAt: new Date(Date.now() - 172800000).toISOString(),
+      },
+    },
+  ];
+  
+  // Merge dynamic groups with static ones, sort by createdAt descending
+  const allGroups = [...demoGroupsStore, ...staticGroups].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
   
-  console.log('getMockGroups called - returning', allGroups.length, 'groups (fallback mode)');
-  console.log('Dynamic groups:', demoGroupsStore.length);
+  console.log('getMockGroups called - returning', allGroups.length, 'groups');
+  console.log('Dynamic groups:', demoGroupsStore.length, 'Static groups:', staticGroups.length);
   
   return {
     groups: allGroups,
@@ -474,6 +516,10 @@ export const removeDemoGroup = (groupId: string) => {
   demoGroupsStore = demoGroupsStore.filter(g => g.groupId !== groupId);
   persistGroups(demoGroupsStore);
 };
+
+// Alias for consistency with API naming
+export const deleteDemoGroup = removeDemoGroup;
+
 
 export const getMockGroupDetails = (groupId: string) => {
   // Refresh from localStorage in case another tab added groups

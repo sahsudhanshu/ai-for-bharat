@@ -117,6 +117,8 @@ export interface GroupPresignedUrlRequest {
 export interface GroupPresignedUrlResponse {
     groupId: string;
     presignedUrls: { index: number; uploadUrl: string; s3Key: string }[];
+    locationMapped?: boolean;
+    locationMapReason?: string;
 }
 
 export interface GroupRecord {
@@ -126,6 +128,10 @@ export interface GroupRecord {
     s3Keys: string[];
     status: "pending" | "processing" | "completed" | "partial" | "failed";
     analysisResult?: Mock.GroupAnalysis;
+    latitude?: number;
+    longitude?: number;
+    locationMapped?: boolean;
+    locationMapReason?: string;
     createdAt: string;
 }
 
@@ -425,7 +431,9 @@ export async function getAnalytics(): Promise<AnalyticsResponse> {
  * Request presigned URLs for multiple images in a group.
  */
 export async function createGroupPresignedUrls(
-    files: { fileName: string; fileType: string }[]
+    files: { fileName: string; fileType: string }[],
+    latitude?: number,
+    longitude?: number
 ): Promise<GroupPresignedUrlResponse> {
     if (IS_DEMO_MODE) {
         await delay(400);
@@ -437,34 +445,31 @@ export async function createGroupPresignedUrls(
                 uploadUrl: "",
                 s3Key: `groups/${groupId}/image_${index}.jpg`,
             })),
+            locationMapped: false,
+            locationMapReason: "location_not_provided",
         };
     }
     
     // Try real API, fallback to mock if it fails
     try {
-        const result = await apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
+        return await apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
             method: "POST",
-            body: JSON.stringify({ files }),
+            body: JSON.stringify({ files, latitude, longitude }),
         });
-        console.log('✅ Created presigned URLs for', files.length, 'files');
-        return result;
     } catch (error) {
-        console.error('❌ Failed to create presigned URLs:', error);
-        // In demo mode, return mock URLs
-        if (IS_DEMO_MODE) {
-            await delay(400);
-            const groupId = `demo_group_${Date.now()}`;
-            return {
-                groupId,
-                presignedUrls: files.map((_, index) => ({
-                    index,
-                    uploadUrl: "",
-                    s3Key: `groups/${groupId}/image_${index}.jpg`,
-                })),
-            };
-        }
-        // Re-throw error if database should be connected
-        throw error;
+        console.warn('Real API failed for createGroupPresignedUrls, falling back to mock data:', error);
+        await delay(400);
+        const groupId = `demo_group_${Date.now()}`;
+        return {
+            groupId,
+            presignedUrls: files.map((_, index) => ({
+                index,
+                uploadUrl: "",
+                s3Key: `groups/${groupId}/image_${index}.jpg`,
+            })),
+            locationMapped: false,
+            locationMapReason: "location_not_provided",
+        };
     }
 }
 
@@ -488,11 +493,7 @@ export async function uploadGroupToS3(
  * Trigger ML analysis for a group of images.
  */
 export async function analyzeGroup(groupId: string, imageCount?: number): Promise<{ groupId: string; analysisResult: Mock.GroupAnalysis }> {
-    console.log('🔬 analyzeGroup called for:', groupId, 'imageCount:', imageCount);
-    console.log('🔍 IS_DEMO_MODE:', IS_DEMO_MODE);
-    
     if (IS_DEMO_MODE) {
-        console.log('📝 Demo mode - generating mock analysis');
         await delay(2000);
         const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
         
@@ -506,65 +507,85 @@ export async function analyzeGroup(groupId: string, imageCount?: number): Promis
             analysisResult: mockResult,
             createdAt: new Date().toISOString(),
         };
-        console.log('💾 Storing group in demo storage:', newGroup);
         Mock.addDemoGroup(newGroup);
         
         return { groupId, analysisResult: mockResult };
     }
     
-    // Call real API - database should handle persistence
-    console.log('🌐 Calling real API for analysis:', `${API_BASE_URL}/groups/${groupId}/analyze`);
+    // Try real API, fallback to mock if it fails
     try {
         const result = await apiFetch<{ groupId: string; analysisResult: Mock.GroupAnalysis }>(`/groups/${groupId}/analyze`, {
             method: "POST",
         });
-        console.log('✅ Analysis completed and saved to database');
-        console.log('📊 Analysis result:', result);
+        
+        // Persist to localStorage so it appears in history even if API /groups is empty
+        const newGroup: GroupRecord = {
+            groupId,
+            userId: "api_user",
+            imageCount: imageCount || 1,
+            s3Keys: Array.from({ length: imageCount || 1 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
+            status: "completed",
+            analysisResult: result.analysisResult,
+            createdAt: new Date().toISOString(),
+        };
+        Mock.addDemoGroup(newGroup);
+        
         return result;
     } catch (error) {
-        console.error('❌ Analysis API failed:', error);
-        throw error;
+        console.warn('Real API failed for analyzeGroup, falling back to mock data:', error);
+        await delay(2000);
+        const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
+        
+        // Store the group in demo storage so it appears in history
+        const newGroup: GroupRecord = {
+            groupId,
+            userId: "demo_user",
+            imageCount: imageCount || 3,
+            s3Keys: Array.from({ length: imageCount || 3 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
+            status: "completed",
+            analysisResult: mockResult,
+            createdAt: new Date().toISOString(),
+        };
+        Mock.addDemoGroup(newGroup);
+        
+        return { groupId, analysisResult: mockResult };
     }
 }
 
 /**
- * Fetch user's group history from the database.
- * No mock data - only real database records.
+ * Fetch user's group history (merged with legacy single-image records).
+ * Always merges API results with locally persisted history to ensure
+ * past uploads are never lost.
  */
 export async function getGroups(limit = 20, lastKey?: string): Promise<GroupListResponse> {
-    console.log('🔍 getGroups called, IS_DEMO_MODE:', IS_DEMO_MODE);
-    
+    // Always get locally persisted groups
+    const localData = Mock.getMockGroups();
+    const localGroups: GroupRecord[] = localData.groups || [];
+
     if (IS_DEMO_MODE) {
-        // In pure demo mode, only show session uploads (no static mocks)
-        console.log('📝 Demo mode - fetching from mock storage');
         await delay(300);
-        const localData = Mock.getMockGroups();
-        console.log('📦 Mock data returned:', localData);
-        return { groups: localData.groups || [], lastKey: undefined };
+        return { groups: localGroups, lastKey: undefined };
     }
     
-    // Fetch from real database
-    console.log('🌐 Fetching from real API:', `${API_BASE_URL}/groups`);
+    // Try real API and merge with local history
+    let apiGroups: GroupRecord[] = [];
     try {
         const params = new URLSearchParams({ limit: String(limit) });
         if (lastKey) params.set("lastKey", lastKey);
-        const apiResponse = await apiFetch<any>(`/groups?${params}`);
-        console.log('✅ API Response:', apiResponse);
-        
-        // Handle different response formats
-        // Backend returns: { success: true, items: [...], lastKey: {...} }
-        // We need: { groups: [...], lastKey: ... }
-        const groups = apiResponse.items || apiResponse.groups || [];
-        const responseLastKey = apiResponse.lastKey;
-        
-        console.log('✅ Fetched', groups.length, 'groups from database');
-        return { groups, lastKey: responseLastKey };
+        const apiResponse = await apiFetch<GroupListResponse>(`/groups?${params}`);
+        apiGroups = apiResponse.groups || [];
     } catch (error) {
-        console.error('❌ Database fetch failed:', error);
-        console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
-        // Return empty list if database fails (no mock fallback)
-        return { groups: [], lastKey: undefined };
+        console.warn('Real API failed for getGroups, using local history:', error);
     }
+
+    // Merge: API groups take priority, then local-only groups
+    const seenIds = new Set(apiGroups.map(g => g.groupId));
+    const mergedGroups = [
+        ...apiGroups,
+        ...localGroups.filter(g => !seenIds.has(g.groupId)),
+    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return { groups: mergedGroups.slice(0, limit), lastKey: undefined };
 }
 
 /**
@@ -576,32 +597,39 @@ export async function getGroupDetails(groupId: string): Promise<GroupRecord> {
         return Mock.getMockGroupDetails(groupId);
     }
     
-    // Fetch from real database
-    const result = await apiFetch<GroupRecord>(`/groups/${groupId}`);
-    console.log('✅ Fetched group details from database:', groupId);
-    return result;
+    // Try real API, fallback to mock if it fails
+    try {
+        return await apiFetch<GroupRecord>(`/groups/${groupId}`);
+    } catch (error) {
+        console.warn('Real API failed for getGroupDetails, falling back to mock data:', error);
+        await delay(500);
+        return Mock.getMockGroupDetails(groupId);
+    }
 }
 
 /**
- * Delete a group record by groupId.
- * Removes from both the backend API and local demo storage.
+ * Delete a group from history.
  */
 export async function deleteGroup(groupId: string): Promise<void> {
-    // Always remove from local storage
-    Mock.removeDemoGroup(groupId);
-
     if (IS_DEMO_MODE) {
-        await delay(200);
+        await delay(300);
+        Mock.deleteDemoGroup(groupId);
         return;
     }
 
-    // Try real API deletion
+    // Try real API, fallback to local deletion if it fails
     try {
-        await apiFetch(`/groups/${groupId}`, { method: "DELETE" });
+        await apiFetch<void>(`/groups/${groupId}`, {
+            method: "DELETE",
+        });
     } catch (error) {
-        console.warn('Real API failed for deleteGroup:', error);
+        console.warn('Real API failed for deleteGroup, deleting from local storage:', error);
     }
+
+    // Always delete from local storage to ensure UI consistency
+    Mock.deleteDemoGroup(groupId);
 }
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

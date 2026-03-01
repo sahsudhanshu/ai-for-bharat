@@ -44,14 +44,13 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { MLAnalysisResponse, MockCropSupplement } from "@/lib/mock-api";
-import { generateMockSupplement } from "@/lib/mock-api";
+import { generateMockSupplement, removeDemoGroup } from "@/lib/mock-api";
 import { jsPDF } from "jspdf";
 import {
   createGroupPresignedUrls,
   uploadGroupToS3,
   analyzeGroup,
   getGroups,
-  deleteGroup,
   getPrimaryCrop,
   type GroupRecord,
 } from "@/lib/api-client";
@@ -64,33 +63,29 @@ type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 export default function UploadPage() {
   const router = useRouter();
   const { t } = useLanguage();
-
+  
   // Multi-file state
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState(0);
-
+  
   // Upload & analysis state
   const [step, setStep] = useState<UploadStep>("idle");
-  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>(
-    {},
-  );
+  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
   const [analysisProgress, setAnalysisProgress] = useState(0);
-
+  
   // Results state
   const [mlResults, setMlResults] = useState<MLAnalysisResponse[]>([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(0);
-
+  
   // UI state
   const [dragActive, setDragActive] = useState(false);
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
-    null,
-  );
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const [expandedCrops, setExpandedCrops] = useState<Set<string>>(new Set());
-
+  
   // History state
   const [history, setHistory] = useState<GroupRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -112,11 +107,15 @@ export default function UploadPage() {
     return supplements;
   }, [currentMlResult]);
 
+  const YOLO_CONFIDENCE_THRESHOLD = 0.30;
+
   const cropEntries = useMemo(() => {
     if (!currentMlResult?.crops) return [];
-    return Object.entries(currentMlResult.crops).sort(
-      (a, b) => b[1].species.confidence - a[1].species.confidence,
-    );
+    return Object.entries(currentMlResult.crops)
+      .filter(([, crop]) => crop.yolo_confidence >= YOLO_CONFIDENCE_THRESHOLD)
+      .sort(
+        (a, b) => b[1].species.confidence - a[1].species.confidence,
+      );
   }, [currentMlResult]);
 
   const toggleCropExpand = (key: string) => {
@@ -131,16 +130,12 @@ export default function UploadPage() {
   const loadHistory = useCallback(async () => {
     try {
       setIsLoadingHistory(true);
-      console.log("🔄 Loading history...");
       const response = await getGroups(10);
-      console.log("📦 History response:", response);
-      const groups = response?.groups || (response as any)?.items || [];
-      console.log("📊 Number of groups:", groups.length);
-      console.log("📋 Groups array:", groups);
-      setHistory(groups);
+      console.log('History loaded:', response);
+      console.log('Number of groups:', response.groups?.length);
+      setHistory(response.groups || []);
     } catch (err) {
-      console.error("❌ Failed to load upload history:", err);
-      setHistory([]);
+      console.error("Failed to load upload history", err);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -175,7 +170,7 @@ export default function UploadPage() {
   }, []);
 
   const handleFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter((f) => f.type.startsWith("image/"));
+    const validFiles = newFiles.filter(f => f.type.startsWith("image/"));
     if (validFiles.length !== newFiles.length) {
       toast.error("Some files were skipped (only images allowed)");
     }
@@ -184,12 +179,11 @@ export default function UploadPage() {
       return;
     }
 
-    setFiles((prev) => [...prev, ...validFiles]);
-
-    validFiles.forEach((file) => {
+    setFiles(prev => [...prev, ...validFiles]);
+    
+    validFiles.forEach(file => {
       const reader = new FileReader();
-      reader.onload = () =>
-        setPreviews((prev) => [...prev, reader.result as string]);
+      reader.onload = () => setPreviews(prev => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
 
@@ -200,21 +194,20 @@ export default function UploadPage() {
 
     if ("geolocation" in navigator && files.length === 0) {
       navigator.geolocation.getCurrentPosition(
-        (pos) =>
-          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => setLocation(null),
       );
     }
   };
 
   const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-    setPreviews((prev) => prev.filter((_, i) => i !== index));
-
+    setFiles(prev => prev.filter((_, i) => i !== index));
+    setPreviews(prev => prev.filter((_, i) => i !== index));
+    
     if (selectedPreviewIndex >= files.length - 1) {
       setSelectedPreviewIndex(Math.max(0, files.length - 2));
     } else if (selectedPreviewIndex > index) {
-      setSelectedPreviewIndex((prev) => prev - 1);
+      setSelectedPreviewIndex(prev => prev - 1);
     }
   };
 
@@ -253,17 +246,13 @@ export default function UploadPage() {
       setCurrentResultIndex(0);
 
       // Create group presigned URLs
-      const fileMetadata = files.map((f) => ({
-        fileName: f.name,
-        fileType: f.type,
-      }));
-      const { groupId, presignedUrls } =
-        await createGroupPresignedUrls(fileMetadata);
+      const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
+      const { groupId, presignedUrls } = await createGroupPresignedUrls(fileMetadata);
       setCurrentGroupId(groupId);
 
       // Upload all files to S3
       await uploadGroupToS3(presignedUrls, files, (index, pct) => {
-        setUploadProgress((prev) => ({ ...prev, [index]: pct }));
+        setUploadProgress(prev => ({ ...prev, [index]: pct }));
       });
 
       // Analyze group
@@ -285,9 +274,9 @@ export default function UploadPage() {
       setAnalysisProgress(100);
 
       // Debug: Log the analysis result structure
-      console.log("Analysis Result:", analysisResult);
-      console.log("Images in result:", analysisResult.images);
-      console.log("Number of images:", analysisResult.images.length);
+      console.log('Analysis Result:', analysisResult);
+      console.log('Images in result:', analysisResult.images);
+      console.log('Number of images:', analysisResult.images.length);
 
       // The images array already contains the ML analysis results
       // Each image has: { imageIndex, s3Key, crops, yolo_image_url }
@@ -295,14 +284,12 @@ export default function UploadPage() {
       setMlResults(analysisResult.images as any);
       setStep("done");
       setExpandedCrops(new Set());
-
+      
       // Reload history to show the new upload
       await loadHistory();
-
+      
       const totalFish = analysisResult.aggregateStats.totalFishCount;
-      toast.success(
-        `Analysis complete! ${totalFish} fish detected across ${files.length} images.`,
-      );
+      toast.success(`Analysis complete! ${totalFish} fish detected across ${files.length} images.`);
     } catch (err) {
       setStep("error");
       toast.error(err instanceof Error ? err.message : t("upload.error"));
@@ -335,16 +322,12 @@ export default function UploadPage() {
       }
 
       doc.setFontSize(14);
-      doc.text(
-        `Image ${imgIdx + 1} - ${cropList.length} fish detected`,
-        14,
-        cursorY,
-      );
+      doc.text(`Image ${imgIdx + 1} - ${cropList.length} fish detected`, 14, cursorY);
       cursorY += 10;
 
       cropList.forEach(([key, crop], idx) => {
         const supplement = generateMockSupplement(crop.species.label, idx);
-
+        
         if (cursorY > 260) {
           doc.addPage();
           cursorY = 20;
@@ -442,9 +425,7 @@ export default function UploadPage() {
                     <Upload className="w-8 h-8 sm:w-10 sm:h-10" />
                   </div>
                   <h3 className="text-lg sm:text-xl font-bold mb-2">
-                    {dragActive
-                      ? t("upload.dropHere")
-                      : "Upload Single or Multiple Images"}
+                    {dragActive ? t("upload.dropHere") : "Upload Single or Multiple Images"}
                   </h3>
                   <p className="text-xs sm:text-sm text-muted-foreground mb-6 sm:mb-8 max-w-xs mx-auto">
                     Select one or more fish images for AI analysis
@@ -475,7 +456,7 @@ export default function UploadPage() {
                     onChange={(e) => {
                       if (e.target.files) {
                         handleFiles(Array.from(e.target.files));
-                        e.target.value = ""; // Reset input to allow selecting same files again
+                        e.target.value = ''; // Reset input to allow selecting same files again
                       }
                     }}
                     accept="image/*"
@@ -488,7 +469,7 @@ export default function UploadPage() {
                     onChange={(e) => {
                       if (e.target.files) {
                         handleFiles(Array.from(e.target.files));
-                        e.target.value = ""; // Reset input to allow selecting same files again
+                        e.target.value = ''; // Reset input to allow selecting same files again
                       }
                     }}
                     accept="image/*"
@@ -541,9 +522,7 @@ export default function UploadPage() {
                   {/* Preview Grid */}
                   <div className="p-4 border-t border-border bg-muted/20">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-bold">
-                        {files.length} Images Selected
-                      </h4>
+                      <h4 className="text-sm font-bold">{files.length} Images Selected</h4>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -562,7 +541,7 @@ export default function UploadPage() {
                             "relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all",
                             selectedPreviewIndex === idx
                               ? "border-primary ring-2 ring-primary/20"
-                              : "border-transparent hover:border-primary/50",
+                              : "border-transparent hover:border-primary/50"
                           )}
                           onClick={() => setSelectedPreviewIndex(idx)}
                         >
@@ -582,14 +561,13 @@ export default function UploadPage() {
                               <X className="w-3 h-3" />
                             </button>
                           )}
-                          {step === "uploading" &&
-                            uploadProgress[idx] !== undefined && (
-                              <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">
-                                  {uploadProgress[idx]}%
-                                </span>
-                              </div>
-                            )}
+                          {step === "uploading" && uploadProgress[idx] !== undefined && (
+                            <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                              <span className="text-white text-xs font-bold">
+                                {uploadProgress[idx]}%
+                              </span>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -603,8 +581,7 @@ export default function UploadPage() {
                 <div className="flex items-center gap-3 text-xs sm:text-sm text-muted-foreground">
                   <FileText className="w-4 h-4" />
                   <span>
-                    {files.length} {files.length === 1 ? "image" : "images"}{" "}
-                    ready
+                    {files.length} {files.length === 1 ? "image" : "images"} ready
                   </span>
                 </div>
                 <Button
@@ -624,8 +601,7 @@ export default function UploadPage() {
               <div className="flex justify-between items-center text-sm font-medium">
                 <span className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                  Uploading {files.length}{" "}
-                  {files.length === 1 ? "image" : "images"}
+                  Uploading {files.length} {files.length === 1 ? "image" : "images"}
                 </span>
                 <span className="text-primary font-bold">
                   {overallUploadProgress}%
@@ -704,16 +680,14 @@ export default function UploadPage() {
                   </Badge>
                 )}
               </div>
-
+              
               {/* Image Navigation */}
               {mlResults.length > 1 && (
                 <div className="mt-4 flex items-center justify-between gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      setCurrentResultIndex((prev) => Math.max(0, prev - 1))
-                    }
+                    onClick={() => setCurrentResultIndex(prev => Math.max(0, prev - 1))}
                     disabled={currentResultIndex === 0}
                     className="rounded-lg"
                   >
@@ -725,11 +699,7 @@ export default function UploadPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() =>
-                      setCurrentResultIndex((prev) =>
-                        Math.min(mlResults.length - 1, prev + 1),
-                      )
-                    }
+                    onClick={() => setCurrentResultIndex(prev => Math.min(mlResults.length - 1, prev + 1))}
                     disabled={currentResultIndex === mlResults.length - 1}
                     className="rounded-lg"
                   >
@@ -740,7 +710,7 @@ export default function UploadPage() {
             </CardHeader>
 
             <CardContent className="p-6 sm:p-8 pt-0 flex-1 space-y-6 overflow-y-auto max-h-[calc(100vh-200px)]">
-              {currentMlResult ? (
+              {currentMlResult && cropEntries.length > 0 ? (
                 <>
                   {/* YOLO Detection Overview */}
                   {currentMlResult.yolo_image_url && (
@@ -1005,6 +975,14 @@ export default function UploadPage() {
                     })}
                   </div>
                 </>
+              ) : currentMlResult && cropEntries.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-50">
+                  <BarChart2 className="w-16 h-16 mb-6" />
+                  <p className="text-lg font-bold">No Fish Detected</p>
+                  <p className="text-sm max-w-xs mx-auto text-muted-foreground">
+                    No fish met the {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}% YOLO detection confidence threshold in this image.
+                  </p>
+                </div>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-30">
                   <BarChart2 className="w-16 h-16 mb-6" />
@@ -1021,23 +999,38 @@ export default function UploadPage() {
             </CardContent>
 
             {hasResults && (
-              <CardFooter className="p-6 sm:p-8 pt-0 gap-4 flex-col sm:flex-row">
+              <CardFooter className="p-6 sm:p-8 pt-0 gap-4 flex-col">
+                <div className="flex gap-4 w-full flex-col sm:flex-row">
+                  <Button
+                    variant="outline"
+                    onClick={exportToPdf}
+                    className="flex-1 w-full h-12 sm:h-14 rounded-xl border-border font-bold"
+                  >
+                    {t("upload.export")}
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() =>
+                      currentGroupId &&
+                      router.push(`/history/${currentGroupId}`)
+                    }
+                    className="flex-1 w-full h-12 sm:h-14 rounded-xl font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-95"
+                  >
+                    <Eye className="w-5 h-5 mr-2" />
+                    View Full Report
+                  </Button>
+                </div>
                 <Button
                   variant="outline"
-                  onClick={exportToPdf}
-                  className="flex-1 w-full h-12 sm:h-14 rounded-xl border-border font-bold"
+                  onClick={() => {
+                    if (!currentGroupId) return;
+                    const prompt = `Please fetch the details of group ID "${currentGroupId}" and provide essential information including species identified, health/disease status, estimated weight, quality grades, and market value summary based on my latest scan.`;
+                    router.push(`/chatbot?prefill=${encodeURIComponent(prompt)}`);
+                  }}
+                  className="w-full h-12 sm:h-14 rounded-xl font-bold border-primary/30 text-primary hover:bg-primary/5 transition-all active:scale-95"
                 >
-                  {t("upload.export")}
-                </Button>
-                <Button
-                  variant="default"
-                  onClick={() =>
-                    currentGroupId && router.push(`/groups/${currentGroupId}`)
-                  }
-                  className="flex-1 w-full h-12 sm:h-14 rounded-xl font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-95"
-                >
-                  <Eye className="w-5 h-5 mr-2" />
-                  View Full Report
+                  <Bot className="w-5 h-5 mr-2" />
+                  Ask AI Agent
                 </Button>
               </CardFooter>
             )}
@@ -1058,7 +1051,9 @@ export default function UploadPage() {
           <CardTitle className="text-xl sm:text-2xl font-bold">
             Recent Upload History
           </CardTitle>
-          <CardDescription>Your latest group analysis results</CardDescription>
+          <CardDescription>
+            Your latest group analysis results
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-6 sm:p-8 pt-2">
           {isLoadingHistory ? (
@@ -1072,12 +1067,7 @@ export default function UploadPage() {
               {history.map((group) => {
                 const stats = group.analysisResult?.aggregateStats;
                 const fishCount = stats?.totalFishCount ?? 0;
-                const speciesCount = stats?.speciesDistribution
-                  ? Object.keys(stats.speciesDistribution).length
-                  : 0;
-                const topSpecies = stats?.speciesDistribution
-                  ? Object.keys(stats.speciesDistribution)[0]
-                  : null;
+                const topSpecies = stats ? Object.keys(stats.speciesDistribution)[0] : null;
                 const hasDisease = stats?.diseaseDetected ?? false;
 
                 return (
@@ -1092,8 +1082,7 @@ export default function UploadPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-sm truncate">
-                            {group.imageCount}{" "}
-                            {group.imageCount === 1 ? "Image" : "Images"}
+                            {group.imageCount} {group.imageCount === 1 ? "Image" : "Images"}
                             {fishCount > 0 && (
                               <span className="text-xs text-muted-foreground ml-1.5">
                                 · {fishCount} fish
@@ -1124,13 +1113,9 @@ export default function UploadPage() {
                     {stats && (
                       <div className="mt-3 text-xs text-muted-foreground grid grid-cols-2 gap-2">
                         <span>Fish: {fishCount}</span>
-                        <span>Species: {speciesCount}</span>
+                        <span>Species: {Object.keys(stats.speciesDistribution).length}</span>
                         {topSpecies && <span>Top: {topSpecies}</span>}
-                        <span
-                          className={
-                            hasDisease ? "text-amber-500" : "text-emerald-500"
-                          }
-                        >
+                        <span className={hasDisease ? "text-amber-500" : "text-emerald-500"}>
                           {hasDisease ? "⚠️ Disease detected" : "✓ Healthy"}
                         </span>
                       </div>
@@ -1140,16 +1125,10 @@ export default function UploadPage() {
                         size="sm"
                         variant="ghost"
                         className="h-8 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={async () => {
-                          try {
-                            await deleteGroup(group.groupId);
-                            setHistory((prev) =>
-                              prev.filter((g) => g.groupId !== group.groupId),
-                            );
-                            toast.success("Removed from history");
-                          } catch {
-                            toast.error("Failed to remove from history");
-                          }
+                        onClick={() => {
+                          removeDemoGroup(group.groupId);
+                          setHistory(prev => prev.filter(g => g.groupId !== group.groupId));
+                          toast.success("Removed from history");
                         }}
                       >
                         <Trash2 className="w-3.5 h-3.5 mr-1" />
@@ -1159,7 +1138,7 @@ export default function UploadPage() {
                         size="sm"
                         variant="outline"
                         className="h-8 rounded-lg text-xs"
-                        onClick={() => router.push(`/groups/${group.groupId}`)}
+                        onClick={() => router.push(`/history/${group.groupId}`)}
                       >
                         <Eye className="w-3.5 h-3.5 mr-1" />
                         View details

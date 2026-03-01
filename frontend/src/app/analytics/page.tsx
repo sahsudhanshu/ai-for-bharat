@@ -54,7 +54,6 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAnalytics, getGroups, getPrimaryCrop } from "@/lib/api-client";
 import type { AnalyticsResponse, GroupRecord } from "@/lib/api-client";
-import { generateMockSupplement } from "@/lib/mock-api";
 import { toast } from "sonner";
 
 const PIE_COLORS = ["#3b82f6", "#065f46", "#d97706", "#334155"];
@@ -483,7 +482,7 @@ export default function AnalyticsPage() {
                           <TableRow
                             key={group.groupId}
                             className="border-border/50 hover:bg-muted/10 group transition-colors cursor-pointer"
-                            onClick={() => window.location.href = `/groups/${group.groupId}`}
+                            onClick={() => window.location.href = `/history/${group.groupId}`}
                           >
                             <TableCell className="pl-8 py-5">
                               <div className="flex items-center gap-3">

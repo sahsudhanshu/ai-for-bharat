@@ -31,6 +31,7 @@ export default function Header() {
   const PAGE_NAMES: Record<string, string> = {
     '': t('nav.dashboard'),
     'upload': t('nav.upload'),
+    'history': t('nav.groups'),
     'ocean-data': t('nav.ocean'),
     'chatbot': t('nav.chat'),
     'analytics': t('nav.analytics'),

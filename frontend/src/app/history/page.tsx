@@ -148,7 +148,7 @@ export default function GroupsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => router.push(`/groups/${group.groupId}`)}
+                        onClick={() => router.push(`/history/${group.groupId}`)}
                         className="rounded-lg"
                       >
                         <Eye className="w-4 h-4 mr-2" />

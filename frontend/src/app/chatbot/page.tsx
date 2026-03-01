@@ -208,11 +208,18 @@ export default function ChatbotPage() {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const analysisId = urlParams.get('analysisId');
+        const prefill = urlParams.get('prefill');
 
         const convList = await getConversationsList();
         setChats(convList.map(c => ({ id: c.conversationId, title: c.title })));
 
-        if (analysisId) {
+        if (prefill) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+          setIsLoadingHistory(false);
+          setTimeout(() => {
+            handleSend(prefill);
+          }, 800);
+        } else if (analysisId) {
           window.history.replaceState({}, document.title, window.location.pathname);
           setIsLoadingHistory(false);
           // Wait briefly, then pre-fill and send
