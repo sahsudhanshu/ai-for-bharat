@@ -16,7 +16,7 @@ export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL;
 export const IS_AGENT_CONFIGURED = true;
 
 /** Demo JWT that bypasses Cognito verification on the Lambda side */
-export const DEMO_JWT = "demo_jwt_token_fisherman_001";
+export const DEMO_JWT = "demo_jwt_token_test123";
 
 /** Whether we are in demo mode (no real backend configured) */
 export const IS_DEMO_MODE = !API_BASE_URL;

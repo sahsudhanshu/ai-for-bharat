@@ -61,6 +61,7 @@ def _get_llm():
         google_api_key=google_api_key,
         temperature=0.7,
         max_output_tokens=4096,
+        streaming=True,
     )
     return llm.bind_tools(TOOLS)
 

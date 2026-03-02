@@ -14,7 +14,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { sendChat, getChatHistory, getConversationsList, createConversation, synthesizeSpeech, getGroups, type GroupRecord } from "@/lib/api-client";
+import { sendChat, streamChat, getChatHistory, getConversationsList, createConversation, synthesizeSpeech, getGroups, type GroupRecord } from "@/lib/api-client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/i18n";
@@ -125,21 +125,60 @@ export default function ChatbotPage() {
   const hasInitialized = useRef(false);
 
   // ── TTS ──────────────────────────────────────────────────────────────────
+  const isSynthesizingRef = useRef(false);
+  const audioMapRef = useRef<Record<string, HTMLAudioElement>>({});
+
   const handlePlayPause = async (msg: Message) => {
-    if (playingMsgId === msg.id && audioRef.current) {
-      audioRef.current.pause(); audioRef.current = null; setPlayingMsgId(null); return;
+    // If currently playing this message, pause it
+    if (playingMsgId === msg.id) {
+      if (audioMapRef.current[msg.id]) {
+        audioMapRef.current[msg.id].pause();
+      }
+      setPlayingMsgId(null);
+      return;
     }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setPlayingMsgId(null); }
+
+    // Pause any other currently playing audio
+    if (playingMsgId && audioMapRef.current[playingMsgId]) {
+      audioMapRef.current[playingMsgId].pause();
+    }
+
+    // If we already synthesized and cached this audio, just resume it
+    if (audioMapRef.current[msg.id]) {
+      setPlayingMsgId(msg.id);
+      audioMapRef.current[msg.id].play().catch(e => console.error("Audio play failed:", e));
+      return;
+    }
+
+    // Prevent clicking multiple times spawning overlapping fetch requests
+    if (isSynthesizingRef.current) return;
+
     try {
+      isSynthesizingRef.current = true;
       const tid = toast.loading('Generating audio…');
       const res = await synthesizeSpeech(msg.content, speechCode || 'en-IN');
       toast.dismiss(tid);
-      if (!res.audioBase64) { toast.info('Audio not available in demo mode.'); return; }
+
+      if (!res.audioBase64) {
+        toast.info('Audio not available in demo mode.');
+        return;
+      }
+
       const audio = new Audio(`data:audio/mp3;base64,${res.audioBase64}`);
-      audioRef.current = audio; setPlayingMsgId(msg.id);
+      audioMapRef.current[msg.id] = audio;
+
+      setPlayingMsgId(msg.id);
       audio.play().catch(e => console.error("Audio play failed:", e));
-      audio.onended = () => { setPlayingMsgId(null); audioRef.current = null; };
-    } catch { toast.dismiss(); toast.error('Failed to generate audio.'); }
+
+      audio.onended = () => {
+        setPlayingMsgId(prev => (prev === msg.id ? null : prev));
+      };
+    } catch {
+      toast.dismiss();
+      toast.error('Failed to generate audio.');
+    } finally {
+      isSynthesizingRef.current = false;
+    }
   };
 
   // ── Voice input ───────────────────────────────────────────────────────────
@@ -224,14 +263,28 @@ export default function ChatbotPage() {
           setChats(prev => [{ id: newConv.conversationId, title: rawText.substring(0, 40) }, ...prev]);
         } catch (e) { console.error("Failed to create conversation", e); }
       }
-      const res = await sendChat(text, targetChatId ?? undefined, locale);
+
+      const tempAiMsgId = `ai_temp_${Date.now()}`;
+      setMessages(prev => [...prev, {
+        id: tempAiMsgId, role: 'assistant', content: '', timestamp: new Date()
+      }]);
+
+      const res = await streamChat(text, (chunkText) => {
+        setMessages(prev => prev.map(m =>
+          m.id === tempAiMsgId ? { ...m, content: m.content + chunkText } : m
+        ));
+      }, targetChatId ?? undefined, locale);
+
       if (!targetChatId && res.chatId && !res.chatId.startsWith('demo_')) {
         setCurrentChatId(res.chatId);
         setChats(prev => [{ id: res.chatId, title: rawText }, ...prev]);
       }
-      setMessages(prev => [...prev, {
-        id: `ai_${Date.now()}`, role: 'assistant', content: res.response, timestamp: parseSafeDate(res.timestamp),
-      }]);
+
+      if (res.messageId) {
+        setMessages(prev => prev.map(m =>
+          m.id === tempAiMsgId ? { ...m, id: res.messageId! } : m
+        ));
+      }
     } catch (err) {
       console.error("Chat error:", err);
       // Inline error bubble with retry
@@ -402,16 +455,24 @@ export default function ChatbotPage() {
                           : "bg-primary text-white rounded-tr-sm"
                       )}>
                         {msg.role === 'assistant' ? (
-                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                            {msg.content}
-                          </ReactMarkdown>
+                          msg.content ? (
+                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                              {msg.content}
+                            </ReactMarkdown>
+                          ) : (
+                            <div className="flex gap-1.5 items-center h-5 sm:h-6 px-1">
+                              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
+                              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
+                            </div>
+                          )
                         ) : (
                           <span className="whitespace-pre-wrap">{msg.content}</span>
                         )}
                       </div>
 
                       <div className={cn("flex items-center gap-1.5 px-1", msg.role === 'user' ? "justify-end" : "justify-start")}>
-                        {msg.role === 'assistant' && (<>
+                        {msg.role === 'assistant' && !msg.id.toString().startsWith('ai_temp_') && (<>
                           <button onClick={() => handlePlayPause(msg)}
                             className={cn("flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all",
                               playingMsgId === msg.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-primary")}>
@@ -436,20 +497,6 @@ export default function ChatbotPage() {
                   </div>
                 );
               })}
-
-              {/* Typing indicator */}
-              {isTyping && (
-                <div className="flex gap-3 max-w-[85%] mr-auto animate-in fade-in duration-200">
-                  <Avatar className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 border-2 border-primary/20">
-                    <div className="bg-primary h-full w-full flex items-center justify-center text-white"><Bot className="w-4 h-4" /></div>
-                  </Avatar>
-                  <div className="bg-card border border-border/50 px-5 py-4 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
-                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
-                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
-                  </div>
-                </div>
-              )}
               <div ref={bottomRef} />
             </div>
           </div>

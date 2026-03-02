@@ -354,6 +354,76 @@ export async function sendChat(message: string, overrideChatId?: string, languag
 }
 
 /**
+ * Stream a chat message and receive chunks via SSE.
+ */
+export async function streamChat(
+    message: string,
+    onChunk: (text: string) => void,
+    overrideChatId?: string,
+    language?: string
+): Promise<{ chatId: string; messageId?: string }> {
+    if (IS_AGENT_CONFIGURED && overrideChatId) {
+        const url = `${AGENT_BASE_URL}/conversations/${overrideChatId}/messages/stream`;
+        const token = getToken();
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+        };
+
+        const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ message, language }),
+        });
+
+        if (!res.ok) {
+            throw new ApiError(res.status, "Stream API error");
+        }
+
+        if (!res.body) throw new Error("No response body");
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let done = false;
+        let buffer = '';
+        let finalMessageId: string | undefined;
+
+        while (!done) {
+            const { value, done: readerDone } = await reader.read();
+            done = readerDone;
+            if (value) {
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.type === 'chunk') {
+                                onChunk(data.text);
+                            } else if (data.type === 'end') {
+                                finalMessageId = data.messageId;
+                            } else if (data.type === 'error') {
+                                throw new Error(data.error);
+                            }
+                        } catch (e) {
+                            // ignore parse error if incomplete JSON
+                        }
+                    }
+                }
+            }
+        }
+        return { chatId: overrideChatId, messageId: finalMessageId };
+    }
+
+    // Fallback
+    const fallbackRes = await sendChat(message, overrideChatId, language);
+    onChunk(fallbackRes.response);
+    return { chatId: fallbackRes.chatId };
+}
+
+/**
  * Fetch chat history for the current user.
  * Routes to the Python agent (LangGraph) when available.
  */

@@ -7,8 +7,11 @@ Message routes — send a message (invokes LangGraph) and retrieve history.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+import json
+import asyncio
 from pydantic import BaseModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 from src.utils.auth import TokenPayload, verify_token
 from src.memory.dynamodb_store import (
@@ -150,6 +153,95 @@ async def send_message(
             "toolCalls": tool_calls_meta if tool_calls_meta else None,
         },
     }
+
+
+# ── Stream message — SSE chunks of AI response ──────────────────────────────
+
+@router.post("/{conversation_id}/messages/stream")
+async def send_message_stream(
+    conversation_id: str,
+    body: SendMessageRequest,
+    user: TokenPayload = Depends(verify_token),
+):
+    # ── Validate conversation ownership ──────────────────────────────────
+    conv = get_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if conv.get("userId") != user.sub:
+        raise HTTPException(status_code=403, detail="Not your conversation")
+
+    language = body.language or conv.get("language", "en")
+
+    # ── Persist user message ─────────────────────────────────────────────
+    save_message(conversation_id, role="user", content=body.message)
+
+    initial_state = {
+        "user_id": user.sub,
+        "conversation_id": conversation_id,
+        "selected_language": language,
+        "human_input": body.message,
+        "messages": [],
+        "tool_outputs": [],
+    }
+
+    async def event_generator():
+        try:
+            ai_content_chunks = []
+            tool_calls_meta = []
+            final_ai_msg_id = ""
+            
+            # Using astream_events handles yielding the tokens as they arrive
+            async for event in graph.astream_events(initial_state, version="v2"):
+                kind = event["event"]
+                
+                # Check for output from the LLM specific event
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    if isinstance(chunk, AIMessageChunk) and chunk.content:
+                        text = _extract_text(chunk.content)
+                        if text:
+                            ai_content_chunks.append(text)
+                            yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
+                            
+                elif kind == "on_tool_start":
+                    tool_name = event.get("name")
+                    yield f"data: {json.dumps({'type': 'tool', 'name': tool_name})}\n\n"
+
+            # After stream finishes, we need to save the final message properly
+            # Run the graph again with invoke? No, since astream_events runs the graph completely,
+            # we just collected all parts.
+            
+            ai_content = "".join(ai_content_chunks)
+            if not ai_content:
+                ai_content = "I processed your request but couldn't generate a text response."
+
+            # We didn't collect tool_calls_meta properly from stream events so we might not have them easily,
+            # but for simplicity we save the text content.
+            saved_msg = save_message(
+                conversation_id,
+                role="assistant",
+                content=ai_content,
+                tool_calls=None,  # Not extracting parsed tool calls in stream easily yet
+            )
+
+            # Update conversation metadata
+            msg_count = conv.get("messageCount", 0) + 2
+            title = conv.get("title", "New Chat")
+            if title == "New Chat" and body.message:
+                title = body.message[:60] + ("…" if len(body.message) > 60 else "")
+
+            update_conversation(conversation_id, messageCount=msg_count, title=title)
+
+            # Re-summarize silently in background
+            asyncio.create_task(maybe_update_summary(conversation_id))
+
+            yield f"data: {json.dumps({'type': 'end', 'messageId': saved_msg.get('messageId')})}\n\n"
+        except Exception as e:
+            error_msg = f"Error during streaming: {str(e)}"
+            save_message(conversation_id, role="assistant", content=error_msg)
+            yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 # ── Get message history ─────────────────────────────────────────────────────
