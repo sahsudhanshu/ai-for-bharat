@@ -16,7 +16,7 @@ Location is collected via Telegram's native location-sharing feature.
 from __future__ import annotations
 import logging
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -32,6 +32,7 @@ from src.telegram.subscribers import (
     delete_subscriber,
 )
 from src.telegram.alert_generator import generate_weather_alert
+from src.telegram.catch_insights import get_catch_insights
 from src.config.settings import TELEGRAM_BOT_TOKEN
 
 logger = logging.getLogger(__name__)
@@ -46,9 +47,55 @@ LANGUAGE_NAMES = {
 # ── Command Handlers ─────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Welcome message + ask for location."""
+    """Welcome message — auto-subscribe if location is passed via deep link."""
     chat_id = update.effective_chat.id
     sub = get_subscriber(chat_id)
+
+    # Check for deep-link location: /start loc_LAT_LON  or  /start loc_LAT_LON_USERID
+    args = context.args
+    if args and args[0].startswith("loc_"):
+        try:
+            parts = args[0].split("_")
+            lat = float(parts[1])
+            lon = float(parts[2])
+            user_id = parts[3] if len(parts) >= 4 else ""
+            location_name = _nearest_port_name(lat, lon)
+
+            upsert_subscriber(
+                telegram_chat_id=chat_id,
+                latitude=lat,
+                longitude=lon,
+                location_name=location_name,
+                user_id=user_id,
+            )
+
+            # Build welcome message with timing details
+            welcome = (
+                f"🌊 *Welcome to SagarMitra Alerts!*\n\n"
+                f"✅ You're subscribed with location from the app!\n"
+                f"📍 Location: {location_name} ({lat:.4f}°N, {lon:.4f}°E)\n\n"
+                f"You'll receive *8 automated updates* daily:\n"
+                f"🌙 05:00 · 🌅 07:00 · 🎣 09:30 · 📊 12:00\n"
+                f"⛵ 14:30 · 🌆 17:00 · 🌊 19:30 · 📋 22:00\n\n"
+                f"Commands: /weather /language /stop /help"
+            )
+            await update.message.reply_text(welcome, parse_mode="Markdown")
+
+            # Fetch and send capture insights if userId available
+            if user_id:
+                try:
+                    insights = await get_catch_insights(user_id)
+                    if insights:
+                        await update.message.reply_text(
+                            f"🐟 *Your Capture Insights*\n\n{insights}",
+                            parse_mode="Markdown",
+                        )
+                except Exception as e:
+                    logger.error(f"Catch insights error for {chat_id}: {e}")
+
+            return
+        except (IndexError, ValueError):
+            pass  # Fall through to normal flow
 
     if sub and sub.get("latitude"):
         await update.message.reply_text(
@@ -57,26 +104,50 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🔔 Alerts: {'On' if sub.get('alertsEnabled') else 'Off'}\n\n"
             f"Send /help to see available commands.",
         )
+        # Show capture insights for returning users too
+        returning_uid = sub.get("userId", "")
+        if returning_uid:
+            try:
+                insights = await get_catch_insights(returning_uid)
+                if insights:
+                    await update.message.reply_text(
+                        f"🐟 *Your Capture Insights*\n\n{insights}",
+                        parse_mode="Markdown",
+                    )
+            except Exception as e:
+                logger.error(f"Catch insights error (returning) for {chat_id}: {e}")
         return
 
-    # Ask for location using Telegram's native button
-    location_button = KeyboardButton("📍 Share My Location", request_location=True)
-    keyboard = ReplyKeyboardMarkup(
-        [[location_button]], resize_keyboard=True, one_time_keyboard=True
-    )
+    # Fallback: no deep link — show timing + app intro (no location prompt)
     await update.message.reply_text(
-        "🌊 *Welcome to SagarMitra Alerts!*\n\n"
-        "I'll send you *8 automated updates* every day:\n"
-        "• 🌙 05:00 — Pre-dawn safety check\n"
-        "• 🌅 07:00 — Morning weather forecast\n"
-        "• 🎣 09:30 — Best fishing spots\n"
-        "• 📊 12:00 — Market prices update\n"
-        "• ⛵ 14:30 — Afternoon sea conditions\n"
-        "• 🌆 17:00 — Evening forecast & tips\n"
-        "• 🌊 19:30 — Night fishing advisory\n"
-        "• 📋 22:00 — Tomorrow's preview\n\n"
-        "Please share your location so I can give you accurate forecasts:",
-        reply_markup=keyboard,
+        "🌊 *Welcome to SagarMitra — Your AI Fishing Companion!*\n\n"
+        "I'll send you *8 personalised updates* every day:\n\n"
+        "🌙 *05:00* — Pre-dawn safety & sea conditions\n"
+        "🌅 *07:00* — Morning weather forecast\n"
+        "🎣 *09:30* — Best fishing spots near you\n"
+        "📊 *12:00* — Live market prices update\n"
+        "⛵ *14:30* — Afternoon sea conditions\n"
+        "🌆 *17:00* — Evening forecast & tips\n"
+        "🌊 *19:30* — Night fishing advisory\n"
+        "📋 *22:00* — Tomorrow's preview & prep\n\n"
+        "📲 To activate alerts, tap *Connect to Telegram* in the SagarMitra app — "
+        "it will link your location & account automatically!",
+        parse_mode="Markdown",
+    )
+
+    # Send app insights intro
+    await update.message.reply_text(
+        "📈 *What SagarMitra Tracks For You*\n\n"
+        "🐟 *Catch History* — Every fish you scan is logged with species, "
+        "weight, quality grade & confidence score\n"
+        "📊 *Analytics Dashboard* — Total catches, earnings, weekly trends, "
+        "species breakdown & quality distribution\n"
+        "🗺️ *Smart Maps* — Fishing hotspots, harbours, restricted zones "
+        "& real-time weather overlay\n"
+        "💰 *Market Prices* — Live ₹/kg rates for top species at nearby markets\n"
+        "🧠 *AI Memory* — I remember your preferences, home port & favourite "
+        "species to give better recommendations\n\n"
+        "Start by scanning your catch in the app — I'll keep you updated here! 🎣",
         parse_mode="Markdown",
     )
 

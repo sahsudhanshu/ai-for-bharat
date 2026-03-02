@@ -369,7 +369,7 @@ export default function ChatbotPage() {
         </div>
         <div className="flex gap-2">
           <a
-            href="https://t.me/OceanAICompanionBot"
+            href={userLocation ? `https://t.me/OceanAICompanionBot?start=loc_${userLocation.latitude.toFixed(6)}_${userLocation.longitude.toFixed(6)}${user?.id ? `_${user.id}` : ''}` : "https://t.me/OceanAICompanionBot"}
             target="_blank"
             rel="noopener noreferrer"
             className="hidden sm:inline-flex items-center gap-2 flex-none rounded-xl bg-[#229ED9] hover:bg-[#1a8abf] text-white border-0 h-10 sm:h-11 text-xs sm:text-sm px-4 font-semibold transition-colors shadow-md shadow-[#229ED9]/20"
