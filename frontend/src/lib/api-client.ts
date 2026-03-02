@@ -720,6 +720,139 @@ export async function synthesizeSpeech(text: string, languageCode = "en-IN"): Pr
     });
 }
 
+// ── User Profile ──────────────────────────────────────────────────────────────
+
+export interface UserPreferences {
+    language: string;
+    notifications: boolean;
+    offlineSync: boolean;
+    units: string;
+    boatType: string;
+}
+
+export interface UserProfile {
+    userId: string;
+    email: string;
+    name: string;
+    phone: string;
+    avatar: string;
+    port: string;
+    customPort: string;
+    region: string;
+    role: string;
+    publicProfileEnabled: boolean;
+    publicProfileSlug: string;
+    preferences: UserPreferences;
+    createdAt?: string;
+    updatedAt?: string;
+}
+
+/**
+ * Fetch the current user's profile from the backend.
+ */
+export async function getUserProfile(): Promise<UserProfile> {
+    if (IS_DEMO_MODE) {
+        await delay(300);
+        const stored = localStorage.getItem("ocean_ai_user");
+        const user = stored ? JSON.parse(stored) : {};
+        return {
+            userId: user.id || "demo_user",
+            email: user.email || "demo@oceanai.in",
+            name: user.name || "Demo User",
+            phone: user.phone || "",
+            avatar: user.avatar || "",
+            port: user.port || "",
+            customPort: "",
+            region: user.region || "",
+            role: user.role || "fisherman",
+            publicProfileEnabled: false,
+            publicProfileSlug: "",
+            preferences: {
+                language: "english",
+                notifications: true,
+                offlineSync: true,
+                units: "kg",
+                boatType: "",
+            },
+        };
+    }
+    const res = await apiFetch<{ profile: UserProfile }>(ENDPOINTS.getUserProfile);
+    return res.profile;
+}
+
+/**
+ * Update the current user's profile.
+ * If avatarFile is provided, the backend returns a presigned URL for avatar upload.
+ */
+export async function updateUserProfile(
+    data: Partial<Omit<UserProfile, "userId" | "createdAt" | "updatedAt">>,
+    avatarFileName?: string,
+    avatarFileType?: string,
+): Promise<{ profile: UserProfile; avatarUploadUrl?: string; avatarS3Url?: string }> {
+    if (IS_DEMO_MODE) {
+        await delay(300);
+        return { profile: { ...data } as UserProfile };
+    }
+    return apiFetch<{ profile: UserProfile; avatarUploadUrl?: string; avatarS3Url?: string }>(
+        ENDPOINTS.updateUserProfile,
+        {
+            method: "PUT",
+            body: JSON.stringify({ ...data, avatarFileName, avatarFileType }),
+        }
+    );
+}
+
+/**
+ * Export all user catch data as a CSV download.
+ */
+export async function exportUserData(): Promise<string> {
+    if (IS_DEMO_MODE) {
+        await delay(500);
+        return "Type,ID,Date,Species,Weight (g),Status\ngroup,demo_1,2026-01-01,Pomfret,450,completed\n";
+    }
+    const url = `${API_BASE_URL}${ENDPOINTS.exportUserData}`;
+    const token = getToken();
+    const res = await fetch(url, {
+        headers: {
+            Authorization: `Bearer ${token}`,
+        },
+    });
+    if (!res.ok) {
+        throw new ApiError(res.status, "Failed to export data");
+    }
+    return res.text();
+}
+
+/**
+ * Delete the user's account and all associated data.
+ */
+export async function deleteUserAccount(): Promise<{ message: string }> {
+    if (IS_DEMO_MODE) {
+        await delay(1000);
+        return { message: "Account deleted (demo mode)" };
+    }
+    return apiFetch<{ message: string }>(ENDPOINTS.deleteUserAccount, {
+        method: "DELETE",
+    });
+}
+
+/**
+ * Fetch a user's public profile by slug.
+ */
+export async function getPublicProfile(slug: string): Promise<Partial<UserProfile>> {
+    if (IS_DEMO_MODE) {
+        await delay(500);
+        return {
+            name: "Demo Fisherman",
+            port: "Ratnagiri Port, Maharashtra",
+            role: "fisherman",
+            publicProfileSlug: slug,
+        };
+    }
+    const res = await apiFetch<{ profile: Partial<UserProfile> }>(ENDPOINTS.getPublicProfile(slug));
+    return res.profile;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Get the primary (highest species confidence) crop from an ML analysis response */

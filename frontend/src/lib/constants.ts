@@ -38,6 +38,11 @@ export const ENDPOINTS = {
   sendChat: "/chat",
   getChatHistory: "/chat",
   getAnalytics: "/analytics",
+  getUserProfile: "/user/profile",
+  updateUserProfile: "/user/profile",
+  exportUserData: "/user/export",
+  deleteUserAccount: "/user/account",
+  getPublicProfile: (slug: string) => `/user/public/${slug}`,
 } as const;
 
 /** ML Model API base URL for resolving static asset URLs (crop images, grad-cam, etc.) */

@@ -51,6 +51,7 @@ import {
   uploadGroupToS3,
   analyzeGroup,
   getGroups,
+  deleteGroup,
   getPrimaryCrop,
   type GroupRecord,
 } from "@/lib/api-client";
@@ -63,21 +64,21 @@ type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 export default function UploadPage() {
   const router = useRouter();
   const { t } = useLanguage();
-  
+
   // Multi-file state
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState(0);
-  
+
   // Upload & analysis state
   const [step, setStep] = useState<UploadStep>("idle");
   const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
   const [analysisProgress, setAnalysisProgress] = useState(0);
-  
+
   // Results state
   const [mlResults, setMlResults] = useState<MLAnalysisResponse[]>([]);
   const [currentResultIndex, setCurrentResultIndex] = useState(0);
-  
+
   // UI state
   const [dragActive, setDragActive] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -85,7 +86,7 @@ export default function UploadPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
   const [expandedCrops, setExpandedCrops] = useState<Set<string>>(new Set());
-  
+
   // History state
   const [history, setHistory] = useState<GroupRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -180,7 +181,7 @@ export default function UploadPage() {
     }
 
     setFiles(prev => [...prev, ...validFiles]);
-    
+
     validFiles.forEach(file => {
       const reader = new FileReader();
       reader.onload = () => setPreviews(prev => [...prev, reader.result as string]);
@@ -203,7 +204,7 @@ export default function UploadPage() {
   const removeFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
     setPreviews(prev => prev.filter((_, i) => i !== index));
-    
+
     if (selectedPreviewIndex >= files.length - 1) {
       setSelectedPreviewIndex(Math.max(0, files.length - 2));
     } else if (selectedPreviewIndex > index) {
@@ -284,10 +285,10 @@ export default function UploadPage() {
       setMlResults(analysisResult.images as any);
       setStep("done");
       setExpandedCrops(new Set());
-      
+
       // Reload history to show the new upload
       await loadHistory();
-      
+
       const totalFish = analysisResult.aggregateStats.totalFishCount;
       toast.success(`Analysis complete! ${totalFish} fish detected across ${files.length} images.`);
     } catch (err) {
@@ -327,7 +328,7 @@ export default function UploadPage() {
 
       cropList.forEach(([key, crop], idx) => {
         const supplement = generateMockSupplement(crop.species.label, idx);
-        
+
         if (cursorY > 260) {
           doc.addPage();
           cursorY = 20;
@@ -680,7 +681,7 @@ export default function UploadPage() {
                   </Badge>
                 )}
               </div>
-              
+
               {/* Image Navigation */}
               {mlResults.length > 1 && (
                 <div className="mt-4 flex items-center justify-between gap-2">
@@ -1125,10 +1126,15 @@ export default function UploadPage() {
                         size="sm"
                         variant="ghost"
                         className="h-8 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => {
-                          removeDemoGroup(group.groupId);
-                          setHistory(prev => prev.filter(g => g.groupId !== group.groupId));
-                          toast.success("Removed from history");
+                        onClick={async () => {
+                          try {
+                            await deleteGroup(group.groupId);
+                            removeDemoGroup(group.groupId);
+                            setHistory(prev => prev.filter(g => g.groupId !== group.groupId));
+                            toast.success("Removed from history");
+                          } catch {
+                            toast.error("Failed to remove. Please try again.");
+                          }
                         }}
                       >
                         <Trash2 className="w-3.5 h-3.5 mr-1" />

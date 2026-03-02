@@ -55,8 +55,144 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getAnalytics, getGroups, getPrimaryCrop } from "@/lib/api-client";
 import type { AnalyticsResponse, GroupRecord } from "@/lib/api-client";
 import { toast } from "sonner";
+import { exportUserData } from "@/lib/api-client";
 
 const PIE_COLORS = ["#3b82f6", "#065f46", "#d97706", "#334155"];
+
+async function generateAnalyticsPDF(
+  analytics: AnalyticsResponse,
+  groups: GroupRecord[],
+  userName: string
+) {
+  // Dynamic import to keep bundle small
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const teal = [20, 184, 166] as [number, number, number];
+  const dark = [15, 23, 42] as [number, number, number];
+  const muted = [100, 116, 139] as [number, number, number];
+  const white = [255, 255, 255] as [number, number, number];
+  const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
+
+  // ── Cover Page ────────────────────────────────────────────────────────────
+  doc.setFillColor(...dark);
+  doc.rect(0, 0, 210, 297, "F");
+  doc.setFillColor(...teal);
+  doc.rect(0, 0, 210, 60, "F");
+
+  doc.setTextColor(...white);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(28);
+  doc.text("OceanAI Analytics Report", 105, 30, { align: "center" });
+  doc.setFontSize(12);
+  doc.setFont("helvetica", "normal");
+  doc.text(`Fisherman: ${userName}`, 105, 44, { align: "center" });
+  doc.text(`Generated: ${today}`, 105, 52, { align: "center" });
+
+  // ── Summary Stats ─────────────────────────────────────────────────────────
+  doc.setTextColor(...teal);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Summary Statistics", 20, 80);
+
+  const statsData = [
+    ["Total Catches", `${analytics.totalCatches}`],
+    ["Total Earnings", `₹${analytics.totalEarnings.toLocaleString("en-IN")}`],
+    ["Average Weight", `${analytics.avgWeight} g`],
+    ["Total Analyses", `${analytics.totalImages}`],
+    ["Top Species", analytics.topSpecies],
+  ];
+
+  autoTable(doc, {
+    startY: 85,
+    head: [["Metric", "Value"]],
+    body: statsData,
+    theme: "grid",
+    styles: { fillColor: [22, 33, 55], textColor: white, fontStyle: "bold", fontSize: 10 },
+    headStyles: { fillColor: teal, textColor: white, fontStyle: "bold" },
+    columnStyles: { 0: { cellWidth: 80 }, 1: { cellWidth: 80 } },
+    margin: { left: 20, right: 20 },
+  });
+
+  // ── Species Breakdown ─────────────────────────────────────────────────────
+  const speciesY = (doc as any).lastAutoTable.finalY + 12;
+  doc.setTextColor(...teal);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Species Breakdown", 20, speciesY);
+
+  autoTable(doc, {
+    startY: speciesY + 5,
+    head: [["Species", "Count", "Share (%)"]],
+    body: analytics.speciesBreakdown.map((s) => [s.name, `${s.count}`, `${s.percentage}%`]),
+    theme: "striped",
+    styles: { fillColor: [22, 33, 55], textColor: white, fontSize: 10 },
+    headStyles: { fillColor: teal, textColor: white, fontStyle: "bold" },
+    alternateRowStyles: { fillColor: [30, 41, 59] },
+    margin: { left: 20, right: 20 },
+  });
+
+  // ── Weekly Trend ──────────────────────────────────────────────────────────
+  const trendY = (doc as any).lastAutoTable.finalY + 12;
+  if (trendY < 250) {
+    doc.setTextColor(...teal);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14);
+    doc.text("Weekly Activity Trend", 20, trendY);
+
+    autoTable(doc, {
+      startY: trendY + 5,
+      head: [["Week", "Earnings (₹)", "Catches"]],
+      body: analytics.weeklyTrend.map((w) => [w.date, `₹${w.earnings.toLocaleString()}`, `${w.catches}`]),
+      theme: "striped",
+      styles: { fillColor: [22, 33, 55], textColor: white, fontSize: 10 },
+      headStyles: { fillColor: teal, textColor: white, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [30, 41, 59] },
+      margin: { left: 20, right: 20 },
+    });
+  }
+
+  // ── Catch History ─────────────────────────────────────────────────────────
+  doc.addPage();
+  doc.setFillColor(...dark);
+  doc.rect(0, 0, 210, 297, "F");
+
+  doc.setTextColor(...teal);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("Catch History", 20, 20);
+
+  const historyRows = groups.map((g) => {
+    const stats = g.analysisResult?.aggregateStats;
+    const species = stats ? Object.keys(stats.speciesDistribution)[0] || "—" : "—";
+    const fishCount = stats?.totalFishCount ?? 0;
+    const date = new Date(g.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    return [date, `${g.imageCount} images`, `${fishCount} fish`, species, g.status.toUpperCase()];
+  });
+
+  autoTable(doc, {
+    startY: 25,
+    head: [["Date", "Images", "Fish Count", "Top Species", "Status"]],
+    body: historyRows.length > 0 ? historyRows : [["No catch history", "", "", "", ""]],
+    theme: "striped",
+    styles: { fillColor: [22, 33, 55], textColor: white, fontSize: 9 },
+    headStyles: { fillColor: teal, textColor: white, fontStyle: "bold", fontSize: 10 },
+    alternateRowStyles: { fillColor: [30, 41, 59] },
+    margin: { left: 20, right: 20 },
+  });
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  const pageCount = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setTextColor(...muted);
+    doc.setFontSize(8);
+    doc.text(`OceanAI — AI for Bharat | Page ${i} of ${pageCount}`, 105, 292, { align: "center" });
+  }
+
+  doc.save(`oceanai-report-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
 
 function StatSkeleton() {
   return (
@@ -87,6 +223,7 @@ export default function AnalyticsPage() {
   const [isLoadingGroups, setIsLoadingGroups] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeChartTab, setActiveChartTab] = useState("revenue");
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -108,11 +245,26 @@ export default function AnalyticsPage() {
     load();
   }, []);
 
+  async function handleGenerateReport() {
+    if (!analytics) { toast.error("Analytics data is not loaded yet."); return; }
+    setIsGeneratingReport(true);
+    try {
+      const userName = (document.title || "Fisherman");
+      await generateAnalyticsPDF(analytics, groups, userName);
+      toast.success("Report downloaded successfully!");
+    } catch (err: any) {
+      console.error("PDF generation error:", err);
+      toast.error("Failed to generate report. Please try again.");
+    } finally {
+      setIsGeneratingReport(false);
+    }
+  }
+
   // Client-side search filter on the group history
   const filteredGroups = groups.filter((group) => {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    
+
     // Search in aggregate stats if analysis is complete
     if (group.analysisResult) {
       const stats = group.analysisResult.aggregateStats;
@@ -120,10 +272,10 @@ export default function AnalyticsPage() {
       if (speciesNames.includes(q)) return true;
       if (stats.diseaseDetected && "disease".includes(q)) return true;
     }
-    
+
     // Search by status
     if (group.status.toLowerCase().includes(q)) return true;
-    
+
     return false;
   });
 
@@ -136,39 +288,39 @@ export default function AnalyticsPage() {
 
   const summaryStats = analytics
     ? [
-        {
-          label: "Monthly Earnings",
-          value: `₹${analytics.totalEarnings.toLocaleString("en-IN")}`,
-          trend: "+12.5%",
-          icon: DollarSign,
-          color: "text-emerald-500",
-          bg: "bg-emerald-500/10",
-        },
-        {
-          label: "Total Catch",
-          value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
-          trend: "+5.2%",
-          icon: Scale,
-          color: "text-blue-500",
-          bg: "bg-blue-500/10",
-        },
-        {
-          label: "Top Species",
-          value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
-          trend: "Trending",
-          icon: Fish,
-          color: "text-amber-500",
-          bg: "bg-amber-500/10",
-        },
-        {
-          label: "Total Catches",
-          value: `${analytics.totalCatches}`,
-          trend: "+2.1%",
-          icon: Anchor,
-          color: "text-purple-500",
-          bg: "bg-purple-500/10",
-        },
-      ]
+      {
+        label: "Monthly Earnings",
+        value: `₹${analytics.totalEarnings.toLocaleString("en-IN")}`,
+        trend: "+12.5%",
+        icon: DollarSign,
+        color: "text-emerald-500",
+        bg: "bg-emerald-500/10",
+      },
+      {
+        label: "Total Catch",
+        value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
+        trend: "+5.2%",
+        icon: Scale,
+        color: "text-blue-500",
+        bg: "bg-blue-500/10",
+      },
+      {
+        label: "Top Species",
+        value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
+        trend: "Trending",
+        icon: Fish,
+        color: "text-amber-500",
+        bg: "bg-amber-500/10",
+      },
+      {
+        label: "Total Catches",
+        value: `${analytics.totalCatches}`,
+        trend: "+2.1%",
+        icon: Anchor,
+        color: "text-purple-500",
+        bg: "bg-purple-500/10",
+      },
+    ]
     : [];
 
   return (
@@ -190,9 +342,22 @@ export default function AnalyticsPage() {
             <Calendar className="mr-2 w-4 h-4" />
             Last 30 Days
           </Button>
-          <Button className="rounded-xl bg-primary font-bold shadow-lg shadow-primary/20">
-            <Download className="mr-2 w-4 h-4" />
-            Generate Report
+          <Button
+            className="rounded-xl bg-primary font-bold shadow-lg shadow-primary/20 gap-2"
+            onClick={handleGenerateReport}
+            disabled={isGeneratingReport || isLoadingAnalytics || !analytics}
+          >
+            {isGeneratingReport ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                Generate Report
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -202,32 +367,32 @@ export default function AnalyticsPage() {
         {isLoadingAnalytics
           ? Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
           : summaryStats.map((stat, i) => (
-              <Card
-                key={i}
-                className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
-              >
-                <CardContent className="p-6">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className={`${stat.bg} p-3 rounded-2xl ${stat.color}`}>
-                      <stat.icon className="w-6 h-6" />
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className="bg-emerald-500/10 text-emerald-500 border-none"
-                    >
-                      {stat.trend}
-                      <ArrowUpRight className="ml-1 w-3 h-3" />
-                    </Badge>
+            <Card
+              key={i}
+              className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
+            >
+              <CardContent className="p-6">
+                <div className="flex justify-between items-start mb-4">
+                  <div className={`${stat.bg} p-3 rounded-2xl ${stat.color}`}>
+                    <stat.icon className="w-6 h-6" />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">
-                      {stat.label}
-                    </p>
-                    <p className="text-3xl font-bold">{stat.value}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  <Badge
+                    variant="secondary"
+                    className="bg-emerald-500/10 text-emerald-500 border-none"
+                  >
+                    {stat.trend}
+                    <ArrowUpRight className="ml-1 w-3 h-3" />
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-muted-foreground uppercase tracking-widest">
+                    {stat.label}
+                  </p>
+                  <p className="text-3xl font-bold">{stat.value}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
       </div>
 
       {/* Charts Row */}
@@ -477,7 +642,7 @@ export default function AnalyticsPage() {
                         const speciesCount = stats ? Object.keys(stats.speciesDistribution).length : 0;
                         const topSpecies = stats ? Object.keys(stats.speciesDistribution)[0] : "—";
                         const hasDisease = stats?.diseaseDetected ?? false;
-                        
+
                         return (
                           <TableRow
                             key={group.groupId}

@@ -46,6 +46,13 @@ app.get('/groups', (req, res) => runLambda(req, res, require('./src/functions/ge
 app.get('/groups/:groupId', (req, res) => runLambda(req, res, require('./src/functions/getGroupDetails.js').handler));
 app.delete('/groups/:groupId', (req, res) => runLambda(req, res, require('./src/functions/deleteGroup.js').handler));
 
+// User profile routes
+app.get('/user/profile', (req, res) => runLambda(req, res, require('./src/functions/getUserProfile.js').handler));
+app.put('/user/profile', (req, res) => runLambda(req, res, require('./src/functions/updateUserProfile.js').handler));
+app.get('/user/export', (req, res) => runLambda(req, res, require('./src/functions/exportUserData.js').handler));
+app.delete('/user/account', (req, res) => runLambda(req, res, require('./src/functions/deleteUserAccount.js').handler));
+app.get('/user/public/:slug', (req, res) => runLambda(req, res, require('./src/functions/getPublicProfile.js').handler));
+
 let server = app.listen(port, () => {
     console.log(`\n🐟  OceanAI Backend Local Server running at http://localhost:${port}`);
     console.log(`Ready to accept requests from the frontend!`);

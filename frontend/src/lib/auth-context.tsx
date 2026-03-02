@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { AuthenticationDetails, CognitoUser, CognitoUserAttribute, CognitoUserPool, CognitoUserSession } from 'amazon-cognito-identity-js';
+import { getUserProfile } from './api-client';
 
 const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || '';
 const clientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || '';
@@ -12,13 +13,15 @@ const poolData = {
 };
 const userPool = new CognitoUserPool(poolData);
 
-interface User {
+export interface User {
   id: string;
   name: string;
   email: string;
   role: string;
   avatar?: string;
   port?: string;
+  phone?: string;
+  region?: string;
 }
 
 interface AuthContextType {
@@ -30,6 +33,10 @@ interface AuthContextType {
   logout: () => void;
   /** Returns current JWT token for API calls */
   getToken: () => string;
+  /** Update user state in memory (after profile save) */
+  updateUser: (partial: Partial<User>) => void;
+  /** Change password via Cognito */
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,14 +50,35 @@ function toUserFromSession(session: CognitoUserSession, fallbackEmail: string): 
     name: (payload.name as string) || 'User',
     email: (payload.email as string) || fallbackEmail,
     role: 'fisherman',
-    avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=fisherman&backgroundColor=b6e3f4',
-    port: 'India',
+    avatar: '',
+    port: '',
+    phone: '',
+    region: '',
   };
 }
 
 function persistUserSession(nextUser: User, token: string): void {
   localStorage.setItem('ocean_ai_user', JSON.stringify(nextUser));
   localStorage.setItem('ocean_ai_token', token);
+}
+
+/** Hydrate user with profile data from DynamoDB (best-effort) */
+async function hydrateProfile(baseUser: User): Promise<User> {
+  try {
+    const profile = await getUserProfile();
+    return {
+      ...baseUser,
+      name: profile.name || baseUser.name,
+      avatar: profile.avatar || baseUser.avatar || '',
+      port: profile.port || baseUser.port || '',
+      phone: profile.phone || baseUser.phone || '',
+      region: profile.region || baseUser.region || '',
+      role: profile.role || baseUser.role,
+    };
+  } catch {
+    // Profile not found yet, that's fine — use token data
+    return baseUser;
+  }
 }
 
 function mapCognitoError(err: unknown): Error {
@@ -101,16 +129,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if there is an active session
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) {
-      cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      cognitoUser.getSession(async (err: Error | null, session: CognitoUserSession | null) => {
         if (err || !session || !session.isValid()) {
           logout();
           setIsLoading(false);
           return;
         }
 
-        const loggedInUser = toUserFromSession(session, cognitoUser.getUsername());
-        setUser(loggedInUser);
-        persistUserSession(loggedInUser, session.getAccessToken().getJwtToken());
+        const baseUser = toUserFromSession(session, cognitoUser.getUsername());
+        const token = session.getAccessToken().getJwtToken();
+        persistUserSession(baseUser, token);
+
+        // Hydrate with DynamoDB profile data
+        const fullUser = await hydrateProfile(baseUser);
+        setUser(fullUser);
+        persistUserSession(fullUser, token);
         setIsLoading(false);
       });
     } else {
@@ -147,12 +180,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       cognitoUser.authenticateUser(authenticationDetails, {
-        onSuccess: (result) => {
+        onSuccess: async (result) => {
           const apiToken = result.getAccessToken().getJwtToken();
-          const loggedInUser = toUserFromSession(result, email);
+          const baseUser = toUserFromSession(result, email);
+          persistUserSession(baseUser, apiToken);
 
-          setUser(loggedInUser);
-          persistUserSession(loggedInUser, apiToken);
+          // Hydrate with DynamoDB profile
+          const fullUser = await hydrateProfile(baseUser);
+          setUser(fullUser);
+          persistUserSession(fullUser, apiToken);
           setIsLoading(false);
           resolve();
         },
@@ -203,9 +239,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem('ocean_ai_token') || '';
   };
 
+  const updateUser = (partial: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, ...partial };
+      // Keep localStorage in sync
+      const token = localStorage.getItem('ocean_ai_token') || '';
+      persistUserSession(updated, token);
+      return updated;
+    });
+  };
+
+  const changePassword = async (oldPassword: string, newPassword: string): Promise<void> => {
+    assertCognitoConfigured();
+
+    return new Promise<void>((resolve, reject) => {
+      const cognitoUser = userPool.getCurrentUser();
+      if (!cognitoUser) {
+        reject(new Error('No active session. Please log in again.'));
+        return;
+      }
+
+      cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+        if (err || !session || !session.isValid()) {
+          reject(new Error('Session expired. Please log in again.'));
+          return;
+        }
+
+        cognitoUser.changePassword(oldPassword, newPassword, (changeErr) => {
+          if (changeErr) {
+            reject(mapCognitoError(changeErr));
+            return;
+          }
+          resolve();
+        });
+      });
+    });
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, getToken }}
+      value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, getToken, updateUser, changePassword }}
     >
       {children}
     </AuthContext.Provider>
