@@ -36,3 +36,8 @@ CATCH_HISTORY_PAGE_SIZE = int(os.getenv("CATCH_HISTORY_PAGE_SIZE", "10"))
 
 # ── Demo mode ───────────────────────────────────────────────────────────────
 DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
+
+# ── Telegram ─────────────────────────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_SUBS_TABLE = os.getenv("TELEGRAM_SUBS_TABLE", "ai-bharat-telegram-subs")
+TELEGRAM_ALERTS_ENABLED = os.getenv("TELEGRAM_ALERTS_ENABLED", "true").lower() == "true"
