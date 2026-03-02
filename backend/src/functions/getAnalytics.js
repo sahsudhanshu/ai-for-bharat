@@ -10,6 +10,7 @@ const { verifyToken } = require("../utils/auth");
 const { ok, unauthorized, serverError } = require("../utils/response");
 
 const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
+const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
 
 exports.handler = async (event) => {
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -28,7 +29,7 @@ exports.handler = async (event) => {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-        const result = await ddb.send(
+        const imagesResult = await ddb.send(
             new QueryCommand({
                 TableName: IMAGES_TABLE,
                 IndexName: "userId-createdAt-index",
@@ -44,16 +45,46 @@ exports.handler = async (event) => {
             })
         );
 
-        const items = result.Items || [];
+        const imagesItems = imagesResult.Items || [];
+
+        // Fetch all completed groups for the user (last 6 months)
+        const groupsResult = await ddb.send(
+            new QueryCommand({
+                TableName: GROUPS_TABLE,
+                IndexName: "userId-createdAt-index",
+                KeyConditionExpression: "userId = :uid AND createdAt >= :since",
+                FilterExpression: "#s = :completed",
+                ExpressionAttributeNames: { "#s": "status" },
+                ExpressionAttributeValues: {
+                    ":uid": userId,
+                    ":since": sixMonthsAgo.toISOString(),
+                    ":completed": "completed",
+                },
+                ScanIndexForward: true,
+            })
+        );
+
+        const groupsItems = groupsResult.Items || [];
 
         // ── Compute stats ─────────────────────────────────────────────────────────
         let totalEarnings = 0;
         let totalWeight = 0;
+        let totalImagesCount = imagesItems.length;
+        let totalCatches = imagesItems.length;
         const speciesCounts = {};
         const qualityCounts = {};
         const weeklyMap = {};
 
-        for (const item of items) {
+        const addWeekly = (dateString, value, catches) => {
+            const d = new Date(dateString);
+            const weekNum = Math.ceil(d.getDate() / 7);
+            const weekKey = `${d.getFullYear()}-W${d.getMonth() + 1}-${weekNum}`;
+            if (!weeklyMap[weekKey]) weeklyMap[weekKey] = { earnings: 0, catches: 0 };
+            weeklyMap[weekKey].earnings += value;
+            weeklyMap[weekKey].catches += catches;
+        };
+
+        for (const item of imagesItems) {
             const ar = item.analysisResult || {};
             const value = ar.marketEstimate?.estimated_value || 0;
             const weight = ar.measurements?.weight_g || 0;
@@ -65,16 +96,32 @@ exports.handler = async (event) => {
             speciesCounts[species] = (speciesCounts[species] || 0) + 1;
             qualityCounts[grade] = (qualityCounts[grade] || 0) + 1;
 
-            // Aggregate by ISO week
-            const d = new Date(item.createdAt);
-            const weekNum = Math.ceil(d.getDate() / 7);
-            const weekKey = `${d.getFullYear()}-W${d.getMonth() + 1}-${weekNum}`;
-            if (!weeklyMap[weekKey]) weeklyMap[weekKey] = { earnings: 0, catches: 0 };
-            weeklyMap[weekKey].earnings += value;
-            weeklyMap[weekKey].catches += 1;
+            addWeekly(item.createdAt, value, 1);
         }
 
-        const totalCatches = items.length;
+        for (const item of groupsItems) {
+            const ar = item.analysisResult || {};
+            const stats = ar.aggregateStats || {};
+
+            const value = stats.totalEstimatedValue || 0;
+            const weight_kg = stats.totalEstimatedWeight || 0;
+            const weight_g = weight_kg * 1000;
+            const fishCount = stats.totalFishCount || 0;
+
+            totalEarnings += value;
+            totalWeight += weight_g;
+            totalCatches += fishCount;
+            totalImagesCount += (item.imageCount || 1);
+
+            if (stats.speciesDistribution) {
+                for (const [species, count] of Object.entries(stats.speciesDistribution)) {
+                    speciesCounts[species] = (speciesCounts[species] || 0) + count;
+                }
+            }
+
+            addWeekly(item.createdAt, value, fishCount);
+        }
+
         const avgWeight = totalCatches > 0 ? totalWeight / totalCatches : 0;
 
         const topSpecies = Object.entries(speciesCounts)
@@ -97,7 +144,7 @@ exports.handler = async (event) => {
             .map(([date, data]) => ({ date, ...data }));
 
         return ok({
-            totalImages: items.length,
+            totalImages: totalImagesCount,
             totalCatches,
             totalEarnings: Math.round(totalEarnings),
             avgWeight: Math.round(avgWeight),
