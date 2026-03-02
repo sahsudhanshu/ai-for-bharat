@@ -8,7 +8,6 @@ import BottomNav from './BottomNav';
 import GlobalAlertStrip from './GlobalAlertStrip';
 import { useAuth } from "@/lib/auth-context";
 import { Loader2 } from 'lucide-react';
-import "@/lib/startup-check"; // Dev-mode startup diagnostics (must be in client component)
 
 interface AppLayoutProps {
   children: ReactNode;
