@@ -12,3 +12,5 @@ python-dateutil>=2.9.0
 uuid6>=2024.1.12
 PyJWT>=2.8.0
 cryptography>=41.0.0
+python-telegram-bot>=21.0
+apscheduler>=3.10.0
