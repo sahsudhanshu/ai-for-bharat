@@ -5,7 +5,7 @@ from __future__ import annotations
 from langchain_core.tools import tool
 from boto3.dynamodb.conditions import Key
 
-from src.config.settings import GROUPS_TABLE, DEMO_MODE
+from src.config.settings import GROUPS_TABLE
 from src.utils.dynamodb import dynamodb
 
 
@@ -21,20 +21,6 @@ async def get_group_details(group_id: str, user_id: str = "") -> str:
         group_id: The unique identifier of the group catch to look up.
         user_id: Auto-injected by the system. Do not provide.
     """
-    if DEMO_MODE:
-        return (
-            f"📦 **Specific Group Catch Details** (2026-03-01)\n"
-            f"• Group ID: {group_id}\n"
-            f"• Images Uploaded: 5\n"
-            f"• Analysis Status: completed\n"
-            f"• Location: 15.2993°N, 73.9690°E\n"
-            f"\n📊 **Aggregate Statistics**\n"
-            f"• Total Fish Detected: 8\n"
-            f"• Species Breakdown: Snapper (5), Grouper (3)\n"
-            f"• Average Confidence: 92%\n"
-            f"• Estimated Total Weight: 12.5 kg\n"
-            f"• Estimated Total Value: ₹4,500\n"
-        )
     table = dynamodb.Table(GROUPS_TABLE)
 
     try:

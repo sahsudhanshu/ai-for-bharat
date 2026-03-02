@@ -43,8 +43,8 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { MLAnalysisResponse, MockCropSupplement } from "@/lib/mock-api";
-import { generateMockSupplement, removeDemoGroup } from "@/lib/mock-api";
+import type { MLAnalysisResponse, MockCropSupplement } from "@/lib/types";
+import { generateMockSupplement } from "@/lib/types";
 import { jsPDF } from "jspdf";
 import {
   createGroupPresignedUrls,
@@ -1129,7 +1129,6 @@ export default function UploadPage() {
                         onClick={async () => {
                           try {
                             await deleteGroup(group.groupId);
-                            removeDemoGroup(group.groupId);
                             setHistory(prev => prev.filter(g => g.groupId !== group.groupId));
                             toast.success("Removed from history");
                           } catch {

@@ -34,8 +34,7 @@ SHORT_TERM_MESSAGE_LIMIT = int(os.getenv("SHORT_TERM_MESSAGE_LIMIT", "10"))
 SUMMARY_CHUNK_SIZE = int(os.getenv("SUMMARY_CHUNK_SIZE", "10"))
 CATCH_HISTORY_PAGE_SIZE = int(os.getenv("CATCH_HISTORY_PAGE_SIZE", "10"))
 
-# ── Demo mode ───────────────────────────────────────────────────────────────
-DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
+
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")

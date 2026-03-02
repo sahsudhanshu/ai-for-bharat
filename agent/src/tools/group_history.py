@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Optional
 from boto3.dynamodb.conditions import Key
 from langchain_core.tools import tool
-from src.config.settings import GROUPS_TABLE, CATCH_HISTORY_PAGE_SIZE, DEMO_MODE
+from src.config.settings import GROUPS_TABLE, CATCH_HISTORY_PAGE_SIZE
 from src.utils.dynamodb import dynamodb
 
 
@@ -39,25 +39,6 @@ async def get_group_history(
         user_id: Auto-injected by the system. Do not provide.
     """
     page_size = limit or CATCH_HISTORY_PAGE_SIZE
-
-    if DEMO_MODE:
-        return (
-            "📦 **Group Catch History** (Demo Mode):\n\n"
-            "  1. 📅 2026-03-01 | 🖼️ 5 image(s) | Status: completed\n"
-            "     • Fish detected: 8\n"
-            "     • Species: Snapper (5), Grouper (3)\n"
-            "     • Avg confidence: 92%\n"
-            "     • Est. total weight: 12.5 kg\n"
-            "     • Est. value: ₹4,500\n"
-            "     🔑 Group ID: demo_group_12345\n\n"
-            "  2. 📅 2026-02-28 | 🖼️ 2 image(s) | Status: completed\n"
-            "     • Fish detected: 2\n"
-            "     • Species: Mackerel (2)\n"
-            "     • Avg confidence: 88%\n"
-            "     • Est. total weight: 1.2 kg\n"
-            "     • Est. value: ₹240\n"
-            "     🔑 Group ID: demo_group_67890\n"
-        )
 
     table = dynamodb.Table(GROUPS_TABLE)
 

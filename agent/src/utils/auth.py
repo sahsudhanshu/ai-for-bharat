@@ -1,5 +1,5 @@
 """
-Auth utilities — JWT verification or demo-mode bypass.
+Auth utilities — JWT verification via Cognito JWKS.
 
 Matches the pattern used in the Node.js backend.
 """
@@ -33,23 +33,16 @@ class TokenPayload:
 
 def verify_token(request: Request) -> TokenPayload:
     """
-    Extract the Bearer token from the Authorization header.
-    In demo mode, tokens starting with 'demo_jwt_token' are accepted.
+    Extract and verify the Bearer token from the Authorization header.
+    Uses Cognito JWKS for RS256 verification when configured.
+    Falls back to base64 payload extraction for valid JWTs.
+    Raises 401 on any verification failure.
     """
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or malformed Authorization header")
 
     token = auth_header.split(" ", 1)[1]
-
-    # ── Demo mode bypass ─────────────────────────────────────────────────────
-    if token.startswith("demo_jwt_token") or token.startswith("cognito_jwt_"):
-        return TokenPayload(
-            sub="usr_demo_001",
-            email="rajan.fisherman@example.com",
-            username="Rajan Kumar",
-        )
-    # ─────────────────────────────────────────────────────────────────────────
 
     # ── Real Cognito Token Verification ──────────────────────────────────────
     if jwks_client:
@@ -69,22 +62,18 @@ def verify_token(request: Request) -> TokenPayload:
         except jwt.PyJWTError as e:
             raise HTTPException(status_code=401, detail=str(e))
 
-    # ── Fallback decoding if misconfigured ───────────────────────────────────
+    # ── Fallback decoding if JWKS is not configured ──────────────────────────
     if token.startswith("eyJ"):
         try:
             payload_b64 = token.split(".")[1]
             padded = payload_b64 + "=" * (4 - len(payload_b64) % 4)
             payload_dict = json.loads(base64.urlsafe_b64decode(padded).decode('utf-8'))
             return TokenPayload(
-                sub=payload_dict.get("sub", "usr_demo_001"),
-                email=payload_dict.get("email", "rajan.fisherman@example.com"),
-                username=payload_dict.get("name", "Rajan Kumar"),
+                sub=payload_dict.get("sub", ""),
+                email=payload_dict.get("email", "unknown@example.com"),
+                username=payload_dict.get("name", "User"),
             )
         except Exception:
             pass
 
-    return TokenPayload(
-        sub="usr_demo_001",
-        email="rajan.fisherman@example.com",
-        username="Rajan Kumar",
-    )
+    raise HTTPException(status_code=401, detail="Invalid or expired token")

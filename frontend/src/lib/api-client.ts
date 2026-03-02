@@ -1,15 +1,12 @@
 /**
  * Typed API client for OceanAI backend (AWS API Gateway → Lambda).
  *
- * Demo mode: When NEXT_PUBLIC_API_URL is not set, every function returns
- * realistic mock data so the UI works without a deployed backend.
- *
- * Real mode: Injects the Cognito JWT (or demo token) as a Bearer token,
- * calls the real Lambda endpoints, and throws typed ApiError on failure.
+ * All functions call the real backend / agent endpoints and throw
+ * typed ApiError on failure. No mock/demo fallbacks.
  */
 
-import { API_BASE_URL, AGENT_BASE_URL, IS_AGENT_CONFIGURED, DEMO_JWT, IS_DEMO_MODE, ENDPOINTS } from "./constants";
-import * as Mock from "./mock-api";
+import { API_BASE_URL, AGENT_BASE_URL, IS_AGENT_CONFIGURED, ENDPOINTS } from "./constants";
+import type { MLAnalysisResponse, GroupAnalysis } from "./types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,7 +30,7 @@ export interface PresignedUrlResponse {
 
 export interface AnalyzeImageResponse {
     imageId: string;
-    analysisResult: Mock.MLAnalysisResponse;
+    analysisResult: MLAnalysisResponse;
 }
 
 export interface MapMarker {
@@ -92,7 +89,7 @@ export interface ImageRecord {
     userId: string;
     s3Path: string;
     status: "pending" | "processing" | "completed" | "failed";
-    analysisResult?: Mock.MLAnalysisResponse;
+    analysisResult?: MLAnalysisResponse;
     latitude?: number;
     longitude?: number;
     createdAt: string;
@@ -127,7 +124,7 @@ export interface GroupRecord {
     imageCount: number;
     s3Keys: string[];
     status: "pending" | "processing" | "completed" | "partial" | "failed";
-    analysisResult?: Mock.GroupAnalysis;
+    analysisResult?: GroupAnalysis;
     latitude?: number;
     longitude?: number;
     locationMapped?: boolean;
@@ -143,15 +140,23 @@ export interface GroupListResponse {
 // ── Core fetch helper ─────────────────────────────────────────────────────────
 
 /**
- * Get the current auth token.
- * This reads from localStorage (set by auth-context) or falls back to demo token.
+ * Get the current auth token from localStorage.
  */
 function getToken(): string {
-    if (typeof window === "undefined") return IS_DEMO_MODE ? DEMO_JWT : "";
-    const token = localStorage.getItem("ocean_ai_token") || "";
-    if (token) return token;
-    // VERY IMPORTANT bypass: if valid cognito token isn't found, insert our demo pass
-    return DEMO_JWT;
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("ocean_ai_token") || "";
+}
+
+/**
+ * Structured error logger for API calls (dev mode only).
+ */
+function logApiError(label: string, method: string, url: string, status: number, message: string, durationMs: number): void {
+    if (process.env.NODE_ENV === "production") return;
+    console.error(
+        `%c[${label}]%c ${method} ${url} → ${status} (${durationMs}ms)\n${message}`,
+        "color: #ff4444; font-weight: bold;",
+        "color: inherit;"
+    );
 }
 
 async function apiFetch<T>(
@@ -168,7 +173,9 @@ async function apiFetch<T>(
         headers.Authorization = `Bearer ${token}`;
     }
 
+    const start = performance.now();
     const res = await fetch(url, { ...options, headers });
+    const durationMs = Math.round(performance.now() - start);
 
     if (!res.ok) {
         let message = `API error ${res.status}`;
@@ -178,6 +185,7 @@ async function apiFetch<T>(
         } catch {
             // ignore parse error
         }
+        logApiError("API ERROR", options.method || "GET", url, res.status, message, durationMs);
         throw new ApiError(res.status, message);
     }
 
@@ -202,7 +210,9 @@ async function agentFetch<T>(
         headers.Authorization = `Bearer ${token}`;
     }
 
+    const start = performance.now();
     const res = await fetch(url, { ...options, headers });
+    const durationMs = Math.round(performance.now() - start);
 
     if (!res.ok) {
         let message = `Agent API error ${res.status}`;
@@ -212,6 +222,7 @@ async function agentFetch<T>(
         } catch {
             // ignore parse error
         }
+        logApiError("AGENT ERROR", options.method || "GET", url, res.status, message, durationMs);
         throw new ApiError(res.status, message);
     }
 
@@ -229,15 +240,6 @@ export async function getPresignedUrl(
     latitude?: number,
     longitude?: number
 ): Promise<PresignedUrlResponse> {
-    if (IS_DEMO_MODE) {
-        await delay(400);
-        const id = `demo_${Date.now()}`;
-        return {
-            uploadUrl: "",
-            imageId: id,
-            s3Path: `s3://demo-bucket/uploads/${id}.jpg`,
-        };
-    }
     return apiFetch<PresignedUrlResponse>(ENDPOINTS.presignedUrl, {
         method: "POST",
         body: JSON.stringify({ fileName, fileType, latitude, longitude }),
@@ -254,19 +256,6 @@ export function uploadToS3(
     onProgress?: (pct: number) => void
 ): Promise<void> {
     return new Promise((resolve, reject) => {
-        if (!url) {
-            // Demo mode — simulate upload
-            let pct = 0;
-            const interval = setInterval(() => {
-                pct = Math.min(pct + 20, 100);
-                onProgress?.(pct);
-                if (pct === 100) {
-                    clearInterval(interval);
-                    resolve();
-                }
-            }, 200);
-            return;
-        }
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", url);
         xhr.setRequestHeader("Content-Type", file.type);
@@ -283,10 +272,6 @@ export function uploadToS3(
  * Trigger ML analysis on an already-uploaded image.
  */
 export async function analyzeImage(imageId: string): Promise<AnalyzeImageResponse> {
-    if (IS_DEMO_MODE) {
-        const mockResult = await Mock.analyzeCatchML();
-        return { imageId, analysisResult: mockResult };
-    }
     return apiFetch<AnalyzeImageResponse>(ENDPOINTS.analyzeImage(imageId), {
         method: "POST",
     });
@@ -296,10 +281,6 @@ export async function analyzeImage(imageId: string): Promise<AnalyzeImageRespons
  * Fetch the current user's catch images (paginated).
  */
 export async function getImages(limit = 20, lastKey?: string): Promise<{ items: ImageRecord[]; lastKey?: string }> {
-    if (IS_DEMO_MODE) {
-        await delay(600);
-        return Mock.getMockImages() as { items: ImageRecord[]; lastKey?: string };
-    }
     const params = new URLSearchParams({ limit: String(limit) });
     if (lastKey) params.set("lastKey", lastKey);
     const response = await apiFetch<{ items?: ImageRecord[]; images?: ImageRecord[]; lastKey?: string }>(`${ENDPOINTS.getImages}?${params}`);
@@ -313,10 +294,6 @@ export async function getImages(limit = 20, lastKey?: string): Promise<{ items: 
  * Fetch map markers (user catch locations with lat/lng).
  */
 export async function getMapData(filters?: { species?: string; from?: string; to?: string }): Promise<MapDataResponse> {
-    if (IS_DEMO_MODE) {
-        await delay(500);
-        return Mock.getMockMapData();
-    }
     const params = new URLSearchParams();
     if (filters?.species) params.set("species", filters.species);
     if (filters?.from) params.set("from", filters.from);
@@ -342,10 +319,6 @@ export async function sendChat(message: string, overrideChatId?: string, languag
             method: "POST",
             body: JSON.stringify({ message, language, latitude: location?.latitude, longitude: location?.longitude }),
         });
-    }
-    if (IS_DEMO_MODE) {
-        const response = await Mock.getChatbotResponse(message);
-        return { chatId: `demo_${Date.now()}`, response, timestamp: new Date().toISOString() };
     }
     return apiFetch<SendChatResponse>(ENDPOINTS.sendChat, {
         method: "POST",
@@ -447,16 +420,6 @@ export async function getChatHistory(limit = 30, overrideChatId?: string): Promi
             timestamp: m.timestamp
         }));
     }
-    if (IS_DEMO_MODE) {
-        await delay(400);
-        const mockLog = await Mock.getMockChatHistory();
-        return mockLog.map(m => ({
-            id: m.chatId,
-            role: 'assistant',
-            text: m.response,
-            timestamp: m.timestamp
-        }));
-    }
     const apiLog = await apiFetch<ChatMessage[]>(`${ENDPOINTS.getChatHistory}?limit=${limit}`);
     return apiLog.map(m => ({
         id: m.chatId,
@@ -474,7 +437,10 @@ export async function createConversation(title: string = "New Chat", language: s
         });
         return res.conversation;
     }
-    return { conversationId: `demo_${Date.now()}`, title, language, messageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    return apiFetch<Conversation>('/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ title, language })
+    });
 }
 
 export async function getConversationsList(): Promise<Conversation[]> {
@@ -489,10 +455,6 @@ export async function getConversationsList(): Promise<Conversation[]> {
  * Fetch analytics summary for the current user.
  */
 export async function getAnalytics(): Promise<AnalyticsResponse> {
-    if (IS_DEMO_MODE) {
-        await delay(700);
-        return Mock.getMockAnalytics();
-    }
     return apiFetch<AnalyticsResponse>(ENDPOINTS.getAnalytics);
 }
 
@@ -506,42 +468,10 @@ export async function createGroupPresignedUrls(
     latitude?: number,
     longitude?: number
 ): Promise<GroupPresignedUrlResponse> {
-    if (IS_DEMO_MODE) {
-        await delay(400);
-        const groupId = `demo_group_${Date.now()}`;
-        return {
-            groupId,
-            presignedUrls: files.map((_, index) => ({
-                index,
-                uploadUrl: "",
-                s3Key: `groups/${groupId}/image_${index}.jpg`,
-            })),
-            locationMapped: false,
-            locationMapReason: "location_not_provided",
-        };
-    }
-
-    // Try real API, fallback to mock if it fails
-    try {
-        return await apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
-            method: "POST",
-            body: JSON.stringify({ files, latitude, longitude }),
-        });
-    } catch (error) {
-        console.warn('Real API failed for createGroupPresignedUrls, falling back to mock data:', error);
-        await delay(400);
-        const groupId = `demo_group_${Date.now()}`;
-        return {
-            groupId,
-            presignedUrls: files.map((_, index) => ({
-                index,
-                uploadUrl: "",
-                s3Key: `groups/${groupId}/image_${index}.jpg`,
-            })),
-            locationMapped: false,
-            locationMapReason: "location_not_provided",
-        };
-    }
+    return apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
+        method: "POST",
+        body: JSON.stringify({ files, latitude, longitude }),
+    });
 }
 
 /**
@@ -563,157 +493,46 @@ export async function uploadGroupToS3(
 /**
  * Trigger ML analysis for a group of images.
  */
-export async function analyzeGroup(groupId: string, imageCount?: number): Promise<{ groupId: string; analysisResult: Mock.GroupAnalysis }> {
-    console.log('🔬 analyzeGroup called for:', groupId, 'imageCount:', imageCount);
-    console.log('🔍 IS_DEMO_MODE:', IS_DEMO_MODE);
-
-    if (IS_DEMO_MODE) {
-        await delay(2000);
-        const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
-
-        // Store the group in demo storage so it appears in history
-        const newGroup: GroupRecord = {
-            groupId,
-            userId: "demo_user",
-            imageCount: imageCount || 3,
-            s3Keys: Array.from({ length: imageCount || 3 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
-            status: "completed",
-            analysisResult: mockResult,
-            createdAt: new Date().toISOString(),
-        };
-        Mock.addDemoGroup(newGroup);
-
-        return { groupId, analysisResult: mockResult };
-    }
-
-    // Call real API - database should handle persistence
-    console.log('🌐 Calling real API for analysis:', `${API_BASE_URL}/groups/${groupId}/analyze`);
-    try {
-        const result = await apiFetch<{ groupId: string; analysisResult: Mock.GroupAnalysis }>(`/groups/${groupId}/analyze`, {
-            method: "POST",
-        });
-
-        // Persist to localStorage so it appears in history even if API /groups is empty
-        const newGroup: GroupRecord = {
-            groupId,
-            userId: "api_user",
-            imageCount: imageCount || 1,
-            s3Keys: Array.from({ length: imageCount || 1 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
-            status: "completed",
-            analysisResult: result.analysisResult,
-            createdAt: new Date().toISOString(),
-        };
-        Mock.addDemoGroup(newGroup);
-
-        return result;
-    } catch (error) {
-        console.warn('Real API failed for analyzeGroup, falling back to mock data:', error);
-        await delay(2000);
-        const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
-
-        // Store the group in demo storage so it appears in history
-        const newGroup: GroupRecord = {
-            groupId,
-            userId: "demo_user",
-            imageCount: imageCount || 3,
-            s3Keys: Array.from({ length: imageCount || 3 }, (_, i) => `groups/${groupId}/image_${i}.jpg`),
-            status: "completed",
-            analysisResult: mockResult,
-            createdAt: new Date().toISOString(),
-        };
-        Mock.addDemoGroup(newGroup);
-
-        return { groupId, analysisResult: mockResult };
-    }
+export async function analyzeGroup(groupId: string, imageCount?: number): Promise<{ groupId: string; analysisResult: GroupAnalysis }> {
+    return apiFetch<{ groupId: string; analysisResult: GroupAnalysis }>(`/groups/${groupId}/analyze`, {
+        method: "POST",
+    });
 }
 
 /**
- * Fetch user's group history (merged with legacy single-image records).
- * Always merges API results with locally persisted history to ensure
- * past uploads are never lost.
+ * Fetch user's group history.
  */
 export async function getGroups(limit = 20, lastKey?: string): Promise<GroupListResponse> {
-    console.log('🔍 getGroups called, IS_DEMO_MODE:', IS_DEMO_MODE);
-
-    if (IS_DEMO_MODE) {
-        await delay(300);
-        return { groups: Mock.getMockGroups().groups, lastKey: undefined };
-    }
-
-    // Fetch from real database
-    console.log('🌐 Fetching from real API:', `${API_BASE_URL}/groups`);
-    try {
-        const params = new URLSearchParams({ limit: String(limit) });
-        if (lastKey) params.set("lastKey", lastKey);
-        const apiResponse = await apiFetch<any>(`/groups?${params}`);
-        console.log('✅ API Response:', apiResponse);
-
-        // Handle different response formats
-        // Backend returns: { success: true, items: [...], lastKey: {...} }
-        // We need: { groups: [...], lastKey: ... }
-        const groups = apiResponse.items || apiResponse.groups || [];
-        const responseLastKey = apiResponse.lastKey;
-
-        console.log('✅ Fetched', groups.length, 'groups from database');
-        return { groups, lastKey: responseLastKey };
-    } catch (error) {
-        console.warn('Real API failed for getGroups, using local history:', error);
-        return { groups: Mock.getMockGroups().groups, lastKey: undefined };
-    }
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (lastKey) params.set("lastKey", lastKey);
+    const apiResponse = await apiFetch<{ items?: GroupRecord[]; groups?: GroupRecord[]; lastKey?: string }>(`/groups?${params}`);
+    const groups = apiResponse.items || apiResponse.groups || [];
+    return { groups, lastKey: apiResponse.lastKey };
 }
 
 /**
  * Fetch detailed group analysis results.
  */
 export async function getGroupDetails(groupId: string): Promise<GroupRecord> {
-    if (IS_DEMO_MODE) {
-        await delay(500);
-        return Mock.getMockGroupDetails(groupId);
-    }
-
-    // Fetch from real database
-    const result = await apiFetch<GroupRecord>(`/groups/${groupId}`);
-    console.log('✅ Fetched group details from database:', groupId);
-    return result;
+    return apiFetch<GroupRecord>(`/groups/${groupId}`);
 }
 
 /**
  * Delete a group from history.
  */
 export async function deleteGroup(groupId: string): Promise<void> {
-    if (IS_DEMO_MODE) {
-        await delay(300);
-        Mock.deleteDemoGroup(groupId);
-        return;
-    }
-
-    // Try real API, fallback to local deletion if it fails
-    try {
-        await apiFetch<void>(`/groups/${groupId}`, {
-            method: "DELETE",
-        });
-    } catch (error) {
-        console.warn('Real API failed for deleteGroup, deleting from local storage:', error);
-    }
-
-    // Always delete from local storage to ensure UI consistency
-    Mock.deleteDemoGroup(groupId);
+    await apiFetch<void>(`/groups/${groupId}`, {
+        method: "DELETE",
+    });
 }
 
 // ── Text-to-Speech ────────────────────────────────────────────────────────────
 
 /**
  * Convert text to speech using AWS Polly (via backend TTS Lambda).
- * Returns a Base64-encoded MP3 string, or empty string in demo mode.
- *
- * @param text - Text to synthesize (truncated to 1500 chars server-side)
- * @param languageCode - BCP-47 language code e.g. "hi-IN", "ta-IN", "en-IN"
+ * Returns a Base64-encoded MP3 string.
  */
 export async function synthesizeSpeech(text: string, languageCode = "en-IN"): Promise<{ audioBase64: string }> {
-    if (IS_DEMO_MODE) {
-        // No real TTS in demo mode — return empty so callers can handle gracefully
-        return { audioBase64: "" };
-    }
     return apiFetch<{ audioBase64: string }>("/tts", {
         method: "POST",
         body: JSON.stringify({ text, languageCode }),
@@ -751,48 +570,18 @@ export interface UserProfile {
  * Fetch the current user's profile from the backend.
  */
 export async function getUserProfile(): Promise<UserProfile> {
-    if (IS_DEMO_MODE) {
-        await delay(300);
-        const stored = localStorage.getItem("ocean_ai_user");
-        const user = stored ? JSON.parse(stored) : {};
-        return {
-            userId: user.id || "demo_user",
-            email: user.email || "demo@oceanai.in",
-            name: user.name || "Demo User",
-            phone: user.phone || "",
-            avatar: user.avatar || "",
-            port: user.port || "",
-            customPort: "",
-            region: user.region || "",
-            role: user.role || "fisherman",
-            publicProfileEnabled: false,
-            publicProfileSlug: "",
-            preferences: {
-                language: "english",
-                notifications: true,
-                offlineSync: true,
-                units: "kg",
-                boatType: "",
-            },
-        };
-    }
     const res = await apiFetch<{ profile: UserProfile }>(ENDPOINTS.getUserProfile);
     return res.profile;
 }
 
 /**
  * Update the current user's profile.
- * If avatarFile is provided, the backend returns a presigned URL for avatar upload.
  */
 export async function updateUserProfile(
     data: Partial<Omit<UserProfile, "userId" | "createdAt" | "updatedAt">>,
     avatarFileName?: string,
     avatarFileType?: string,
 ): Promise<{ profile: UserProfile; avatarUploadUrl?: string; avatarS3Url?: string }> {
-    if (IS_DEMO_MODE) {
-        await delay(300);
-        return { profile: { ...data } as UserProfile };
-    }
     return apiFetch<{ profile: UserProfile; avatarUploadUrl?: string; avatarS3Url?: string }>(
         ENDPOINTS.updateUserProfile,
         {
@@ -806,10 +595,6 @@ export async function updateUserProfile(
  * Export all user catch data as a CSV download.
  */
 export async function exportUserData(): Promise<string> {
-    if (IS_DEMO_MODE) {
-        await delay(500);
-        return "Type,ID,Date,Species,Weight (g),Status\ngroup,demo_1,2026-01-01,Pomfret,450,completed\n";
-    }
     const url = `${API_BASE_URL}${ENDPOINTS.exportUserData}`;
     const token = getToken();
     const res = await fetch(url, {
@@ -827,10 +612,6 @@ export async function exportUserData(): Promise<string> {
  * Delete the user's account and all associated data.
  */
 export async function deleteUserAccount(): Promise<{ message: string }> {
-    if (IS_DEMO_MODE) {
-        await delay(1000);
-        return { message: "Account deleted (demo mode)" };
-    }
     return apiFetch<{ message: string }>(ENDPOINTS.deleteUserAccount, {
         method: "DELETE",
     });
@@ -840,15 +621,6 @@ export async function deleteUserAccount(): Promise<{ message: string }> {
  * Fetch a user's public profile by slug.
  */
 export async function getPublicProfile(slug: string): Promise<Partial<UserProfile>> {
-    if (IS_DEMO_MODE) {
-        await delay(500);
-        return {
-            name: "Demo Fisherman",
-            port: "Ratnagiri Port, Maharashtra",
-            role: "fisherman",
-            publicProfileSlug: slug,
-        };
-    }
     const res = await apiFetch<{ profile: Partial<UserProfile> }>(ENDPOINTS.getPublicProfile(slug));
     return res.profile;
 }
@@ -856,7 +628,7 @@ export async function getPublicProfile(slug: string): Promise<Partial<UserProfil
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /** Get the primary (highest species confidence) crop from an ML analysis response */
-export function getPrimaryCrop(result: Mock.MLAnalysisResponse | undefined): Mock.MLCropResult | null {
+export function getPrimaryCrop(result: MLAnalysisResponse | undefined): import("./types").MLCropResult | null {
     if (!result?.crops) return null;
     const entries = Object.values(result.crops);
     if (entries.length === 0) return null;

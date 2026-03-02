@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { runStartupChecks } = require('./src/utils/startup-check');
 
 const app = express();
 const port = 3005;
@@ -29,6 +30,9 @@ const runLambda = async (req, res, lambdaHandler) => {
     }
 };
 
+// Health check endpoint
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'oceanai-backend' }));
+
 // Route Definitions mapping to Lambda functions
 app.post('/images/presigned-url', (req, res) => runLambda(req, res, require('./src/functions/getPresignedUrl.js').handler));
 app.post('/images/:imageId/analyze', (req, res) => runLambda(req, res, require('./src/functions/analyzeImage.js').handler));
@@ -53,30 +57,40 @@ app.get('/user/export', (req, res) => runLambda(req, res, require('./src/functio
 app.delete('/user/account', (req, res) => runLambda(req, res, require('./src/functions/deleteUserAccount.js').handler));
 app.get('/user/public/:slug', (req, res) => runLambda(req, res, require('./src/functions/getPublicProfile.js').handler));
 
-let server = app.listen(port, () => {
-    console.log(`\n🐟  OceanAI Backend Local Server running at http://localhost:${port}`);
-    console.log(`Ready to accept requests from the frontend!`);
-    console.log(`\nAvailable endpoints:`);
-    console.log(`  POST /images/presigned-url`);
-    console.log(`  POST /images/:imageId/analyze`);
-    console.log(`  GET  /images`);
-    console.log(`  GET  /map`);
-    console.log(`  POST /chat`);
-    console.log(`  GET  /chat`);
-    console.log(`  GET  /analytics`);
-    console.log(`  POST /groups/presigned-urls`);
-    console.log(`  POST /groups/:groupId/analyze`);
-    console.log(`  GET  /groups`);
-    console.log(`  GET  /groups/:groupId`);
-    console.log(`  DELETE /groups/:groupId`);
-    console.log(`\nPress Ctrl+C to stop the server\n`);
-});
+// ── Start server with diagnostics ───────────────────────────────────────────
+(async () => {
+    const diagnostics = await runStartupChecks();
 
-server.on('close', () => console.log('Server closed'));
-server.on('error', (err) => {
-    console.error('Server error:', err);
-    process.exit(1);
-});
+    if (!diagnostics.ok) {
+        console.error('\n❌  Critical startup checks failed. Fix the issues above before continuing.\n');
+        process.exit(1);
+    }
+
+    let server = app.listen(port, () => {
+        console.log(`\n🐟  OceanAI Backend Local Server running at http://localhost:${port}`);
+        console.log(`Ready to accept requests from the frontend!`);
+        console.log(`\nAvailable endpoints:`);
+        console.log(`  POST /images/presigned-url`);
+        console.log(`  POST /images/:imageId/analyze`);
+        console.log(`  GET  /images`);
+        console.log(`  GET  /map`);
+        console.log(`  POST /chat`);
+        console.log(`  GET  /chat`);
+        console.log(`  GET  /analytics`);
+        console.log(`  POST /groups/presigned-urls`);
+        console.log(`  POST /groups/:groupId/analyze`);
+        console.log(`  GET  /groups`);
+        console.log(`  GET  /groups/:groupId`);
+        console.log(`  DELETE /groups/:groupId`);
+        console.log(`\nPress Ctrl+C to stop the server\n`);
+    });
+
+    server.on('close', () => console.log('Server closed'));
+    server.on('error', (err) => {
+        console.error('Server error:', err);
+        process.exit(1);
+    });
+})();
 
 // Handle uncaught errors
 process.on('uncaughtException', (err) => {
@@ -86,4 +100,3 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
-

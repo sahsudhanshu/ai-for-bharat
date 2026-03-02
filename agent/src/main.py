@@ -33,8 +33,14 @@ _telegram_app = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup/shutdown: launch Telegram bot polling + alert scheduler."""
+    """Startup/shutdown: run diagnostics, launch Telegram bot polling + alert scheduler."""
     global _telegram_app
+
+    # ── Run startup diagnostics ──────────────────────────────────────────────
+    from src.utils.startup_check import run_startup_checks
+    diagnostics = await run_startup_checks()
+    if not diagnostics.get('ok', True):
+        logger.error("Critical startup checks failed — see diagnostics above")
 
     if TELEGRAM_BOT_TOKEN:
         try:

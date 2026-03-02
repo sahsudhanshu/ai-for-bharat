@@ -15,7 +15,7 @@ import {
   analyzeGroup,
   type GroupRecord,
 } from "@/lib/api-client";
-import type { GroupAnalysis } from "@/lib/mock-api";
+import type { GroupAnalysis } from "@/lib/types";
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -71,9 +71,9 @@ export default function UploadGroupPage() {
     if (validFiles.length !== newFiles.length) {
       toast.error("Some files were skipped (only images allowed)");
     }
-    
+
     setFiles(prev => [...prev, ...validFiles]);
-    
+
     validFiles.forEach(file => {
       const reader = new FileReader();
       reader.onload = () => setPreviews(prev => [...prev, reader.result as string]);
@@ -94,14 +94,14 @@ export default function UploadGroupPage() {
       setUploadProgress({});
 
       const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
-      
+
       // Include location data if available
       const { groupId: newGroupId, presignedUrls, locationMapped, locationMapReason } = await createGroupPresignedUrls(
         fileMetadata,
         location?.lat,
         location?.lng
       );
-      
+
       setGroupId(newGroupId);
 
       // Show location mapping result
@@ -217,7 +217,7 @@ export default function UploadGroupPage() {
                   Add More
                 </Button>
               </div>
-              
+
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {previews.map((preview, idx) => (
                   <div key={idx} className="relative group">
