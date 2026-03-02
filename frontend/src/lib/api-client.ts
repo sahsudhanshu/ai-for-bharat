@@ -329,18 +329,18 @@ export async function getMapData(filters?: { species?: string; from?: string; to
  * Send a chat message and receive an AI response.
  * Routes to the Python agent (LangGraph) when available.
  */
-export async function sendChat(message: string, overrideChatId?: string, language?: string): Promise<SendChatResponse> {
+export async function sendChat(message: string, overrideChatId?: string, language?: string, location?: { latitude: number; longitude: number }): Promise<SendChatResponse> {
     if (IS_AGENT_CONFIGURED) {
         if (overrideChatId) {
             const res = await agentFetch<{ success: boolean; response: { content: string, messageId: string } }>(`/conversations/${overrideChatId}/messages`, {
                 method: 'POST',
-                body: JSON.stringify({ message, language }),
+                body: JSON.stringify({ message, language, latitude: location?.latitude, longitude: location?.longitude }),
             });
             return { chatId: overrideChatId, response: res.response.content, timestamp: new Date().toISOString() };
         }
         return agentFetch<SendChatResponse>("/chat", {
             method: "POST",
-            body: JSON.stringify({ message, language }),
+            body: JSON.stringify({ message, language, latitude: location?.latitude, longitude: location?.longitude }),
         });
     }
     if (IS_DEMO_MODE) {
@@ -360,7 +360,8 @@ export async function streamChat(
     message: string,
     onChunk: (text: string) => void,
     overrideChatId?: string,
-    language?: string
+    language?: string,
+    location?: { latitude: number; longitude: number }
 ): Promise<{ chatId: string; messageId?: string }> {
     if (IS_AGENT_CONFIGURED && overrideChatId) {
         const url = `${AGENT_BASE_URL}/conversations/${overrideChatId}/messages/stream`;
@@ -373,7 +374,7 @@ export async function streamChat(
         const res = await fetch(url, {
             method: "POST",
             headers,
-            body: JSON.stringify({ message, language }),
+            body: JSON.stringify({ message, language, latitude: location?.latitude, longitude: location?.longitude }),
         });
 
         if (!res.ok) {
@@ -418,7 +419,7 @@ export async function streamChat(
     }
 
     // Fallback
-    const fallbackRes = await sendChat(message, overrideChatId, language);
+    const fallbackRes = await sendChat(message, overrideChatId, language, location);
     onChunk(fallbackRes.response);
     return { chatId: fallbackRes.chatId };
 }

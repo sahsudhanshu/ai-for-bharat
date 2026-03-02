@@ -49,6 +49,8 @@ def _extract_text(content) -> str:
 class ChatRequest(BaseModel):
     message: str
     language: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -81,10 +83,12 @@ async def send_chat(
         "conversation_id": conversation_id,
         "selected_language": language,
         "human_input": body.message,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
         "messages": [],
         "tool_outputs": [],
     }
-    print(f"DEBUG /chat: Invoking graph with selected_language: '{language}'")
+    print(f"DEBUG /chat: Invoking graph with selected_language: '{language}', location: ({body.latitude}, {body.longitude})")
 
     try:
         result = await graph.ainvoke(initial_state)

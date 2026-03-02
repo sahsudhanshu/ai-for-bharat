@@ -11,6 +11,7 @@ def build_system_prompt(
     long_term_memory: str | None = None,
     region_context: str | None = None,
     catch_context: str | None = None,
+    location_context: str | None = None,
 ) -> str:
     """
     Compose a full system prompt with injected context blocks.
@@ -77,6 +78,13 @@ You are friendly, practical, and deeply knowledgeable about:
     if catch_context:
         sections.append(f"""## Recent Catch History
 {catch_context}
+""")
+
+    # ── User location context ─────────────────────────────────────────────
+    if location_context:
+        sections.append(f"""## User Location
+{location_context}
+When the user asks about weather or sea conditions without specifying a location, use these coordinates with the get_weather tool.
 """)
 
     # ── Tool usage guidance ───────────────────────────────────────────────

@@ -46,6 +46,8 @@ def _extract_text(content) -> str:
 class SendMessageRequest(BaseModel):
     message: str
     language: str | None = None   # override per-message (rare)
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 # ── Send message — invokes the full LangGraph pipeline ──────────────────────
@@ -74,10 +76,12 @@ async def send_message(
         "conversation_id": conversation_id,
         "selected_language": language,
         "human_input": body.message,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
         "messages": [],
         "tool_outputs": [],
     }
-    print(f"DEBUG /messages: Invoking graph with selected_language: '{language}'")
+    print(f"DEBUG /messages: Invoking graph with selected_language: '{language}', location: ({body.latitude}, {body.longitude})")
 
     try:
         result = await graph.ainvoke(initial_state)
@@ -180,6 +184,8 @@ async def send_message_stream(
         "conversation_id": conversation_id,
         "selected_language": language,
         "human_input": body.message,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
         "messages": [],
         "tool_outputs": [],
     }

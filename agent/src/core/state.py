@@ -24,6 +24,10 @@ class AgentState(TypedDict, total=False):
     messages: List[BaseMessage]            # full chat history fed to the LLM
     human_input: str                       # latest user text
 
+    # ── User location (GPS from browser) ──────────────────────────────────────
+    latitude: Optional[float]              # user's current latitude
+    longitude: Optional[float]             # user's current longitude
+
     # ── Context (injected before agent) ──────────────────────────────────────
     summary: Optional[str]                 # summary of older messages
     long_term_memory: Optional[str]        # persisted facts / preferences

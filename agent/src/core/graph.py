@@ -106,11 +106,19 @@ async def load_context(state: AgentState) -> Dict[str, Any]:
     # Long-term memory
     ltm = get_long_term_memory(user_id)
 
+    # User location from browser GPS
+    lat = state.get("latitude")
+    lon = state.get("longitude")
+    location_context = None
+    if lat is not None and lon is not None:
+        location_context = f"User's current GPS coordinates: {lat:.4f}°N, {lon:.4f}°E. Use these for weather lookups and location-aware responses."
+
     # Build system prompt with all context
     system_prompt = build_system_prompt(
         selected_language=lang,
         summary=summary,
         long_term_memory=ltm,
+        location_context=location_context,
     )
 
     # Compose the full messages list

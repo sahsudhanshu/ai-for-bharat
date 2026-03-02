@@ -124,6 +124,17 @@ export default function ChatbotPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const hasInitialized = useRef(false);
 
+  // ── Geolocation ──────────────────────────────────────────────────────────
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      (err) => console.warn('Geolocation denied or unavailable:', err.message),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 }
+    );
+  }, []);
+
   // ── TTS ──────────────────────────────────────────────────────────────────
   const isSynthesizingRef = useRef(false);
   const audioMapRef = useRef<Record<string, HTMLAudioElement>>({});
@@ -273,7 +284,7 @@ export default function ChatbotPage() {
         setMessages(prev => prev.map(m =>
           m.id === tempAiMsgId ? { ...m, content: m.content + chunkText } : m
         ));
-      }, targetChatId ?? undefined, locale);
+      }, targetChatId ?? undefined, locale, userLocation ?? undefined);
 
       if (!targetChatId && res.chatId && !res.chatId.startsWith('demo_')) {
         setCurrentChatId(res.chatId);
