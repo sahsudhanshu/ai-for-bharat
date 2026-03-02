@@ -7,10 +7,10 @@
  * Defaults to http://localhost:8000 for local development.
  */
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 /** Agent (Python FastAPI) base URL — used for chat routes */
-export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? "http://localhost:8001";
+export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL;
 
 /** Whether the LangGraph agent is available */
 export const IS_AGENT_CONFIGURED = true;
@@ -23,10 +23,10 @@ export const IS_DEMO_MODE = !API_BASE_URL;
 
 // Log configuration on module load
 if (typeof window !== 'undefined') {
-    console.log('🔧 API Configuration:');
-    console.log('  API_BASE_URL:', API_BASE_URL || '(not set)');
-    console.log('  IS_DEMO_MODE:', IS_DEMO_MODE);
-    console.log('  AGENT_BASE_URL:', AGENT_BASE_URL);
+  console.log('🔧 API Configuration:');
+  console.log('  API_BASE_URL:', API_BASE_URL || '(not set)');
+  console.log('  IS_DEMO_MODE:', IS_DEMO_MODE);
+  console.log('  AGENT_BASE_URL:', AGENT_BASE_URL);
 }
 
 /** API endpoint paths */
@@ -41,7 +41,7 @@ export const ENDPOINTS = {
 } as const;
 
 /** ML Model API base URL for resolving static asset URLs (crop images, grad-cam, etc.) */
-export const ML_BASE_URL = process.env.NEXT_PUBLIC_ML_BASE_URL ?? "https://kyanmahajan-fish-pred.hf.space";
+export const ML_BASE_URL = process.env.NEXT_PUBLIC_ML_BASE_URL;
 
 /** Resolve ML API relative URL to absolute URL */
 export function resolveMLUrl(path: string): string {

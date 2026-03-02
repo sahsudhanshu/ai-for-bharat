@@ -21,6 +21,8 @@ import { useLanguage } from '../../lib/i18n';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useLocalSearchParams } from 'expo-router';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
+import { synthesizeSpeech } from '../../lib/api-client';
 
 interface UIMessage {
     id: string;
@@ -31,7 +33,7 @@ interface UIMessage {
 
 export default function ChatScreen() {
     const { user } = useAuth();
-    const { t, locale, isLoaded } = useLanguage();
+    const { t, locale, speechCode, isLoaded } = useLanguage();
     const params = useLocalSearchParams();
 
     const QUICK_ACTIONS = [
@@ -85,22 +87,65 @@ export default function ChatScreen() {
         });
     }, []);
 
-    const speakMessage = (text: string) => {
+    const [sound, setSound] = useState<Audio.Sound | null>(null);
+
+    const speakMessage = async (text: string) => {
         if (isSpeaking) {
-            Speech.stop();
+            if (sound) {
+                await sound.stopAsync();
+                await sound.unloadAsync();
+                setSound(null);
+            }
             setIsSpeaking(false);
-        } else {
-            setIsSpeaking(true);
-            Speech.speak(text, { onDone: () => setIsSpeaking(false), onError: () => setIsSpeaking(false) });
+            return;
+        }
+
+        setIsSpeaking(true);
+        try {
+            const res = await synthesizeSpeech(text, speechCode || "en-IN");
+            if (res.audioBase64) {
+                // Ensure audio plays even if silent switch is on (iOS)
+                await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+
+                const { sound: newSound } = await Audio.Sound.createAsync(
+                    { uri: `data:audio/mp3;base64,${res.audioBase64}` },
+                    { shouldPlay: true }
+                );
+                setSound(newSound);
+
+                newSound.setOnPlaybackStatusUpdate((status: any) => {
+                    if (status.isLoaded && status.didJustFinish) {
+                        setIsSpeaking(false);
+                        newSound.unloadAsync();
+                        setSound(null);
+                    }
+                });
+            } else {
+                setIsSpeaking(false);
+            }
+        } catch (error) {
+            console.warn("TTS Error:", error);
+            setIsSpeaking(false);
         }
     };
+
+    useEffect(() => {
+        return sound
+            ? () => {
+                sound.unloadAsync();
+            }
+            : undefined;
+    }, [sound]);
 
     const loadChat = async (chatId: string) => {
         setCurrentChatId(chatId);
         setShowSidebar(false);
         setMessages([]);
         setIsTyping(true);
-        Speech.stop();
+        if (sound) {
+            sound.unloadAsync();
+            setSound(null);
+        }
         setIsSpeaking(false);
         try {
             const { getChatHistory } = await import('../../lib/api-client');

@@ -449,7 +449,7 @@ export async function createGroupPresignedUrls(
             locationMapReason: "location_not_provided",
         };
     }
-    
+
     // Try real API, fallback to mock if it fails
     try {
         return await apiFetch<GroupPresignedUrlResponse>("/groups/presigned-urls", {
@@ -493,10 +493,13 @@ export async function uploadGroupToS3(
  * Trigger ML analysis for a group of images.
  */
 export async function analyzeGroup(groupId: string, imageCount?: number): Promise<{ groupId: string; analysisResult: Mock.GroupAnalysis }> {
+    console.log('🔬 analyzeGroup called for:', groupId, 'imageCount:', imageCount);
+    console.log('🔍 IS_DEMO_MODE:', IS_DEMO_MODE);
+
     if (IS_DEMO_MODE) {
         await delay(2000);
         const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
-        
+
         // Store the group in demo storage so it appears in history
         const newGroup: GroupRecord = {
             groupId,
@@ -508,16 +511,17 @@ export async function analyzeGroup(groupId: string, imageCount?: number): Promis
             createdAt: new Date().toISOString(),
         };
         Mock.addDemoGroup(newGroup);
-        
+
         return { groupId, analysisResult: mockResult };
     }
-    
-    // Try real API, fallback to mock if it fails
+
+    // Call real API - database should handle persistence
+    console.log('🌐 Calling real API for analysis:', `${API_BASE_URL}/groups/${groupId}/analyze`);
     try {
         const result = await apiFetch<{ groupId: string; analysisResult: Mock.GroupAnalysis }>(`/groups/${groupId}/analyze`, {
             method: "POST",
         });
-        
+
         // Persist to localStorage so it appears in history even if API /groups is empty
         const newGroup: GroupRecord = {
             groupId,
@@ -529,13 +533,13 @@ export async function analyzeGroup(groupId: string, imageCount?: number): Promis
             createdAt: new Date().toISOString(),
         };
         Mock.addDemoGroup(newGroup);
-        
+
         return result;
     } catch (error) {
         console.warn('Real API failed for analyzeGroup, falling back to mock data:', error);
         await delay(2000);
         const mockResult = await Mock.getMockGroupAnalysis(imageCount || 3);
-        
+
         // Store the group in demo storage so it appears in history
         const newGroup: GroupRecord = {
             groupId,
@@ -547,7 +551,7 @@ export async function analyzeGroup(groupId: string, imageCount?: number): Promis
             createdAt: new Date().toISOString(),
         };
         Mock.addDemoGroup(newGroup);
-        
+
         return { groupId, analysisResult: mockResult };
     }
 }
@@ -558,34 +562,33 @@ export async function analyzeGroup(groupId: string, imageCount?: number): Promis
  * past uploads are never lost.
  */
 export async function getGroups(limit = 20, lastKey?: string): Promise<GroupListResponse> {
-    // Always get locally persisted groups
-    const localData = Mock.getMockGroups();
-    const localGroups: GroupRecord[] = localData.groups || [];
+    console.log('🔍 getGroups called, IS_DEMO_MODE:', IS_DEMO_MODE);
 
     if (IS_DEMO_MODE) {
         await delay(300);
-        return { groups: localGroups, lastKey: undefined };
+        return { groups: Mock.getMockGroups().groups, lastKey: undefined };
     }
-    
-    // Try real API and merge with local history
-    let apiGroups: GroupRecord[] = [];
+
+    // Fetch from real database
+    console.log('🌐 Fetching from real API:', `${API_BASE_URL}/groups`);
     try {
         const params = new URLSearchParams({ limit: String(limit) });
         if (lastKey) params.set("lastKey", lastKey);
-        const apiResponse = await apiFetch<GroupListResponse>(`/groups?${params}`);
-        apiGroups = apiResponse.groups || [];
+        const apiResponse = await apiFetch<any>(`/groups?${params}`);
+        console.log('✅ API Response:', apiResponse);
+
+        // Handle different response formats
+        // Backend returns: { success: true, items: [...], lastKey: {...} }
+        // We need: { groups: [...], lastKey: ... }
+        const groups = apiResponse.items || apiResponse.groups || [];
+        const responseLastKey = apiResponse.lastKey;
+
+        console.log('✅ Fetched', groups.length, 'groups from database');
+        return { groups, lastKey: responseLastKey };
     } catch (error) {
         console.warn('Real API failed for getGroups, using local history:', error);
+        return { groups: Mock.getMockGroups().groups, lastKey: undefined };
     }
-
-    // Merge: API groups take priority, then local-only groups
-    const seenIds = new Set(apiGroups.map(g => g.groupId));
-    const mergedGroups = [
-        ...apiGroups,
-        ...localGroups.filter(g => !seenIds.has(g.groupId)),
-    ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    return { groups: mergedGroups.slice(0, limit), lastKey: undefined };
 }
 
 /**
@@ -596,15 +599,11 @@ export async function getGroupDetails(groupId: string): Promise<GroupRecord> {
         await delay(500);
         return Mock.getMockGroupDetails(groupId);
     }
-    
-    // Try real API, fallback to mock if it fails
-    try {
-        return await apiFetch<GroupRecord>(`/groups/${groupId}`);
-    } catch (error) {
-        console.warn('Real API failed for getGroupDetails, falling back to mock data:', error);
-        await delay(500);
-        return Mock.getMockGroupDetails(groupId);
-    }
+
+    // Fetch from real database
+    const result = await apiFetch<GroupRecord>(`/groups/${groupId}`);
+    console.log('✅ Fetched group details from database:', groupId);
+    return result;
 }
 
 /**
@@ -630,6 +629,25 @@ export async function deleteGroup(groupId: string): Promise<void> {
     Mock.deleteDemoGroup(groupId);
 }
 
+// ── Text-to-Speech ────────────────────────────────────────────────────────────
+
+/**
+ * Convert text to speech using AWS Polly (via backend TTS Lambda).
+ * Returns a Base64-encoded MP3 string, or empty string in demo mode.
+ *
+ * @param text - Text to synthesize (truncated to 1500 chars server-side)
+ * @param languageCode - BCP-47 language code e.g. "hi-IN", "ta-IN", "en-IN"
+ */
+export async function synthesizeSpeech(text: string, languageCode = "en-IN"): Promise<{ audioBase64: string }> {
+    if (IS_DEMO_MODE) {
+        // No real TTS in demo mode — return empty so callers can handle gracefully
+        return { audioBase64: "" };
+    }
+    return apiFetch<{ audioBase64: string }>("/tts", {
+        method: "POST",
+        body: JSON.stringify({ text, languageCode }),
+    });
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

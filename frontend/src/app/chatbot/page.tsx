@@ -1,375 +1,452 @@
 "use client"
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
-  Send, Mic, Bot, User, RotateCcw, Download, Info,
-  Waves, Fish, CloudRain, BookOpen, HelpCircle, Plus, Loader2, Volume2,
+  Send, Mic, Bot, Volume2, Pause, Waves, Fish, CloudRain, BookOpen,
+  HelpCircle, Plus, Loader2, Download, X, CornerUpLeft, ImageIcon,
+  MessageSquare, Clock, ChevronRight, Zap, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { Badge } from "@/components/ui/badge";
-import { sendChat, getChatHistory, getConversationsList, createConversation } from "@/lib/api-client";
+import { sendChat, getChatHistory, getConversationsList, createConversation, synthesizeSpeech, getGroups, type GroupRecord } from "@/lib/api-client";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/i18n";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 
+// ── Types ──────────────────────────────────────────────────────────────────
 interface Message {
+  id: string;
+  role: 'user' | 'assistant' | 'error';
+  content: string;
+  timestamp: Date;
+  failedText?: string; // original user text to retry
+}
+
+interface ReplyRef {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  timestamp: Date;
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────
 const parseSafeDate = (dateInput: string | Date | undefined): Date => {
   if (!dateInput) return new Date();
   let d = new Date(dateInput);
-  if (isNaN(d.getTime()) && typeof dateInput === 'string') {
-    // Backend may have generated a hex string in the ms part, clean it up
+  if (isNaN(d.getTime()) && typeof dateInput === 'string')
     d = new Date(dateInput.replace(/\.[0-9a-fA-F]{3}Z$/, '.000Z'));
-  }
   return isNaN(d.getTime()) ? new Date() : d;
 };
+const truncate = (s: string, n = 80) => s.length > n ? s.slice(0, n) + '…' : s;
 
+// ── Skeleton components ────────────────────────────────────────────────────
+function MessageSkeleton({ align }: { align: 'left' | 'right' }) {
+  return (
+    <div className={cn("flex gap-3 max-w-[75%] animate-pulse", align === 'right' ? "ml-auto flex-row-reverse" : "mr-auto")}>
+      <Skeleton className="w-9 h-9 rounded-full shrink-0" />
+      <div className="space-y-2 flex-1">
+        <Skeleton className={cn("h-4 rounded-2xl", align === 'right' ? "w-32 ml-auto" : "w-48")} />
+        <Skeleton className={cn("h-10 rounded-2xl", align === 'right' ? "w-40 ml-auto" : "w-64")} />
+        <Skeleton className={cn("h-3 w-12 rounded", align === 'right' ? "ml-auto" : "")} />
+      </div>
+    </div>
+  );
+}
+
+function ConversationSkeleton() {
+  return (
+    <div className="space-y-2 px-1 animate-pulse">
+      {[80, 65, 90].map((w, i) => (
+        <div key={i} className="flex items-center gap-2.5 p-3 rounded-xl bg-muted/20">
+          <Skeleton className="w-6 h-6 rounded-lg shrink-0" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className={`h-3 rounded`} style={{ width: `${w}%` }} />
+            <Skeleton className="h-2 w-14 rounded" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Markdown renderer config ───────────────────────────────────────────────
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['components'] = {
+  p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic text-muted-foreground">{children}</em>,
+  ul: ({ children }) => <ul className="my-2 space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 space-y-1 list-decimal list-inside">{children}</ol>,
+  li: ({ children }) => (
+    <li className="flex gap-2 items-start">
+      <span className="mt-2 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+      <span>{children}</span>
+    </li>
+  ),
+  code: ({ children }) => <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">{children}</code>,
+  hr: () => <hr className="my-3 border-border/40" />,
+  h3: ({ children }) => <h3 className="font-bold text-sm mt-3 mb-1">{children}</h3>,
+  h4: ({ children }) => <h4 className="font-semibold text-sm mt-2 mb-1 text-muted-foreground">{children}</h4>,
+  blockquote: ({ children }) => <blockquote className="border-l-2 border-primary/40 pl-3 my-2 text-muted-foreground italic">{children}</blockquote>,
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
 export default function ChatbotPage() {
   const { user } = useAuth();
   const { t, locale, speechCode } = useLanguage();
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: t('chat.welcome'),
-      timestamp: new Date(),
-    },
-  ]);
+
+  const [messages, setMessages] = useState<Message[]>([{
+    id: 'welcome', role: 'assistant', content: t('chat.welcome'), timestamp: new Date(),
+  }]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [isLoadingChats, setIsLoadingChats] = useState(true);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
-  const [chats, setChats] = useState<{ id: string, title: string }[]>([]);
+  const [chats, setChats] = useState<{ id: string; title: string; updatedAt?: string }[]>([]);
+
+  const [playingMsgId, setPlayingMsgId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [replyingTo, setReplyingTo] = useState<ReplyRef | null>(null);
+
+  const [showImagePicker, setShowImagePicker] = useState(false);
+  const [recentGroups, setRecentGroups] = useState<GroupRecord[]>([]);
+  const [imagesLoading, setImagesLoading] = useState(false);
+
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const hasInitialized = useRef(false);
 
-  // ── Text To Speech ──────────────────────────────────────────────────────────
-  const handlePlayAudio = (text: string) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = speechCode || 'en-US';
-      window.speechSynthesis.speak(utterance);
-    } else {
-      toast.error('Text-to-speech is not supported in your browser.');
+  // ── TTS ──────────────────────────────────────────────────────────────────
+  const handlePlayPause = async (msg: Message) => {
+    if (playingMsgId === msg.id && audioRef.current) {
+      audioRef.current.pause(); audioRef.current = null; setPlayingMsgId(null); return;
     }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; setPlayingMsgId(null); }
+    try {
+      const tid = toast.loading('Generating audio…');
+      const res = await synthesizeSpeech(msg.content, speechCode || 'en-IN');
+      toast.dismiss(tid);
+      if (!res.audioBase64) { toast.info('Audio not available in demo mode.'); return; }
+      const audio = new Audio(`data:audio/mp3;base64,${res.audioBase64}`);
+      audioRef.current = audio; setPlayingMsgId(msg.id);
+      audio.play().catch(e => console.error("Audio play failed:", e));
+      audio.onended = () => { setPlayingMsgId(null); audioRef.current = null; };
+    } catch { toast.dismiss(); toast.error('Failed to generate audio.'); }
   };
 
-  // ── Voice Input ─────────────────────────────────────────────────────────────
+  // ── Voice input ───────────────────────────────────────────────────────────
   const { isListening, transcript, isSupported: voiceSupported, startListening, stopListening } = useVoiceInput({
-    lang: speechCode,
-    onResult: (text) => {
-      setInput(text);
-    },
-    onError: (error) => {
-      toast.error(error);
-    },
+    lang: speechCode, onResult: (t) => setInput(t), onError: (e) => toast.error(e),
   });
+  useEffect(() => { if (isListening && transcript) setInput(transcript); }, [transcript, isListening]);
 
-  // Update input with interim transcript while listening
-  useEffect(() => {
-    if (isListening && transcript) {
-      setInput(transcript);
-    }
-  }, [transcript, isListening]);
+  // ── Image picker ──────────────────────────────────────────────────────────
+  const openImagePicker = async () => {
+    setShowImagePicker(true);
+    if (recentGroups.length > 0) return;
+    setImagesLoading(true);
+    try {
+      const { groups } = await getGroups(20);
+      setRecentGroups(groups.filter(g => g.status === 'completed'));
+    } catch { } finally { setImagesLoading(false); }
+  };
+  const handleAttachGroup = (group: GroupRecord) => {
+    const analysis = group.analysisResult as any;
+    const topSpecies = analysis?.summary?.topSpecies || analysis?.topSpecies || 'Unknown';
+    setInput(prev => {
+      const base = prev.endsWith('@') ? prev.slice(0, -1) : prev;
+      return base + (base.length > 0 && !base.endsWith(' ') ? ' ' : '') + `[Ref: ${topSpecies}] (ID: ${group.groupId}) `;
+    });
+    setShowImagePicker(false); inputRef.current?.focus();
+  };
 
-  // ── Quick actions with translated labels ───────────────────────────────────
+  // ── Quick actions ─────────────────────────────────────────────────────────
   const QUICK_ACTIONS = [
-    { label: t('chat.action.fish'), icon: Fish, query: "How do I identify fish species?" },
-    { label: t('chat.action.weather'), icon: CloudRain, query: "What are the sea conditions today?" },
-    { label: t('chat.action.ocean'), icon: Waves, query: "What are the current ocean conditions?" },
-    { label: t('chat.action.regulations'), icon: BookOpen, query: "What are the fishing regulations?" },
-    { label: t('chat.action.tips'), icon: HelpCircle, query: "Give me tips to improve my catch quality" },
+    { label: t('chat.action.fish'), icon: Fish, query: "How do I identify fish species?", color: "text-blue-500 bg-blue-500/10" },
+    { label: t('chat.action.weather'), icon: CloudRain, query: "What are the sea conditions today?", color: "text-cyan-500 bg-cyan-500/10" },
+    { label: t('chat.action.ocean'), icon: Waves, query: "What are the current ocean conditions?", color: "text-emerald-500 bg-emerald-500/10" },
+    { label: t('chat.action.regulations'), icon: BookOpen, query: "What are the fishing regulations?", color: "text-amber-500 bg-amber-500/10" },
+    { label: t('chat.action.tips'), icon: HelpCircle, query: "Give me tips to improve my catch quality", color: "text-purple-500 bg-purple-500/10" },
   ];
 
-  const SUGGESTED_TOPICS = [
-    "What's the best time to fish for Kingfish near Ratnagiri?",
-    "How to distinguish between Silver and White Pomfret?",
-    "Current safety warnings for high-sea vessels near Malabar?",
-    "Latest GST regulations for small-scale fishermen exports.",
-    "Sustainable net mesh size recommendations for the Konkan coast.",
-  ];
-
-
-
+  // ── Load chat ─────────────────────────────────────────────────────────────
   const loadChat = async (chatId: string) => {
-    setCurrentChatId(chatId);
-    setMessages([]);
-    setIsLoadingHistory(true);
+    setCurrentChatId(chatId); setMessages([]); setIsLoadingHistory(true);
     try {
       const history = await getChatHistory(50, chatId);
       const formatted: Message[] = history.map(msg => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.text,
-        timestamp: parseSafeDate(msg.timestamp)
+        id: msg.id, role: msg.role as 'user' | 'assistant',
+        content: msg.text, timestamp: parseSafeDate(msg.timestamp),
       }));
-      setMessages(formatted.length > 0 ? formatted : [{
-        id: 'welcome',
-        role: 'assistant',
-        content: t('chat.welcome'),
-        timestamp: new Date(),
-      }]);
-    } catch {
-      toast.error("Failed to load conversation");
-    } finally {
-      setIsLoadingHistory(false);
-    }
+      setMessages(formatted.length > 0 ? formatted : [{ id: 'welcome', role: 'assistant', content: t('chat.welcome'), timestamp: new Date() }]);
+    } catch { toast.error("Failed to load conversation"); }
+    finally { setIsLoadingHistory(false); }
   };
-
-
 
   const createNewChat = () => {
-    setCurrentChatId(null);
-    setMessages([{
-      id: 'welcome',
-      role: 'assistant',
-      content: t('chat.welcome'),
-      timestamp: new Date(),
-    }]);
+    setCurrentChatId(null); setReplyingTo(null);
+    setMessages([{ id: 'welcome', role: 'assistant', content: t('chat.welcome'), timestamp: new Date() }]);
   };
 
-  // ── Auto-scroll to bottom ──────────────────────────────────────────────────
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, isTyping]);
 
-  // ── Send message ───────────────────────────────────────────────────────────
-  const handleSend = useCallback(async (messageText?: string) => {
-    const text = (messageText ?? input).trim();
-    if (!text || isTyping) return;
+  // ── Send ──────────────────────────────────────────────────────────────────
+  const handleSend = useCallback(async (messageText?: string, retryId?: string) => {
+    const rawText = (messageText ?? input).trim();
+    if (!rawText || isTyping) return;
 
-    const userMessage: Message = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: text,
-      timestamp: new Date(),
-    };
+    const text = replyingTo
+      ? `[Replying to: "${truncate(replyingTo.content, 60)}"]\n\n${rawText}` : rawText;
 
-    setMessages((prev) => [...prev, userMessage]);
-    setInput("");
-    setIsTyping(true);
+    // Remove any existing error bubble for this retry
+    if (retryId) setMessages(prev => prev.filter(m => m.id !== retryId));
+
+    const userMsgId = `user_${Date.now()}`;
+    const userMessage: Message = { id: userMsgId, role: 'user', content: rawText, timestamp: new Date() };
+    setMessages(prev => [...prev, userMessage]);
+    setInput(""); setReplyingTo(null); setIsTyping(true);
 
     try {
       let targetChatId = currentChatId;
-
-      // If we are starting a new chat, explicitly create the conversation on the backend
       if (!targetChatId) {
         try {
-          const newConv = await createConversation(text.substring(0, 40), locale);
+          const newConv = await createConversation(rawText.substring(0, 40), locale);
           targetChatId = newConv.conversationId;
           setCurrentChatId(targetChatId);
-          setChats(prev => [{ id: newConv.conversationId, title: text.substring(0, 40) }, ...prev]);
-        } catch (e) {
-          console.error("Failed to explicitly create conversation", e);
-        }
+          setChats(prev => [{ id: newConv.conversationId, title: rawText.substring(0, 40) }, ...prev]);
+        } catch (e) { console.error("Failed to create conversation", e); }
       }
-
       const res = await sendChat(text, targetChatId ?? undefined, locale);
-
-      // Fallback in case the createConversation step failed or was skipped
       if (!targetChatId && res.chatId && !res.chatId.startsWith('demo_')) {
         setCurrentChatId(res.chatId);
-        setChats(prev => [{ id: res.chatId, title: text }, ...prev]);
+        setChats(prev => [{ id: res.chatId, title: rawText }, ...prev]);
       }
-
-      const assistantMessage: Message = {
-        id: `ai_${Date.now()}`,
-        role: 'assistant',
-        content: res.response,
-        timestamp: parseSafeDate(res.timestamp),
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, {
+        id: `ai_${Date.now()}`, role: 'assistant', content: res.response, timestamp: parseSafeDate(res.timestamp),
+      }]);
     } catch (err) {
-      toast.error(t('chat.error'));
       console.error("Chat error:", err);
-    } finally {
-      setIsTyping(false);
-    }
-  }, [input, isTyping, t, currentChatId]);
+      // Inline error bubble with retry
+      setMessages(prev => [...prev, {
+        id: `err_${Date.now()}`,
+        role: 'error',
+        content: "Message failed to send. Please check your connection and try again.",
+        failedText: rawText,
+        timestamp: new Date(),
+      }]);
+    } finally { setIsTyping(false); }
+  }, [input, isTyping, currentChatId, replyingTo, locale]);
 
-  // ── Load conversations and History on mount ──────────────────────────────────
+  // ── Init ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (hasInitialized.current) return;
     hasInitialized.current = true;
-
     const init = async () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const analysisId = urlParams.get('analysisId');
         const prefill = urlParams.get('prefill');
-
         const convList = await getConversationsList();
-        setChats(convList.map(c => ({ id: c.conversationId, title: c.title })));
+        setChats(convList.map(c => ({ id: c.conversationId, title: c.title, updatedAt: c.updatedAt })));
+        setIsLoadingChats(false);
 
-        if (prefill) {
+        // Remove params from URL cleanly
+        if (analysisId || prefill) {
           window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        if (analysisId) {
+          // Auto-send a structured query about a specific single image
           setIsLoadingHistory(false);
-          setTimeout(() => {
-            handleSend(prefill);
-          }, 800);
-        } else if (analysisId) {
-          window.history.replaceState({}, document.title, window.location.pathname);
+          setTimeout(() => handleSend(`Look up the details of my catch with Image ID: ${analysisId} and provide advice on its market value and sustainability.`), 800);
+        } else if (prefill) {
+          // Pre-fill the input without auto-sending — let the user review and send
+          setInput(decodeURIComponent(prefill));
           setIsLoadingHistory(false);
-          // Wait briefly, then pre-fill and send
-          setTimeout(() => {
-            handleSend(`Look up the details of my catch with Image ID: ${analysisId} and provide advice on its market value and sustainability.`);
-          }, 800);
+          setTimeout(() => inputRef.current?.focus(), 300);
         } else if (convList.length > 0) {
           await loadChat(convList[0].conversationId);
-        } else {
-          setIsLoadingHistory(false);
-        }
-      } catch {
-        setIsLoadingHistory(false);
-      }
+        } else { setIsLoadingHistory(false); }
+      } catch { setIsLoadingHistory(false); setIsLoadingChats(false); }
     };
     init();
   }, [handleSend]);
 
-  // ── Export chat ────────────────────────────────────────────────────────────
+
+  // ── Export ────────────────────────────────────────────────────────────────
   const exportChat = () => {
-    const content = messages
-      .map((m) => `[${m.timestamp.toLocaleString()}] ${m.role === 'user' ? 'You' : 'OceanAI'}: ${m.content}`)
+    const content = messages.filter(m => m.role !== 'error')
+      .map(m => `[${m.timestamp.toLocaleString()}] ${m.role === 'user' ? 'You' : 'OceanAI'}: ${m.content}`)
       .join('\n\n');
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = `oceanai-chat-${new Date().toISOString().split('T')[0]}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(t('chat.exported'));
+    a.href = url; a.download = `oceanai-chat-${new Date().toISOString().split('T')[0]}.txt`; a.click();
+    URL.revokeObjectURL(url); toast.success(t('chat.exported'));
   };
 
-  const handleClearChat = () => {
-    createNewChat();
-  };
-
-  const handleMicClick = () => {
-    if (!voiceSupported) {
-      toast.error(t('voice.notSupported'));
-      return;
-    }
-    if (isListening) {
-      stopListening();
-    } else {
-      startListening();
-    }
-  };
-
+  // ═════════════════════════════════════════════════════════════════════════
   return (
     <div className="flex flex-col space-y-4 sm:space-y-6 h-[calc(100dvh-185px)] sm:h-[calc(100dvh-210px)] lg:h-[calc(100dvh-185px)]">
+
+      {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">{t('chat.title')}</h1>
           <p className="text-sm sm:text-base text-muted-foreground">{t('chat.subtitle')}</p>
         </div>
         <div className="flex gap-2">
-          <Button
-            variant="outline"
-            className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-12 text-xs sm:text-sm transition-colors hover:bg-primary/5 hover:text-primary"
-            onClick={createNewChat}
-          >
-            <Plus className="mr-2 w-4 h-4" />
-            New Chat
+          <Button variant="outline" className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-11 text-xs sm:text-sm hover:bg-primary/5 hover:text-primary transition-colors" onClick={createNewChat}>
+            <Plus className="mr-2 w-4 h-4" /> New Chat
           </Button>
-          <Button
-            variant="outline"
-            className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-12 text-xs sm:text-sm"
-            onClick={exportChat}
-          >
-            <Download className="mr-2 w-4 h-4" />
-            {t('chat.exportChat')}
+          <Button variant="outline" className="flex-1 sm:flex-none rounded-xl bg-card border-border h-10 sm:h-11 text-xs sm:text-sm" onClick={exportChat}>
+            <Download className="mr-2 w-4 h-4" /> {t('chat.exportChat')}
           </Button>
         </div>
       </div>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 min-h-0">
-        {/* Chat Area */}
+
+        {/* ── Main chat area ── */}
         <Card className="lg:col-span-8 rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col h-[500px] sm:h-full overflow-hidden order-1">
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10" ref={scrollAreaRef}>
-            <div className="space-y-6 sm:space-y-8 pb-4">
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6" ref={scrollAreaRef}>
+            <div className="space-y-5 pb-4">
               {isLoadingHistory ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground py-2 animate-pulse">
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  {t('chat.loadingHistory')}
-                </div>
-              ) : messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={cn(
-                    "flex gap-3 sm:gap-4 max-w-[90%] sm:max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-300",
-                    msg.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
-                  )}
-                >
-                  <Avatar className={cn(
-                    "h-8 w-8 sm:h-10 sm:w-10 shrink-0 border-2",
-                    msg.role === 'assistant' ? "border-primary/20" : "border-border/50"
-                  )}>
-                    {msg.role === 'assistant' ? (
-                      <div className="bg-primary h-full w-full flex items-center justify-center text-white">
-                        <Bot className="w-4 h-4 sm:w-5 sm:h-5" />
+                /* ── Message Skeletons ── */
+                <>
+                  <MessageSkeleton align="left" />
+                  <MessageSkeleton align="right" />
+                  <MessageSkeleton align="left" />
+                  <MessageSkeleton align="right" />
+                  <MessageSkeleton align="left" />
+                </>
+              ) : messages.map((msg) => {
+
+                // ── Error bubble ──────────────────────────────────────────
+                if (msg.role === 'error') return (
+                  <div key={msg.id} className="mr-auto max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <div className="flex gap-3">
+                      <div className="w-9 h-9 rounded-full border-2 border-destructive/30 bg-destructive/10 flex items-center justify-center shrink-0">
+                        <AlertTriangle className="w-4 h-4 text-destructive" />
                       </div>
-                    ) : (
-                      <>
-                        <AvatarImage src={user?.avatar} />
-                        <AvatarFallback className="bg-muted text-xs font-bold">
-                          {user?.name?.charAt(0) ?? 'ME'}
-                        </AvatarFallback>
-                      </>
-                    )}
-                  </Avatar>
-                  <div className="space-y-1 sm:space-y-2">
-                    <div className={cn(
-                      "p-3 sm:p-5 rounded-2xl sm:rounded-3xl leading-relaxed text-sm sm:text-[15px] shadow-sm",
-                      msg.role === 'assistant'
-                        ? "bg-card border border-border/50 text-foreground rounded-tl-none"
-                        : "bg-primary text-white rounded-tr-none"
-                    )}>
-                      {msg.content}
-                    </div>
-                    <div className={cn(
-                      "flex items-center gap-2 text-[8px] sm:text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2",
-                      msg.role === 'user' ? "justify-end" : "justify-start"
-                    )}>
-                      {msg.role === 'assistant' && (
-                        <button
-                          onClick={() => handlePlayAudio(msg.content)}
-                          className="hover:text-primary transition-colors flex items-center gap-1.5"
-                          title="Play Audio"
-                        >
-                          <Volume2 className="w-3 h-3" />
-                        </button>
-                      )}
-                      <span>{msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <div className="space-y-1 min-w-0">
+                        <div className="bg-destructive/8 border border-destructive/20 rounded-2xl rounded-tl-sm p-3 sm:p-4">
+                          <div className="flex items-start gap-2.5">
+                            <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-destructive mb-0.5">Message failed to send</p>
+                              <p className="text-xs text-muted-foreground leading-relaxed">{msg.content}</p>
+                              {msg.failedText && (
+                                <div className="mt-2 p-2 bg-muted/40 rounded-lg border border-border/40">
+                                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide font-bold mb-1">Your message</p>
+                                  <p className="text-xs text-foreground/70 italic truncate">"{truncate(msg.failedText, 60)}"</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          {msg.failedText && (
+                            <button
+                              onClick={() => handleSend(msg.failedText, msg.id)}
+                              className="mt-3 w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-destructive/10 hover:bg-destructive/20 border border-destructive/20 text-destructive text-xs font-bold transition-all active:scale-95"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" /> Try Again
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 px-1">
+                          <button onClick={() => setMessages(prev => prev.filter(m => m.id !== msg.id))}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="w-3 h-3" /> Dismiss
+                          </button>
+                          <span className="text-[10px] text-muted-foreground">
+                            {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
 
-              {isTyping && (
-                <div className="flex gap-3 sm:gap-4 max-w-[85%] mr-auto">
-                  <Avatar className="h-8 w-8 sm:h-10 sm:w-10 shrink-0 border-2 border-primary/20">
-                    <div className="bg-primary h-full w-full flex items-center justify-center text-white">
-                      <Bot className="w-4 h-4 sm:w-5 sm:h-5" />
+                // ── Normal bubble ─────────────────────────────────────────
+                return (
+                  <div
+                    key={msg.id}
+                    className={cn(
+                      "group flex gap-3 max-w-[90%] sm:max-w-[85%] animate-in fade-in slide-in-from-bottom-2 duration-300",
+                      msg.role === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
+                    )}
+                  >
+                    <Avatar className={cn("h-8 w-8 sm:h-9 sm:w-9 shrink-0 border-2", msg.role === 'assistant' ? "border-primary/20" : "border-border/50")}>
+                      {msg.role === 'assistant' ? (
+                        <div className="bg-primary h-full w-full flex items-center justify-center text-white"><Bot className="w-4 h-4" /></div>
+                      ) : (
+                        <><AvatarImage src={user?.avatar} /><AvatarFallback className="bg-muted text-xs font-bold">{user?.name?.charAt(0) ?? 'ME'}</AvatarFallback></>
+                      )}
+                    </Avatar>
+
+                    <div className="space-y-1 min-w-0">
+                      <div className={cn(
+                        "p-3 sm:p-4 rounded-2xl leading-relaxed text-sm sm:text-[15px] shadow-sm break-words",
+                        msg.role === 'assistant'
+                          ? "bg-card border border-border/50 text-foreground rounded-tl-sm"
+                          : "bg-primary text-white rounded-tr-sm"
+                      )}>
+                        {msg.role === 'assistant' ? (
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        ) : (
+                          <span className="whitespace-pre-wrap">{msg.content}</span>
+                        )}
+                      </div>
+
+                      <div className={cn("flex items-center gap-1.5 px-1", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                        {msg.role === 'assistant' && (<>
+                          <button onClick={() => handlePlayPause(msg)}
+                            className={cn("flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide transition-all",
+                              playingMsgId === msg.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted hover:text-primary")}>
+                            {playingMsgId === msg.id ? <><Pause className="w-3 h-3" /> Pause</> : <><Volume2 className="w-3 h-3" /> Listen</>}
+                          </button>
+                          <button onClick={() => { setReplyingTo(msg as ReplyRef); inputRef.current?.focus(); }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-muted-foreground hover:bg-muted hover:text-primary transition-all">
+                            <CornerUpLeft className="w-3 h-3" /> Reply
+                          </button>
+                        </>)}
+                        {msg.role === 'user' && (
+                          <button onClick={() => { setReplyingTo(msg as ReplyRef); inputRef.current?.focus(); }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide text-muted-foreground hover:bg-muted hover:text-primary transition-all opacity-0 group-hover:opacity-100">
+                            <CornerUpLeft className="w-3 h-3" /> Reply
+                          </button>
+                        )}
+                        <span className="text-[10px] text-muted-foreground">
+                          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
                     </div>
+                  </div>
+                );
+              })}
+
+              {/* Typing indicator */}
+              {isTyping && (
+                <div className="flex gap-3 max-w-[85%] mr-auto animate-in fade-in duration-200">
+                  <Avatar className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 border-2 border-primary/20">
+                    <div className="bg-primary h-full w-full flex items-center justify-center text-white"><Bot className="w-4 h-4" /></div>
                   </Avatar>
-                  <div className="bg-card border border-border/50 p-3 sm:p-5 rounded-2xl sm:rounded-3xl rounded-tl-none flex gap-1.5 items-center">
+                  <div className="bg-card border border-border/50 px-5 py-4 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
                     <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0s' }} />
-                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }} />
+                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.15s' }} />
+                    <span className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: '0.3s' }} />
                   </div>
                 </div>
               )}
@@ -377,114 +454,178 @@ export default function ChatbotPage() {
             </div>
           </div>
 
-          {/* Voice listening indicator */}
+          {/* Voice indicator */}
           {isListening && (
-            <div className="px-4 sm:px-6 py-2 border-t border-primary/20 bg-primary/5 flex items-center gap-3 animate-in fade-in duration-200">
+            <div className="px-4 sm:px-6 py-2.5 border-t border-red-500/20 bg-red-500/5 flex items-center gap-3 animate-in fade-in duration-200">
               <div className="relative flex items-center justify-center">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-                <div className="absolute w-6 h-6 bg-red-500/20 rounded-full animate-ping" />
+                <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+                <div className="absolute w-5 h-5 bg-red-500/20 rounded-full animate-ping" />
               </div>
-              <span className="text-sm font-medium text-primary">{t('voice.listening')}</span>
-              <span className="text-xs text-muted-foreground">{t('voice.tapToStop')}</span>
+              <span className="text-sm font-semibold text-red-500">{t('voice.listening')}</span>
+              <span className="text-xs text-muted-foreground ml-auto">{t('voice.tapToStop')}</span>
+            </div>
+          )}
+
+          {/* Reply bar */}
+          {replyingTo && (
+            <div className="px-4 sm:px-5 py-2.5 border-t border-primary/20 bg-primary/5 flex items-start gap-3 animate-in slide-in-from-bottom-2 duration-200">
+              <CornerUpLeft className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-0.5">
+                  Replying to {replyingTo.role === 'assistant' ? 'OceanAI' : 'yourself'}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">{truncate(replyingTo.content)}</p>
+              </div>
+              <button onClick={() => setReplyingTo(null)} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Image picker */}
+          {showImagePicker && (
+            <div className="border-t border-border/50 bg-card/80 backdrop-blur-sm p-4 animate-in slide-in-from-bottom-2 duration-200">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                  <ImageIcon className="w-3.5 h-3.5" /> Reference a Catch Analysis
+                </p>
+                <button onClick={() => setShowImagePicker(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              {imagesLoading ? (
+                <div className="grid grid-cols-6 gap-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="aspect-square rounded-xl" />
+                  ))}
+                </div>
+              ) : recentGroups.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic text-center py-4">No completed analyses yet. Upload a fish photo first!</p>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto">
+                  {recentGroups.map(group => {
+                    const analysis = group.analysisResult as any;
+                    const species = analysis?.summary?.topSpecies || analysis?.topSpecies || 'Unknown';
+                    const dateObj = new Date(group.createdAt);
+                    const dateStr = isNaN(dateObj.getTime()) ? '' : `${dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} ${dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+                    return (
+                      <button key={group.groupId} onClick={() => handleAttachGroup(group)}
+                        className="group relative rounded-xl overflow-hidden border-2 border-transparent hover:border-primary transition-all aspect-square bg-muted/30" title={`${species} — ${dateStr}`}>
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 p-1">
+                          <Fish className="w-5 h-5 text-primary/60 group-hover:text-primary transition-colors" />
+                          <span className="text-[9px] font-medium text-muted-foreground text-center leading-tight line-clamp-1">{species}</span>
+                          <span className="text-[8px] text-muted-foreground/60 text-center leading-tight">{dateStr}</span>
+                          <span className="text-[8px] text-muted-foreground/60">{group.imageCount} 🖼</span>
+                        </div>
+                        <div className="absolute inset-0 bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
           {/* Input bar */}
-          <div className="p-4 sm:p-6 border-t border-border/50 bg-background/30">
-            <div className="relative group">
-              <Input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-                placeholder={t('chat.placeholder')}
+          <div className="p-3 sm:p-4 border-t border-border/50 bg-background/30">
+            <div className="flex items-center gap-2">
+              <button onClick={showImagePicker ? () => setShowImagePicker(false) : openImagePicker}
+                className={cn("shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                  showImagePicker ? "bg-primary text-white" : "bg-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary")}>
+                <ImageIcon className="w-4 h-4" />
+              </button>
+              <Input ref={inputRef} value={input}
+                onChange={e => {
+                  setInput(e.target.value);
+                  if (e.target.value.endsWith('@') && !showImagePicker) openImagePicker();
+                }}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
+                placeholder={t('chat.placeholder')} disabled={isTyping}
+                className="flex-1 h-10 sm:h-12 pl-4 rounded-xl bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 text-sm" />
+              <button
+                onClick={() => { if (!voiceSupported) { toast.error(t('voice.notSupported')); return; } isListening ? stopListening() : startListening(); }}
                 disabled={isTyping}
-                className="h-12 sm:h-16 pl-4 sm:pl-6 pr-24 sm:pr-32 rounded-xl sm:rounded-2xl bg-muted/30 border-none focus-visible:ring-2 focus-visible:ring-primary/20 text-sm sm:text-base"
-              />
-              <div className="absolute right-1.5 sm:right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "h-9 w-9 sm:h-12 sm:w-12 rounded-lg sm:rounded-xl transition-all",
-                    isListening
-                      ? "bg-red-500 text-white hover:bg-red-600 shadow-lg shadow-red-500/30"
-                      : "text-muted-foreground hover:text-primary"
-                  )}
-                  onClick={handleMicClick}
-                  disabled={isTyping}
-                >
-                  <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
-                </Button>
-                <Button
-                  onClick={() => handleSend()}
-                  disabled={!input.trim() || isTyping}
-                  className="h-9 w-9 sm:h-12 sm:w-12 rounded-lg sm:rounded-xl bg-primary text-white shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-50"
-                >
-                  {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 sm:w-5 sm:h-5" />}
-                </Button>
-              </div>
+                className={cn("shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                  isListening ? "bg-red-500 text-white shadow-lg shadow-red-500/30 animate-pulse" : "bg-muted/50 text-muted-foreground hover:bg-primary/10 hover:text-primary")}>
+                <Mic className="w-4 h-4" />
+              </button>
+              <button onClick={() => handleSend()} disabled={!input.trim() || isTyping}
+                className="shrink-0 w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary text-white flex items-center justify-center shadow-lg shadow-primary/20 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
+                {isTyping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </button>
             </div>
           </div>
         </Card>
 
-        {/* Sidebar */}
-        <div className="lg:col-span-4 space-y-6 flex flex-col h-full order-2">
-          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-6 overflow-hidden relative">
-            <div className="absolute top-0 right-0 p-6 opacity-5">
-              <Bot className="w-16 sm:w-24 h-16 sm:h-24" />
-            </div>
-            <div className="relative z-10 space-y-4 sm:space-y-6 h-full flex flex-col">
-              <div className="space-y-1">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Past Conversations</h3>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Select a previous chat to resume</p>
-              </div>
+        {/* ── Sidebar ── */}
+        <div className="lg:col-span-4 flex flex-col gap-5 h-full min-h-0 order-2">
 
-              <div className="flex-1 h-0 min-h-0 overflow-y-auto">
-                <div className="space-y-2 pr-4">
-                  {chats.length > 0 ? chats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      className={cn(
-                        "p-3 rounded-xl border transition-colors cursor-pointer text-xs sm:text-[13px] font-medium leading-relaxed group",
-                        currentChatId === chat.id
-                          ? "bg-primary/20 border-primary/30 text-primary"
-                          : "border-border/50 bg-background/30 hover:bg-primary/5 text-muted-foreground hover:text-primary"
-                      )}
-                      onClick={() => loadChat(chat.id)}
-                    >
-                      <div className="flex items-center gap-2 overflow-hidden">
-                        <HelpCircle className={cn(
-                          "w-3.5 h-3.5 shrink-0 transition-transform group-hover:scale-110",
-                          currentChatId === chat.id ? "text-primary" : "text-muted-foreground"
-                        )} />
-                        <span className="truncate whitespace-nowrap overflow-hidden block flex-1">
-                          {chat.title}
-                        </span>
-                      </div>
+          {/* Past Conversations */}
+          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col flex-1 min-h-0 overflow-hidden">
+            <CardHeader className="p-4 sm:p-5 pb-3 border-b border-border/30">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <MessageSquare className="w-3.5 h-3.5" /> Past Conversations
+                </CardTitle>
+                <Button variant="ghost" size="sm" className="h-7 text-xs text-primary px-2" onClick={createNewChat}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> New
+                </Button>
+              </div>
+            </CardHeader>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+              {isLoadingChats ? (
+                <ConversationSkeleton />
+              ) : chats.length > 0 ? chats.map(chat => (
+                <button key={chat.id} onClick={() => loadChat(chat.id)}
+                  className={cn("w-full text-left p-3 rounded-xl border transition-all duration-200 group",
+                    currentChatId === chat.id
+                      ? "bg-primary/15 border-primary/30 text-primary shadow-sm"
+                      : "border-transparent bg-muted/20 hover:bg-muted/50 text-muted-foreground hover:text-foreground")}>
+                  <div className="flex items-start gap-2.5">
+                    <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-colors",
+                      currentChatId === chat.id ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary")}>
+                      <MessageSquare className="w-3 h-3" />
                     </div>
-                  )) : (
-                    <p className="text-xs text-muted-foreground italic px-2">No past chats yet.</p>
-                  )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold truncate leading-tight">{chat.title || 'Untitled Chat'}</p>
+                      {chat.updatedAt && (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Clock className="w-2.5 h-2.5" />
+                          {parseSafeDate(chat.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className={cn("w-3.5 h-3.5 shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-all -translate-x-1 group-hover:translate-x-0",
+                      currentChatId === chat.id && "opacity-100 translate-x-0 text-primary")} />
+                  </div>
+                </button>
+              )) : (
+                <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-muted/50 flex items-center justify-center">
+                    <MessageSquare className="w-5 h-5 text-muted-foreground/50" />
+                  </div>
+                  <p className="text-xs text-muted-foreground">No past chats yet.<br />Start a conversation!</p>
                 </div>
-              </div>
+              )}
+            </div>
+          </Card>
 
-              <div className="space-y-4 border-t border-border/50 pt-4 mt-auto">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('chat.quickActions')}</h3>
-                <div className="grid grid-cols-1 gap-2">
-                  {QUICK_ACTIONS.slice(0, 3).map((action, i) => (
-                    <Button
-                      key={i}
-                      variant="outline"
-                      className="h-10 justify-start gap-3 px-4 rounded-xl border-border/50 bg-background/30 hover:bg-primary hover:text-white transition-all duration-300 group"
-                      onClick={() => handleSend(action.query)}
-                      disabled={isTyping}
-                    >
-                      <action.icon className="w-3.5 h-3.5" />
-                      <span className="font-bold text-xs tracking-tight truncate">{action.label}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
+          {/* Quick Actions */}
+          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-5">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 mb-3">
+              <Zap className="w-3.5 h-3.5 text-amber-500" /> Quick Actions
+            </p>
+            <div className="space-y-2">
+              {QUICK_ACTIONS.map((action, i) => (
+                <button key={i} onClick={() => handleSend(action.query)} disabled={isTyping}
+                  className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/40 bg-background/30 hover:bg-primary hover:text-white hover:border-primary text-muted-foreground hover:shadow-md hover:shadow-primary/10 transition-all duration-200 group disabled:opacity-40 disabled:cursor-not-allowed">
+                  <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors", action.color, "group-hover:bg-white/20")}>
+                    <action.icon className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="text-xs font-semibold text-left truncate">{action.label}</span>
+                  <ChevronRight className="w-3 h-3 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
             </div>
           </Card>
 

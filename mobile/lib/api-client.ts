@@ -313,6 +313,16 @@ export async function getChatHistory(limit = 30, overrideChatId?: string): Promi
     }));
 }
 
+export async function synthesizeSpeech(text: string, languageCode: string): Promise<{ audioBase64: string }> {
+    if (IS_DEMO_MODE) {
+        return { audioBase64: "" };
+    }
+    return apiFetch<{ audioBase64: string }>('/tts', {
+        method: 'POST',
+        body: JSON.stringify({ text, languageCode })
+    });
+}
+
 export async function createConversation(title: string = "New Chat", language: string = "en"): Promise<Conversation> {
     if (IS_AGENT_CONFIGURED) {
         const res = await agentFetch<{ conversation: Conversation }>('/conversations', {

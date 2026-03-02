@@ -6,10 +6,10 @@ import os
 
 # ── AWS ──────────────────────────────────────────────────────────────────────
 AWS_REGION = os.getenv("AWS_REGION", "ap-south-1")
-BEDROCK_REGION = os.getenv("BEDROCK_REGION", "us-east-1")
-BEDROCK_MODEL_ID = os.getenv(
-    "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
-)
+
+# ── Google Gemini ─────────────────────────────────────────────────────────────
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
 
 # ── DynamoDB table names ─────────────────────────────────────────────────────
 CONVERSATIONS_TABLE = os.getenv("DYNAMODB_CONVERSATIONS_TABLE", "ai-bharat-conversations")
@@ -20,6 +20,7 @@ MEMORY_TABLE = os.getenv("DYNAMODB_MEMORY_TABLE", "ai-bharat-memory")
 IMAGES_TABLE = os.getenv("DYNAMODB_IMAGES_TABLE", "ai-bharat-images")
 CHATS_TABLE = os.getenv("DYNAMODB_CHATS_TABLE", "ai-bharat-chats")
 USERS_TABLE = os.getenv("DYNAMODB_USERS_TABLE", "ai-bharat-users")
+GROUPS_TABLE = os.getenv("GROUPS_TABLE", "ai-bharat-groups")
 
 # ── Cognito ──────────────────────────────────────────────────────────────────
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "ap-south-1_XXXXXXXXX")

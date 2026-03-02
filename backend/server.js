@@ -36,6 +36,7 @@ app.get('/images', (req, res) => runLambda(req, res, require('./src/functions/ge
 app.get('/map', (req, res) => runLambda(req, res, require('./src/functions/getMapData.js').handler));
 app.post('/chat', (req, res) => runLambda(req, res, require('./src/functions/sendChat.js').handler));
 app.get('/chat', (req, res) => runLambda(req, res, require('./src/functions/getChatHistory.js').handler));
+app.post('/tts', (req, res) => runLambda(req, res, require('./src/functions/tts.js').handler));
 app.get('/analytics', (req, res) => runLambda(req, res, require('./src/functions/getAnalytics.js').handler));
 
 // Group-based multi-image analysis routes

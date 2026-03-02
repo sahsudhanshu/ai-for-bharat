@@ -1,5 +1,8 @@
 """
 Specific catch tool — queries a single image analysis result from DynamoDB.
+
+Schema note: analysis data is stored under item["analysisResult"] (nested object).
+Legacy records may have flat top-level fields — both are supported.
 """
 from __future__ import annotations
 from langchain_core.tools import tool
@@ -7,6 +10,11 @@ from boto3.dynamodb.conditions import Key
 
 from src.config.settings import IMAGES_TABLE
 from src.utils.dynamodb import dynamodb
+
+
+def _get_field(item: dict, ar: dict, key: str, default=None):
+    """Read from nested analysisResult first, then fall back to top-level (legacy)."""
+    return ar.get(key, item.get(key, default))
 
 
 @tool
@@ -30,34 +38,49 @@ async def get_catch_details(image_id: str, user_id: str = "") -> str:
     item = response.get("Item")
     if not item:
         return f"Could not find any catch record with ID {image_id}."
-        
+
     if item.get("userId") != user_id:
         return f"You do not have permission to view catch {image_id}."
 
-    # Parse details
-    species = item.get("species", "Unknown")
-    confidence = item.get("confidence", 0) * 100
+    # Read from nested analysisResult with legacy fallback
+    ar = item.get("analysisResult") or {}
+
+    species = _get_field(item, ar, "species", "Unknown")
+    raw_confidence = _get_field(item, ar, "confidence", 0)
+    # Normalise: backend stores 0-1 float, display as percentage
+    confidence_pct = raw_confidence * 100 if raw_confidence <= 1 else raw_confidence
+
     location = item.get("location", "Unknown location")
     date = item.get("createdAt", "Unknown date")[:10]
-    weight = item.get("weightEstimate", 0.0)
-    price_per_kg = item.get("marketPriceEstimate", 0)
-    total_value = round(weight * price_per_kg)
-    quality = item.get("qualityGrade", "Unknown")
-    sustainable = item.get("isSustainable", False)
+    quality = _get_field(item, ar, "qualityGrade", "Unknown")
+    scientific = _get_field(item, ar, "scientificName", "")
+    is_sustainable = _get_field(item, ar, "isSustainable", False)
+
+    # Weight and market value
+    measurements = ar.get("measurements") or {}
+    weight_g = measurements.get("weight_g", 0)
+    weight_kg = _get_field(item, ar, "weightEstimate", weight_g / 1000 if weight_g else 0.0)
+
+    market_est = ar.get("marketEstimate") or {}
+    price_per_kg = _get_field(item, ar, "marketPriceEstimate", market_est.get("price_per_kg", 0))
+    total_value = market_est.get("estimated_value") or round(weight_kg * price_per_kg)
 
     lines = [
         f"🐟 **Specific Catch Details: {species}** ({date})",
         f"• Image ID: {image_id}",
         f"• Location: {location}",
-        f"• Confidence: {confidence:.1f}%",
+        f"• Confidence: {confidence_pct:.1f}%",
         f"• Quality Grade: {quality}",
-        f"• Weight Estimate: {weight:.2f} KG",
+        f"• Weight Estimate: {weight_kg:.2f} KG",
         f"• Estimated Value: ₹{total_value} (@ ₹{price_per_kg}/kg)",
-        f"• Sustainability: {'Sustainable' if sustainable else 'Limited/Not Sustainable'}",
+        f"• Sustainability: {'Sustainable ✅' if is_sustainable else 'Limited/Not Sustainable ⚠️'}",
     ]
 
-    analysis_status = item.get("analysisStatus", "unknown")
-    if analysis_status != "completed":
-        lines.append(f"\nNote: Analysis status is currently '{analysis_status}'. Some metrics may be missing or inaccurate until completed.")
+    if scientific:
+        lines.insert(2, f"• Scientific Name: {scientific}")
+
+    status = item.get("status", "unknown")
+    if status != "completed":
+        lines.append(f"\nNote: Analysis status is currently '{status}'. Some metrics may be missing or inaccurate until completed.")
 
     return "\n".join(lines)

@@ -1,8 +1,11 @@
 """
 Catch history tool — queries the existing ai-bharat-images table.
 
-Returns the user's last N catches (images analysed via Rekognition)
+Returns the user's last N catches (images analysed via HuggingFace ML API)
 in a format useful for the agent.
+
+Schema note: analysis data is stored under item["analysisResult"] (nested object).
+Legacy records may have flat top-level fields — both are supported.
 """
 from __future__ import annotations
 from typing import Optional
@@ -11,6 +14,11 @@ from langchain_core.tools import tool
 
 from src.config.settings import IMAGES_TABLE, CATCH_HISTORY_PAGE_SIZE
 from src.utils.dynamodb import dynamodb
+
+
+def _get_field(item: dict, ar: dict, key: str, default=None):
+    """Read from nested analysisResult first, then fall back to top-level (legacy)."""
+    return ar.get(key, item.get(key, default))
 
 
 @tool
@@ -55,16 +63,21 @@ async def get_catch_history(
 
     lines = [f"🐟 **Catch History** (Page {page}, showing {len(page_items)} records):"]
     for i, item in enumerate(page_items, start=start + 1):
-        species = item.get("species", "Unknown")
+        ar = item.get("analysisResult") or {}
+        species = _get_field(item, ar, "species", "Unknown")
         location = item.get("location", "Unknown location")
         date = item.get("createdAt", "Unknown date")
-        confidence = item.get("confidence")
-        status = item.get("analysisStatus", "unknown")
+        confidence = _get_field(item, ar, "confidence")
+        quality = _get_field(item, ar, "qualityGrade")
+        status = item.get("status", "unknown")
 
         line = f"  {i}. **{species}** — {location} ({date[:10]})"
         if confidence:
-            line += f" [Confidence: {confidence}%]"
-        if status != "completed":
+            conf_pct = confidence * 100 if confidence <= 1 else confidence
+            line += f" [Confidence: {conf_pct:.0f}%]"
+        if quality:
+            line += f" [Grade: {quality}]"
+        if status not in ("completed", ""):
             line += f" [{status}]"
         lines.append(line)
 

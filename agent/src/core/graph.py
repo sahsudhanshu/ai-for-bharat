@@ -29,7 +29,7 @@ Graph flow:
 from __future__ import annotations
 from typing import Any, Dict, Literal
 
-from langchain_aws import ChatBedrockConverse
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
 
@@ -43,37 +43,28 @@ from src.tools.catch_history import get_catch_history
 from src.tools.specific_catch import get_catch_details
 from src.tools.map_data import get_map_data
 from src.tools.market_prices import get_market_prices
-
+from src.tools.group_history import get_group_history
+from src.tools.get_group_details import get_group_details
 
 # ── All tools the agent can invoke ───────────────────────────────────────────
-TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices]
+TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details]
 
 # ── LLM with tools bound ────────────────────────────────────────────────────
 def _get_llm():
     import os
-    bedrock_api_key = os.getenv("BEDROCK_API_KEY", "")
-    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
-    model_id = os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0")
 
-    kwargs = dict(
+    google_api_key = os.getenv("GOOGLE_API_KEY", "")
+    model_id = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+
+    llm = ChatGoogleGenerativeAI(
         model=model_id,
-        region_name=bedrock_region,
-        max_tokens=2048,
+        google_api_key=google_api_key,
         temperature=0.7,
+        max_output_tokens=4096,
     )
-
-    if bedrock_api_key:
-        kwargs["api_key"] = bedrock_api_key
-    else:
-        # Fall back to standard AWS credentials from env / ~/.aws/credentials
-        aws_key = os.getenv("AWS_ACCESS_KEY_ID", "")
-        aws_secret = os.getenv("AWS_SECRET_ACCESS_KEY", "")
-        if aws_key and aws_secret:
-            kwargs["aws_access_key_id"] = aws_key
-            kwargs["aws_secret_access_key"] = aws_secret
-
-    llm = ChatBedrockConverse(**kwargs)
     return llm.bind_tools(TOOLS)
+
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,14 +168,16 @@ def _get_mock_response(user_input: str, language: str = "en") -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def agent(state: AgentState) -> Dict[str, Any]:
-    """Invoke the LLM with the current message history. Falls back to mock if Bedrock unavailable."""
+    """Invoke the LLM with the current message history. Falls back to mock if Gemini unavailable."""
+    import logging
+    import traceback
     lang = state.get("selected_language", "en")
     try:
         llm = _get_llm()
         response = await llm.ainvoke(state["messages"])
+        logging.debug(f"Gemini response content length: {len(response.content) if response.content else 0}, tool_calls: {len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0}")
     except Exception as e:
-        import logging
-        logging.warning(f"Bedrock LLM call failed ({type(e).__name__}: {e}), using mock response")
+        logging.error(f"Gemini LLM call FAILED ({type(e).__name__}: {e})\n{traceback.format_exc()}")
         mock_text = _get_mock_response(state.get("human_input", ""), lang)
         response = AIMessage(content=mock_text)
     return {"messages": state["messages"] + [response]}
@@ -211,7 +204,7 @@ async def tool_executor(state: AgentState) -> Dict[str, Any]:
         tool_args = call["args"]
 
         # Auto-inject user_id for catch tools so the LLM doesn't need to guess it
-        if tool_name in ("get_catch_history", "get_catch_details"):
+        if tool_name in ("get_catch_history", "get_catch_details", "get_group_history", "get_group_details"):
             tool_args["user_id"] = state.get("user_id", "")
 
         if tool_name in TOOL_MAP:
