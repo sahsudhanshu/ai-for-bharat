@@ -210,10 +210,16 @@ export default function ChatbotPage() {
   };
   const handleAttachGroup = (group: GroupRecord) => {
     const analysis = group.analysisResult as any;
-    const topSpecies = analysis?.summary?.topSpecies || analysis?.topSpecies || 'Unknown';
+    const species = analysis?.summary?.topSpecies || analysis?.topSpecies || '';
+    const label = species && species !== 'Unknown' ? species : `Catch Analysis`;
+    const dateObj = new Date(group.createdAt);
+    const dateStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    const shortId = group.groupId.split('-')[0];
+    const displayText = `📎 ${label}${dateStr ? ` (${dateStr})` : ''}`;
     setInput(prev => {
       const base = prev.endsWith('@') ? prev.slice(0, -1) : prev;
-      return base + (base.length > 0 && !base.endsWith(' ') ? ' ' : '') + `[Ref: ${topSpecies}] (ID: ${group.groupId}) `;
+      // Include group ID for the AI to look up, but keep the visible text clean
+      return base + (base.length > 0 && !base.endsWith(' ') ? ' ' : '') + `${displayText} [group:${group.groupId}] `;
     });
     setShowImagePicker(false); inputRef.current?.focus();
   };
@@ -374,7 +380,7 @@ export default function ChatbotPage() {
             rel="noopener noreferrer"
             className="hidden sm:inline-flex items-center gap-2 flex-none rounded-xl bg-[#229ED9] hover:bg-[#1a8abf] text-white border-0 h-10 sm:h-11 text-xs sm:text-sm px-4 font-semibold transition-colors shadow-md shadow-[#229ED9]/20"
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z" /></svg>
             Connect to Telegram
             <ExternalLink className="w-3 h-3 opacity-70" />
           </a>
@@ -387,10 +393,10 @@ export default function ChatbotPage() {
         </div>
       </div>
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 min-h-0">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-8 min-h-0">
 
         {/* ── Main chat area ── */}
-        <Card className="lg:col-span-8 rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col h-[500px] sm:h-full overflow-hidden order-1">
+        <Card className="lg:col-span-8 rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col h-[400px] sm:h-[500px] lg:h-full overflow-hidden order-2 lg:order-1">
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 sm:p-6" ref={scrollAreaRef}>
@@ -554,38 +560,40 @@ export default function ChatbotPage() {
           {showImagePicker && (
             <div className="border-t border-border/50 bg-card/80 backdrop-blur-sm p-4 animate-in slide-in-from-bottom-2 duration-200">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                  <ImageIcon className="w-3.5 h-3.5" /> Reference a Catch Analysis
+                <p className="text-sm font-bold text-muted-foreground flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" /> Reference a Catch Analysis
                 </p>
-                <button onClick={() => setShowImagePicker(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <button onClick={() => setShowImagePicker(false)} className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-muted/50">
                   <X className="w-4 h-4" />
                 </button>
               </div>
               {imagesLoading ? (
-                <div className="grid grid-cols-6 gap-2">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <Skeleton key={i} className="aspect-square rounded-xl" />
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 rounded-xl" />
                   ))}
                 </div>
               ) : recentGroups.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic text-center py-4">No completed analyses yet. Upload a fish photo first!</p>
+                <p className="text-sm text-muted-foreground italic text-center py-4">No completed analyses yet. Upload a fish photo first!</p>
               ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto">
-                  {recentGroups.map(group => {
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                  {recentGroups.map((group, idx) => {
                     const analysis = group.analysisResult as any;
-                    const species = analysis?.summary?.topSpecies || analysis?.topSpecies || 'Unknown';
+                    const species = analysis?.summary?.topSpecies || analysis?.topSpecies || '';
+                    const label = species && species !== 'Unknown' ? species : `Catch #${idx + 1}`;
                     const dateObj = new Date(group.createdAt);
-                    const dateStr = isNaN(dateObj.getTime()) ? '' : `${dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} ${dateObj.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+                    const dateStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+                    const fishCount = analysis?.summary?.totalFishDetected || analysis?.totalFishDetected || group.imageCount || '?';
                     return (
                       <button key={group.groupId} onClick={() => handleAttachGroup(group)}
-                        className="group relative rounded-xl overflow-hidden border-2 border-transparent hover:border-primary transition-all aspect-square bg-muted/30" title={`${species} — ${dateStr}`}>
-                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 p-1">
-                          <Fish className="w-5 h-5 text-primary/60 group-hover:text-primary transition-colors" />
-                          <span className="text-[9px] font-medium text-muted-foreground text-center leading-tight line-clamp-1">{species}</span>
-                          <span className="text-[8px] text-muted-foreground/60 text-center leading-tight">{dateStr}</span>
-                          <span className="text-[8px] text-muted-foreground/60">{group.imageCount} 🖼</span>
+                        className="group flex items-center gap-3 p-3 rounded-xl border-2 border-transparent hover:border-primary bg-muted/20 hover:bg-primary/5 transition-all">
+                        <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary/20 transition-colors">
+                          <Fish className="w-4 h-4 text-primary" />
                         </div>
-                        <div className="absolute inset-0 bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        <div className="min-w-0 text-left">
+                          <p className="text-xs font-semibold text-foreground truncate">{label}</p>
+                          <p className="text-[11px] text-muted-foreground">{dateStr} · {fishCount} fish · {group.imageCount} img</p>
+                        </div>
                       </button>
                     );
                   })}
@@ -626,13 +634,13 @@ export default function ChatbotPage() {
         </Card>
 
         {/* ── Sidebar ── */}
-        <div className="lg:col-span-4 flex flex-col gap-5 h-full min-h-0 order-2">
+        <div className="lg:col-span-4 flex flex-col lg:flex-col gap-3 lg:gap-5 h-auto lg:h-full min-h-0 order-1 lg:order-2">
 
           {/* Past Conversations */}
-          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col flex-1 min-h-0 overflow-hidden">
-            <CardHeader className="p-4 sm:p-5 pb-3 border-b border-border/30">
+          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col flex-none lg:flex-1 min-h-0 overflow-hidden !p-0 !m-0 !gap-0 !py-0">
+            <CardHeader className="border-b border-border/30 !px-3 !py-2 !pb-2 !gap-0">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                <CardTitle className="text-sm font-bold text-muted-foreground flex items-center gap-2">
                   <MessageSquare className="w-3.5 h-3.5" /> Past Conversations
                 </CardTitle>
                 <Button variant="ghost" size="sm" className="h-7 text-xs text-primary px-2" onClick={createNewChat}>
@@ -640,7 +648,7 @@ export default function ChatbotPage() {
                 </Button>
               </div>
             </CardHeader>
-            <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+            <div className="flex-1 overflow-y-auto p-3 space-y-1.5 max-h-[150px] sm:max-h-[200px] lg:max-h-none">
               {isLoadingChats ? (
                 <ConversationSkeleton />
               ) : chats.length > 0 ? chats.map(chat => (
@@ -655,10 +663,10 @@ export default function ChatbotPage() {
                       <MessageSquare className="w-3 h-3" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold truncate leading-tight">{chat.title || 'Untitled Chat'}</p>
+                      <p className="text-sm font-semibold truncate leading-tight">{chat.title || 'Untitled Chat'}</p>
                       {chat.updatedAt && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <Clock className="w-2.5 h-2.5" />
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
                           {parseSafeDate(chat.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         </p>
                       )}
@@ -672,25 +680,38 @@ export default function ChatbotPage() {
                   <div className="w-12 h-12 rounded-2xl bg-muted/50 flex items-center justify-center">
                     <MessageSquare className="w-5 h-5 text-muted-foreground/50" />
                   </div>
-                  <p className="text-xs text-muted-foreground">No past chats yet.<br />Start a conversation!</p>
+                  <p className="text-sm text-muted-foreground">No past chats yet.<br />Start a conversation!</p>
                 </div>
               )}
             </div>
           </Card>
 
           {/* Quick Actions */}
-          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-5">
-            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2 mb-3">
+          <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm p-3 sm:p-4 lg:p-5">
+            <p className="text-sm font-bold text-muted-foreground flex items-center gap-2 mb-2 lg:mb-3">
               <Zap className="w-3.5 h-3.5 text-amber-500" /> Quick Actions
             </p>
-            <div className="space-y-2">
+            {/* Mobile: horizontal scroll */}
+            <div className="flex lg:hidden gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
+              {QUICK_ACTIONS.map((action, i) => (
+                <button key={i} onClick={() => handleSend(action.query)} disabled={isTyping}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border/40 bg-background/30 hover:bg-primary hover:text-white hover:border-primary text-muted-foreground transition-all duration-200 group disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                  <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-colors", action.color, "group-hover:bg-white/20")}>
+                    <action.icon className="w-3 h-3" />
+                  </div>
+                  <span className="text-xs font-semibold whitespace-nowrap">{action.label}</span>
+                </button>
+              ))}
+            </div>
+            {/* Desktop: vertical list */}
+            <div className="hidden lg:flex flex-col gap-2">
               {QUICK_ACTIONS.map((action, i) => (
                 <button key={i} onClick={() => handleSend(action.query)} disabled={isTyping}
                   className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-border/40 bg-background/30 hover:bg-primary hover:text-white hover:border-primary text-muted-foreground hover:shadow-md hover:shadow-primary/10 transition-all duration-200 group disabled:opacity-40 disabled:cursor-not-allowed">
                   <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-colors", action.color, "group-hover:bg-white/20")}>
                     <action.icon className="w-3.5 h-3.5" />
                   </div>
-                  <span className="text-xs font-semibold text-left truncate">{action.label}</span>
+                  <span className="text-sm font-semibold text-left truncate">{action.label}</span>
                   <ChevronRight className="w-3 h-3 ml-auto shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </button>
               ))}

@@ -119,5 +119,6 @@ export async function register() {
     lines.push(`${CYN}${B}╚══════════════════════════════════════════════════════════════════╝${R}`);
     lines.push('');
 
-    process.stdout.write(lines.join('\n') + '\n');
+    // console.log works in both Node.js and Edge runtimes
+    console.log(lines.join('\n'));
 }

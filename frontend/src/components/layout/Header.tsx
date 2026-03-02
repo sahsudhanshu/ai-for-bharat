@@ -134,7 +134,7 @@ export default function Header() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem asChild>
-                <Link href="/settings" className="cursor-pointer">
+                <Link href="/profile" className="cursor-pointer">
                   <User className="mr-2 w-4 h-4" />{t('common.profile')}
                 </Link>
               </DropdownMenuItem>

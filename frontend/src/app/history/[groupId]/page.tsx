@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, ArrowLeft, Download, Bug, Scale, TrendingUp, MapPin } from "lucide-react";
+import { Loader2, ArrowLeft, Download, Bug, Scale, TrendingUp, MapPin, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getGroupDetails, type GroupRecord } from "@/lib/api-client";
 import { resolveMLUrl } from "@/lib/constants";
@@ -31,22 +31,22 @@ function generateSupplement(speciesLabel: string) {
     { name: "Seer Fish", scientific: "Scomberomorus guttatus", minSize: 300, pricePerKg: 850 },
     { name: "Hilsa Shad", scientific: "Tenualosa ilisha", minSize: 250, pricePerKg: 700 },
   ];
-  
+
   const matchSpecies = (label: string) => {
     if (!label) return SPECIES_DATA[0];
     const lower = label.toLowerCase();
-    return SPECIES_DATA.find(s => 
-      lower.includes(s.name.split(" ")[0].toLowerCase()) || 
+    return SPECIES_DATA.find(s =>
+      lower.includes(s.name.split(" ")[0].toLowerCase()) ||
       s.name.toLowerCase().includes(lower)
     ) ?? SPECIES_DATA[0];
   };
-  
+
   const matched = matchSpecies(speciesLabel);
   const length_mm = matched.minSize + Math.round(Math.random() * 200);
   const weight_g = Math.round((length_mm / 1000) ** 3 * 1e6 * (0.012 + Math.random() * 0.004));
   const weight_kg = weight_g / 1000;
   const estimatedValue = Math.round(weight_kg * matched.pricePerKg);
-  
+
   return { weight_kg, estimatedValue };
 }
 
@@ -69,7 +69,7 @@ export default function GroupDetailPage() {
       setIsLoading(true);
       const data = await getGroupDetails(groupId);
       setGroup(data);
-      
+
       // Calculate analysis time if available
       if (data.createdAt && data.analysisResult?.processedAt) {
         const start = new Date(data.createdAt).getTime();
@@ -107,7 +107,7 @@ export default function GroupDetailPage() {
       doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
       doc.text("OceanAI - Group Analysis Report", 14, cursorY);
-      
+
       cursorY += 10;
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
@@ -117,10 +117,10 @@ export default function GroupDetailPage() {
       doc.text(`Group ID: ${groupId}`, 14, cursorY);
       cursorY += 5;
       doc.text(`Analysis Date: ${new Date(group.createdAt).toLocaleString()}`, 14, cursorY);
-      
+
       if (analysisTime !== null) {
         cursorY += 5;
-        const timeStr = analysisTime >= 60 
+        const timeStr = analysisTime >= 60
           ? `${Math.floor(analysisTime / 60)} min ${analysisTime % 60} sec`
           : `${analysisTime} sec`;
         doc.text(`Analysis Time: ${timeStr}`, 14, cursorY);
@@ -143,7 +143,7 @@ export default function GroupDetailPage() {
       doc.setTextColor(0);
       doc.text("Aggregate Statistics", 14, cursorY);
       cursorY += 8;
-      
+
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.text(`Total Fish Detected: ${stats.totalFishCount}`, 18, cursorY);
@@ -164,7 +164,7 @@ export default function GroupDetailPage() {
       doc.setFont("helvetica", "bold");
       doc.text("Species Distribution", 14, cursorY);
       cursorY += 8;
-      
+
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       Object.entries(stats.speciesDistribution).forEach(([species, count]) => {
@@ -195,7 +195,7 @@ export default function GroupDetailPage() {
       for (let i = 0; i < allCrops.length; i++) {
         const { imageIndex, crop } = allCrops[i];
         const supplement = generateSupplement(crop.species.label);
-        
+
         if (cursorY > pageHeight - 40) {
           doc.addPage();
           cursorY = 20;
@@ -205,7 +205,7 @@ export default function GroupDetailPage() {
         doc.setFont("helvetica", "bold");
         doc.text(`Fish #${i + 1} (Image ${imageIndex + 1})`, 18, cursorY);
         cursorY += 6;
-        
+
         doc.setFont("helvetica", "normal");
         doc.text(`Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`, 22, cursorY);
         cursorY += 5;
@@ -281,7 +281,7 @@ export default function GroupDetailPage() {
               <>
                 <span>•</span>
                 <span>
-                  Analysis completed in {analysisTime >= 60 
+                  Analysis completed in {analysisTime >= 60
                     ? `${Math.floor(analysisTime / 60)} min ${analysisTime % 60} sec`
                     : `${analysisTime} sec`}
                 </span>
@@ -301,10 +301,23 @@ export default function GroupDetailPage() {
           </div>
         </div>
         {group.analysisResult && (
-          <Button onClick={exportToPdf} variant="outline" className="rounded-xl">
-            <Download className="w-4 h-4 mr-2" />
-            Export PDF
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              onClick={() => {
+                const prompt = `Please fetch the details of group ID "${groupId}" and provide essential information including species identified, health/disease status, estimated weight, quality grades, and market value summary based on my latest scan.`;
+                router.push(`/chatbot?prefill=${encodeURIComponent(prompt)}`);
+              }}
+              variant="outline"
+              className="rounded-xl"
+            >
+              <Bot className="w-4 h-4 mr-2" />
+              Ask AI
+            </Button>
+            <Button onClick={exportToPdf} variant="outline" className="rounded-xl">
+              <Download className="w-4 h-4 mr-2" />
+              Export PDF
+            </Button>
+          </div>
         )}
       </div>
 

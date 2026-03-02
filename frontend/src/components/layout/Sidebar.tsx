@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Images,
+  User,
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
 ]
 
 const secondaryItems: NavItem[] = [
+  { titleKey: "common.profile" as TranslationKey, href: "/profile", icon: User },
   { titleKey: "nav.settings", href: "/settings", icon: Settings },
   { titleKey: "nav.help", href: "/help", icon: HelpCircle },
 ]

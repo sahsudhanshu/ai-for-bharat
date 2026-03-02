@@ -13,14 +13,16 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-const PUBLIC_ROUTES = ['/login', '/signup', '/profile'];
+const PUBLIC_ROUTES = ['/login', '/signup'];
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const { isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+  // /profile/[slug] is public (public profile view), but /profile alone is authenticated
+  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r))
+    || /^\/profile\/[^/]+/.test(pathname);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated && !isPublicRoute) {

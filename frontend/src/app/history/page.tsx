@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Eye, Images, Trash2 } from "lucide-react";
+import { Loader2, Eye, Images, Trash2, Download, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getGroups, deleteGroup, type GroupRecord } from "@/lib/api-client";
+import { jsPDF } from "jspdf";
 
 export default function GroupsPage() {
   const router = useRouter();
@@ -55,6 +56,54 @@ export default function GroupsPage() {
         return "bg-red-500 text-white";
       default:
         return "bg-gray-500 text-white";
+    }
+  };
+
+  const handleAskAI = (group: GroupRecord) => {
+    const prompt = `Please fetch the details of group ID "${group.groupId}" and provide essential information including species identified, health/disease status, estimated weight, quality grades, and market value summary based on my latest scan.`;
+    router.push(`/chatbot?prefill=${encodeURIComponent(prompt)}`);
+  };
+
+  const handleExportPdf = (group: GroupRecord) => {
+    if (!group.analysisResult) {
+      toast.error("No analysis data to export");
+      return;
+    }
+    try {
+      const doc = new jsPDF();
+      const stats = group.analysisResult.aggregateStats;
+      let y = 20;
+      doc.setFontSize(18);
+      doc.setFont("helvetica", "bold");
+      doc.text("OceanAI - Analysis Report", 14, y); y += 10;
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, y); y += 5;
+      doc.text(`Group ID: ${group.groupId}`, 14, y); y += 5;
+      doc.text(`Date: ${new Date(group.createdAt).toLocaleString()}`, 14, y); y += 5;
+      doc.text(`Images: ${group.imageCount}`, 14, y); y += 10;
+      doc.setDrawColor(200); doc.line(14, y, 196, y); y += 8;
+      doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.setTextColor(0);
+      doc.text("Summary", 14, y); y += 8;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text(`Total Fish: ${stats.totalFishCount}`, 18, y); y += 6;
+      doc.text(`Species: ${Object.keys(stats.speciesDistribution).length}`, 18, y); y += 6;
+      doc.text(`Est. Weight: ${stats.totalEstimatedWeight.toFixed(2)} kg`, 18, y); y += 6;
+      doc.text(`Est. Value: ₹${stats.totalEstimatedValue.toLocaleString()}`, 18, y); y += 6;
+      doc.text(`Confidence: ${(stats.averageConfidence * 100).toFixed(1)}%`, 18, y); y += 6;
+      doc.text(`Disease: ${stats.diseaseDetected ? 'Yes' : 'No'}`, 18, y); y += 10;
+      doc.setFontSize(11); doc.setFont("helvetica", "bold");
+      doc.text("Species Distribution", 14, y); y += 7;
+      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      Object.entries(stats.speciesDistribution).forEach(([sp, cnt]) => {
+        doc.text(`${sp}: ${cnt} fish`, 18, y); y += 6;
+      });
+      doc.save(`oceanai-${group.groupId.slice(0, 8)}.pdf`);
+      toast.success("PDF exported!");
+    } catch (err) {
+      console.error("Export error:", err);
+      toast.error("Failed to export PDF");
     }
   };
 
@@ -137,6 +186,28 @@ export default function GroupsPage() {
                       </div>
                     </div>
                     <div className="flex gap-2 shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="rounded-lg text-primary hover:text-primary hover:bg-primary/10"
+                        onClick={() => handleAskAI(group)}
+                        title="Ask AI about this catch"
+                      >
+                        <Bot className="w-4 h-4 mr-1" />
+                        <span className="hidden sm:inline">Ask AI</span>
+                      </Button>
+                      {group.status === 'completed' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-lg text-muted-foreground hover:text-foreground"
+                          onClick={() => handleExportPdf(group)}
+                          title="Export as PDF"
+                        >
+                          <Download className="w-4 h-4 mr-1" />
+                          <span className="hidden sm:inline">Export</span>
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
