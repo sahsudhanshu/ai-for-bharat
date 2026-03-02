@@ -5,6 +5,7 @@
 ### 1.1 System Overview
 The AI-Powered Fisherman's Assistant is a comprehensive mobile-first solution that transforms smartphones into precision instruments for fish analysis and intelligent business decision-making. The system combines cutting-edge computer vision, depth estimation, and agentic AI to deliver a "Perception-to-Profit" pipeline.
 
+
 ### 1.2 Design Philosophy
 - **Mobile-First**: Optimized for smartphone usage in challenging maritime conditions
 - **Edge-Cloud Hybrid**: Balance between on-device processing and cloud intelligence
