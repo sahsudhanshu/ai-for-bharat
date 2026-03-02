@@ -189,7 +189,6 @@ exports.handler = async (event) => {
                 },
             })
         );
-        console.log(ok({ imageId, analysisResult }))
         return ok({ imageId, analysisResult });
     } catch (err) {
         console.error("analyzeImage ML call error:", err);

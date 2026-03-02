@@ -54,7 +54,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Allow OceanAI to use your location to tag your catch location."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

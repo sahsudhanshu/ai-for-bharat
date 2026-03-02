@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../lib/auth-context';
 import { LanguageProvider, useLanguage } from '../lib/i18n';
+import { NetworkProvider } from '../lib/network-context';
 import { COLORS } from '../lib/constants';
 
 function RootLayoutNav() {
@@ -33,6 +34,7 @@ function RootLayoutNav() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="auth/login" />
             <Stack.Screen name="auth/register" />
+            <Stack.Screen name="analysis/[imageId]" options={{ headerShown: true }} />
         </Stack>
     );
 }
@@ -56,12 +58,14 @@ export default function RootLayout() {
         <GestureHandlerRootView style={styles.root}>
             <ThemeProvider value={customDarkTheme}>
                 <SafeAreaProvider>
-                    <LanguageProvider>
-                        <AuthProvider>
-                            <StatusBar style="light" backgroundColor={COLORS.bgDark} />
-                            <RootLayoutNav />
-                        </AuthProvider>
-                    </LanguageProvider>
+                    <NetworkProvider>
+                        <LanguageProvider>
+                            <AuthProvider>
+                                <StatusBar style="light" backgroundColor={COLORS.bgDark} />
+                                <RootLayoutNav />
+                            </AuthProvider>
+                        </LanguageProvider>
+                    </NetworkProvider>
                 </SafeAreaProvider>
             </ThemeProvider>
         </GestureHandlerRootView>

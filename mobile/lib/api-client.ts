@@ -4,7 +4,7 @@
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL, AGENT_BASE_URL, IS_AGENT_CONFIGURED, DEMO_JWT, IS_DEMO_MODE, ENDPOINTS } from './constants';
-import * as Mock from './mock-api';
+import type { FishAnalysisResult, ChatMessage } from './types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -23,7 +23,28 @@ export interface PresignedUrlResponse {
 
 export interface AnalyzeImageResponse {
     imageId: string;
-    analysisResult: Mock.FishAnalysisResult;
+    analysisResult: FishAnalysisResult;
+}
+
+export interface MLApiCrop {
+    bbox: number[];
+    crop_url: string;
+    species: {
+        label: string;
+        confidence: number;
+        gradcam_url: string;
+    };
+    disease: {
+        label: string;
+        confidence: number;
+        gradcam_url: string;
+    };
+    yolo_confidence: number;
+}
+
+export interface MLApiResponse {
+    crops: Record<string, MLApiCrop>;
+    yolo_image_url: string;
 }
 
 export interface MapMarker {
@@ -40,7 +61,7 @@ export interface MapDataResponse {
     markers: MapMarker[];
 }
 
-export type { ChatMessage } from './mock-api';
+export type { ChatMessage } from './types';
 
 export interface SendChatResponse {
     chatId: string;
@@ -76,7 +97,7 @@ export interface ImageRecord {
     userId: string;
     s3Path: string;
     status: 'pending' | 'processing' | 'completed' | 'failed';
-    analysisResult?: Mock.FishAnalysisResult;
+    analysisResult?: FishAnalysisResult;
     latitude?: number;
     longitude?: number;
     createdAt: string;
@@ -154,10 +175,6 @@ async function agentFetch<T>(path: string, options: RequestInit = {}): Promise<T
     return res.json() as Promise<T>;
 }
 
-function delay(ms: number) {
-    return new Promise<void>((r) => setTimeout(r, ms));
-}
-
 // ── API functions ─────────────────────────────────────────────────────────────
 
 export async function getPresignedUrl(
@@ -167,9 +184,7 @@ export async function getPresignedUrl(
     longitude?: number,
 ): Promise<PresignedUrlResponse> {
     if (IS_DEMO_MODE) {
-        await delay(400);
-        const id = `demo_${Date.now()}`;
-        return { uploadUrl: '', imageId: id, s3Path: `s3://demo-bucket/uploads/${id}.jpg` };
+        throw new ApiError(0, 'Backend API is not configured. Set EXPO_PUBLIC_API_URL to enable uploads.');
     }
     return apiFetch<PresignedUrlResponse>(ENDPOINTS.presignedUrl, {
         method: 'POST',
@@ -189,13 +204,7 @@ export function uploadToS3(
 ): Promise<void> {
     return new Promise((resolve, reject) => {
         if (!url) {
-            // Demo mode — simulate progress
-            let pct = 0;
-            const interval = setInterval(() => {
-                pct = Math.min(pct + 20, 100);
-                onProgress?.(pct);
-                if (pct === 100) { clearInterval(interval); resolve(); }
-            }, 200);
+            reject(new Error('No upload URL provided. Backend API may not be configured.'));
             return;
         }
         // Real S3 upload using React Native fetch
@@ -218,10 +227,65 @@ export function uploadToS3(
 
 export async function analyzeImage(imageId: string): Promise<AnalyzeImageResponse> {
     if (IS_DEMO_MODE) {
-        const mockResult = await Mock.analyzeCatch();
-        return { imageId, analysisResult: mockResult };
+        throw new ApiError(0, 'Backend API is not configured. Set EXPO_PUBLIC_API_URL to enable cloud analysis.');
     }
     return apiFetch<AnalyzeImageResponse>(ENDPOINTS.analyzeImage(imageId), { method: 'POST' });
+}
+
+/**
+ * Analyze image using ML API (returns raw ML response with crops, gradcam, etc.)
+ */
+export async function analyzeImageML(imageId: string): Promise<MLApiResponse> {
+    if (IS_DEMO_MODE) {
+        throw new ApiError(0, 'Backend API is not configured. Set EXPO_PUBLIC_API_URL to enable ML analysis.');
+    }
+    return apiFetch<MLApiResponse>(ENDPOINTS.analyzeImage(imageId), { method: 'POST' });
+}
+
+/**
+ * Convert ML API response to FishAnalysisResult (uses first/best crop)
+ */
+export function mlResponseToAnalysisResult(mlResponse: MLApiResponse): FishAnalysisResult {
+    const crops = Object.values(mlResponse.crops);
+    if (crops.length === 0) {
+        throw new Error('No fish detected in image');
+    }
+
+    // Use the crop with highest YOLO confidence
+    const bestCrop = crops.reduce((best, curr) => 
+        curr.yolo_confidence > best.yolo_confidence ? curr : best
+    );
+
+    // Weight and price are not available from the ML API — mark as unavailable (0)
+    const estimatedWeight = 0;
+    const estimatedPricePerKg = 0;
+    const estimatedLength = 0;
+    const minLegalSize = 150;
+
+    return {
+        species: bestCrop.species.label,
+        scientificName: '',
+        confidence: bestCrop.species.confidence,
+        measurements: {
+            length_mm: 0,
+            weight_g: 0,
+            width_mm: 0,
+        },
+        qualityGrade: bestCrop.disease.label === 'Healthy Fish' ? 'Premium' : 'Standard',
+        marketEstimate: {
+            price_per_kg: 0,
+            estimated_value: 0,
+        },
+        compliance: {
+            is_legal_size: false,
+            min_legal_size_mm: minLegalSize,
+        },
+        isSustainable: bestCrop.disease.label === 'Healthy Fish',
+        weightEstimate: 0,
+        weightConfidence: 0,
+        marketPriceEstimate: 0,
+        timestamp: new Date().toISOString(),
+    };
 }
 
 export async function getImages(
@@ -229,8 +293,7 @@ export async function getImages(
     lastKey?: string,
 ): Promise<{ items: ImageRecord[]; lastKey?: string }> {
     if (IS_DEMO_MODE) {
-        await delay(600);
-        return Mock.getMockImages() as any;
+        return { items: [] };
     }
     const params = new URLSearchParams({ limit: String(limit) });
     if (lastKey) params.set('lastKey', lastKey);
@@ -241,8 +304,7 @@ export async function getMapData(
     filters?: { species?: string; from?: string; to?: string },
 ): Promise<MapDataResponse> {
     if (IS_DEMO_MODE) {
-        await delay(500);
-        return Mock.getMockMapData();
+        return { markers: [] };
     }
     const params = new URLSearchParams();
     if (filters?.species) params.set('species', filters.species);
@@ -265,8 +327,7 @@ export async function sendChat(message: string, overrideChatId?: string, languag
         });
     }
     if (IS_DEMO_MODE) {
-        const response = await Mock.getChatbotResponse(message);
-        return { chatId: `demo_${Date.now()}`, response, timestamp: new Date().toISOString() };
+        throw new ApiError(0, 'Chat is not available. Configure EXPO_PUBLIC_AGENT_URL or EXPO_PUBLIC_API_URL.');
     }
     return apiFetch<SendChatResponse>(ENDPOINTS.sendChat, {
         method: 'POST',
@@ -285,29 +346,22 @@ export async function getChatHistory(limit = 30, overrideChatId?: string): Promi
                 timestamp: m.timestamp
             }));
         }
-        // Fallback for old /chat enpoint
-        const oldLog = await agentFetch<Mock.ChatMessage[]>(`/chat?limit=${limit}`);
+        // Fallback for old /chat endpoint
+        const oldLog = await agentFetch<ChatMessage[]>(`/chat?limit=${limit}`);
         return oldLog.map(m => ({
             id: m.chatId,
-            role: 'assistant',
+            role: 'assistant' as const,
             text: m.response,
             timestamp: m.timestamp
         }));
     }
     if (IS_DEMO_MODE) {
-        await delay(400);
-        const mockLog = await Mock.getMockChatHistory();
-        return mockLog.map(m => ({
-            id: m.chatId,
-            role: 'assistant',
-            text: m.response,
-            timestamp: m.timestamp
-        }));
+        return [];
     }
-    const apiLog = await apiFetch<Mock.ChatMessage[]>(`${ENDPOINTS.getChatHistory}?limit=${limit}`);
+    const apiLog = await apiFetch<ChatMessage[]>(`${ENDPOINTS.getChatHistory}?limit=${limit}`);
     return apiLog.map(m => ({
         id: m.chatId,
-        role: 'assistant',
+        role: 'assistant' as const,
         text: m.response,
         timestamp: m.timestamp
     }));
@@ -331,7 +385,7 @@ export async function createConversation(title: string = "New Chat", language: s
         });
         return res.conversation;
     }
-    return { conversationId: `demo_${Date.now()}`, title, language, messageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    throw new ApiError(0, 'Chat is not available. Configure EXPO_PUBLIC_AGENT_URL.');
 }
 
 export async function getConversationsList(): Promise<Conversation[]> {
@@ -344,8 +398,7 @@ export async function getConversationsList(): Promise<Conversation[]> {
 
 export async function getAnalytics(): Promise<AnalyticsResponse> {
     if (IS_DEMO_MODE) {
-        await delay(700);
-        return Mock.getMockAnalytics();
+        throw new ApiError(0, 'Analytics not available. Backend API is not configured.');
     }
     return apiFetch<AnalyticsResponse>(ENDPOINTS.getAnalytics);
 }
