@@ -122,6 +122,15 @@ exports.handler = async (event) => {
             throw new Error("No fish detected in the image");
         }
 
+        // Get ML API base URL for converting relative URLs to absolute
+        const ML_API_BASE = ML_API_URL.replace(/\/predict$/, '');
+        const ensureAbsoluteUrl = (url) => {
+            if (!url) return null;
+            if (url.startsWith('http://') || url.startsWith('https://')) return url;
+            const cleanUrl = url.startsWith('/') ? url : `/${url}`;
+            return `${ML_API_BASE}${cleanUrl}`;
+        };
+
         const speciesMap = new Map();
         for (const crop of rawCrops) {
             const speciesData = crop?.species || {};
@@ -168,9 +177,9 @@ exports.handler = async (event) => {
             marketPriceEstimate: matched.pricePerKg,
             timestamp: new Date().toISOString(),
             debugUrls: {
-                yoloImageUrl: hfData.yolo_image_url ? `https://kyanmahajan-fish-pred.hf.space${hfData.yolo_image_url}` : null,
-                cropImageUrl: bestCrop.crop_url ? `https://kyanmahajan-fish-pred.hf.space${bestCrop.crop_url}` : null,
-                gradcamUrl: bestCrop?.species?.gradcam_url ? `https://kyanmahajan-fish-pred.hf.space${bestCrop.species.gradcam_url}` : null
+                yoloImageUrl: ensureAbsoluteUrl(hfData.yolo_image_url),
+                cropImageUrl: ensureAbsoluteUrl(bestCrop.crop_url),
+                gradcamUrl: ensureAbsoluteUrl(bestCrop?.species?.gradcam_url)
             }
         };
 

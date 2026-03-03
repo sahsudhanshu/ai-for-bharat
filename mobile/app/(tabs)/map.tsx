@@ -69,12 +69,16 @@ const INDIA_BOUNDARY = {
   southWest: { latitude: 4.0, longitude: 64.0 },
 };
 
-const WEATHER_LAYERS = [
-  { id: "none", label: "🐟 Catches" },
-  { id: "temp_new", label: "🌡️ Temp" },
-  { id: "wind_new", label: "💨 Wind" },
-  { id: "pressure_new", label: "🔵 Pressure" },
-  { id: "clouds_new", label: "☁️ Clouds" },
+const WEATHER_LAYERS: {
+  id: string;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+}[] = [
+  { id: "none", label: "Catches", icon: "fish-outline" },
+  { id: "temp_new", label: "Temp", icon: "thermometer-outline" },
+  { id: "wind_new", label: "Wind", icon: "flag-outline" },
+  { id: "pressure_new", label: "Pressure", icon: "radio-button-off-outline" },
+  { id: "clouds_new", label: "Clouds", icon: "cloudy-outline" },
 ];
 
 interface TappedWeather {
@@ -269,7 +273,16 @@ export default function MapScreen() {
           onPress={() => setBottomSheet("alerts")}
           activeOpacity={0.8}
         >
-          <Text style={styles.alertIcon}>{getAlertIcon(topAlert.type)}</Text>
+          <Ionicons
+            name={
+              getAlertIcon(topAlert.type) as React.ComponentProps<
+                typeof Ionicons
+              >["name"]
+            }
+            size={22}
+            color={getSeverityColor(topAlert.severity)}
+            style={{ width: 22 }}
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.alertTitle} numberOfLines={1}>
               {topAlert.title}
@@ -312,12 +325,14 @@ export default function MapScreen() {
           onPress={() => setFilterModalVisible(true)}
           activeOpacity={0.8}
         >
-          <Text style={styles.filterBtnText}>
-            🔍{" "}
-            {filterSpecies === "All Species"
-              ? "Filter"
-              : filterSpecies.split(" ")[0]}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+            <Ionicons name="search" size={14} color={COLORS.textSecondary} />
+            <Text style={styles.filterBtnText}>
+              {filterSpecies === "All Species"
+                ? "Filter"
+                : filterSpecies.split(" ")[0]}
+            </Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -338,14 +353,28 @@ export default function MapScreen() {
               onPress={() => setActiveWeatherLayer(layer.id)}
               activeOpacity={0.8}
             >
-              <Text
-                style={[
-                  styles.layerTabText,
-                  activeWeatherLayer === layer.id && styles.layerTabTextActive,
-                ]}
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
               >
-                {layer.label}
-              </Text>
+                <Ionicons
+                  name={layer.icon}
+                  size={13}
+                  color={
+                    activeWeatherLayer === layer.id
+                      ? COLORS.primaryLight
+                      : COLORS.textMuted
+                  }
+                />
+                <Text
+                  style={[
+                    styles.layerTabText,
+                    activeWeatherLayer === layer.id &&
+                      styles.layerTabTextActive,
+                  ]}
+                >
+                  {layer.label}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -359,7 +388,14 @@ export default function MapScreen() {
             setBottomSheet(bottomSheet === "tools" ? "none" : "tools")
           }
         >
-          <Text style={styles.quickBtnText}>🧭 Tools</Text>
+          <View style={styles.quickBtnInner}>
+            <Ionicons
+              name="compass-outline"
+              size={13}
+              color={COLORS.textSecondary}
+            />
+            <Text style={styles.quickBtnText}>Tools</Text>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickBtn}
@@ -367,7 +403,14 @@ export default function MapScreen() {
             setBottomSheet(bottomSheet === "insights" ? "none" : "insights")
           }
         >
-          <Text style={styles.quickBtnText}>⚓ Insights</Text>
+          <View style={styles.quickBtnInner}>
+            <Ionicons
+              name="analytics-outline"
+              size={13}
+              color={COLORS.textSecondary}
+            />
+            <Text style={styles.quickBtnText}>Insights</Text>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.quickBtn}
@@ -375,10 +418,24 @@ export default function MapScreen() {
             setBottomSheet(bottomSheet === "alerts" ? "none" : "alerts")
           }
         >
-          <Text style={styles.quickBtnText}>🚨 Alerts ({alerts.length})</Text>
+          <View style={styles.quickBtnInner}>
+            <Ionicons
+              name="warning-outline"
+              size={13}
+              color={COLORS.textSecondary}
+            />
+            <Text style={styles.quickBtnText}>Alerts ({alerts.length})</Text>
+          </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.quickBtn} onPress={handleLocateUser}>
-          <Text style={styles.quickBtnText}>📍 Me</Text>
+          <View style={styles.quickBtnInner}>
+            <Ionicons
+              name="locate-outline"
+              size={13}
+              color={COLORS.textSecondary}
+            />
+            <Text style={styles.quickBtnText}>Me</Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -447,7 +504,7 @@ export default function MapScreen() {
                   },
                 ]}
               >
-                <Text style={styles.markerEmoji}>🐟</Text>
+                <Ionicons name="fish-outline" size={14} color="#fff" />
               </View>
             </Marker>
           ))}
@@ -456,7 +513,21 @@ export default function MapScreen() {
         {/* No data message */}
         {!loading && filteredMarkers.length === 0 && (
           <View style={styles.recZone}>
-            <Text style={styles.recZoneTitle}>📭 No Data</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 4,
+              }}
+            >
+              <Ionicons
+                name="cloudy-night-outline"
+                size={18}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.recZoneTitle}>No Data</Text>
+            </View>
             <Text style={styles.recZoneText}>No catch data available</Text>
             <Text style={styles.recZoneSub}>Upload catches to see markers</Text>
           </View>
@@ -497,7 +568,16 @@ export default function MapScreen() {
             </View>
             <View style={styles.infoDetails}>
               <View style={styles.infoDetailItem}>
-                <Text style={styles.infoDetailLabel}>⚖️ Weight</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                >
+                  <Ionicons
+                    name="scale-outline"
+                    size={12}
+                    color={COLORS.textMuted}
+                  />
+                  <Text style={styles.infoDetailLabel}>Weight</Text>
+                </View>
                 <Text style={styles.infoDetailValue}>
                   {selectedMarker.weight_g
                     ? `${(selectedMarker.weight_g / 1000).toFixed(2)} kg`
@@ -505,13 +585,31 @@ export default function MapScreen() {
                 </Text>
               </View>
               <View style={styles.infoDetailItem}>
-                <Text style={styles.infoDetailLabel}>📍 Location</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                >
+                  <Ionicons
+                    name="location-outline"
+                    size={12}
+                    color={COLORS.textMuted}
+                  />
+                  <Text style={styles.infoDetailLabel}>Location</Text>
+                </View>
                 <Text style={styles.infoDetailValue}>
                   {selectedMarker.latitude.toFixed(3)}°N
                 </Text>
               </View>
               <View style={styles.infoDetailItem}>
-                <Text style={styles.infoDetailLabel}>📅 Date</Text>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={12}
+                    color={COLORS.textMuted}
+                  />
+                  <Text style={styles.infoDetailLabel}>Date</Text>
+                </View>
                 <Text style={styles.infoDetailValue}>
                   {new Date(selectedMarker.createdAt).toLocaleDateString(
                     "en-IN",
@@ -532,7 +630,16 @@ export default function MapScreen() {
           <View style={styles.infoSheetHandle} />
           <View style={styles.infoSheetContent}>
             <View style={styles.infoRow}>
-              <Text style={styles.infoSpecies}>📍 Weather</Text>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              >
+                <Ionicons
+                  name="partly-sunny-outline"
+                  size={18}
+                  color={COLORS.primaryLight}
+                />
+                <Text style={styles.infoSpecies}>Weather</Text>
+              </View>
               <TouchableOpacity onPress={() => setTappedWeather(null)}>
                 <Text style={{ color: COLORS.textMuted, fontSize: 18 }}>✕</Text>
               </TouchableOpacity>
@@ -550,21 +657,36 @@ export default function MapScreen() {
             ) : (
               <View style={styles.weatherGrid}>
                 <View style={styles.weatherItem}>
-                  <Text style={styles.weatherIcon}>🌡️</Text>
+                  <Ionicons
+                    name="thermometer-outline"
+                    size={20}
+                    color={COLORS.primaryLight}
+                    style={{ marginBottom: 4 }}
+                  />
                   <Text style={styles.weatherLabel}>Temp</Text>
                   <Text style={styles.weatherValue}>
                     {tappedWeather.temp?.toFixed(1)}°C
                   </Text>
                 </View>
                 <View style={styles.weatherItem}>
-                  <Text style={styles.weatherIcon}>💨</Text>
+                  <Ionicons
+                    name="flag-outline"
+                    size={20}
+                    color={COLORS.primaryLight}
+                    style={{ marginBottom: 4 }}
+                  />
                   <Text style={styles.weatherLabel}>Wind</Text>
                   <Text style={styles.weatherValue}>
                     {tappedWeather.wind} m/s
                   </Text>
                 </View>
                 <View style={styles.weatherItem}>
-                  <Text style={styles.weatherIcon}>💧</Text>
+                  <Ionicons
+                    name="water-outline"
+                    size={20}
+                    color={COLORS.primaryLight}
+                    style={{ marginBottom: 4 }}
+                  />
                   <Text style={styles.weatherLabel}>Humidity</Text>
                   <Text style={styles.weatherValue}>
                     {tappedWeather.humidity}%
@@ -572,7 +694,12 @@ export default function MapScreen() {
                 </View>
                 {tappedWeather.description && (
                   <View style={styles.weatherItem}>
-                    <Text style={styles.weatherIcon}>⛅</Text>
+                    <Ionicons
+                      name="cloudy-outline"
+                      size={20}
+                      color={COLORS.primaryLight}
+                      style={{ marginBottom: 4 }}
+                    />
                     <Text style={styles.weatherLabel}>Conditions</Text>
                     <Text
                       style={[
@@ -594,10 +721,29 @@ export default function MapScreen() {
       {bottomSheet === "tools" && (
         <View style={styles.bottomSheet}>
           <View style={styles.infoSheetHandle} />
-          <Text style={styles.bsTitle}>🧭 Fisherman Tools</Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: SPACING.md,
+            }}
+          >
+            <Ionicons
+              name="compass-outline"
+              size={20}
+              color={COLORS.primaryLight}
+            />
+            <Text style={styles.bsTitle}>Fisherman Tools</Text>
+          </View>
           <View style={styles.toolsGrid}>
             <View style={[styles.toolCard, { borderColor: "#f59e0b30" }]}>
-              <Text style={styles.toolEmoji}>☀️</Text>
+              <Ionicons
+                name="sunny-outline"
+                size={22}
+                color="#fbbf24"
+                style={{ marginBottom: 4 }}
+              />
               <Text style={[styles.toolLabel, { color: "#fbbf24" }]}>
                 Sunrise
               </Text>
@@ -605,19 +751,34 @@ export default function MapScreen() {
               <Text style={styles.toolSub}>Sunset 06:18 PM</Text>
             </View>
             <View style={[styles.toolCard, { borderColor: "#818cf830" }]}>
-              <Text style={styles.toolEmoji}>🌙</Text>
+              <Ionicons
+                name="moon-outline"
+                size={22}
+                color="#a5b4fc"
+                style={{ marginBottom: 4 }}
+              />
               <Text style={[styles.toolLabel, { color: "#a5b4fc" }]}>Moon</Text>
               <Text style={styles.toolValue}>Waxing Crescent</Text>
               <Text style={styles.toolSub}>32% illuminated</Text>
             </View>
             <View style={[styles.toolCard, { borderColor: "#22d3ee30" }]}>
-              <Text style={styles.toolEmoji}>🌊</Text>
+              <Ionicons
+                name="water-outline"
+                size={22}
+                color="#67e8f9"
+                style={{ marginBottom: 4 }}
+              />
               <Text style={[styles.toolLabel, { color: "#67e8f9" }]}>Tide</Text>
               <Text style={styles.toolValue}>High → 2.1m</Text>
               <Text style={styles.toolSub}>Next low: 3:45 PM</Text>
             </View>
             <View style={[styles.toolCard, { borderColor: "#34d39930" }]}>
-              <Text style={styles.toolEmoji}>⏰</Text>
+              <Ionicons
+                name="time-outline"
+                size={22}
+                color="#6ee7b7"
+                style={{ marginBottom: 4 }}
+              />
               <Text style={[styles.toolLabel, { color: "#6ee7b7" }]}>
                 Best Time
               </Text>
@@ -626,12 +787,21 @@ export default function MapScreen() {
             </View>
           </View>
           <View style={styles.seaStateBar}>
-            <Text style={styles.seaStateText}>
-              🌧️ Sea State:{" "}
-              <Text style={{ fontWeight: "700", color: COLORS.textPrimary }}>
-                Moderate
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+            >
+              <Ionicons
+                name="rainy-outline"
+                size={14}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.seaStateText}>
+                Sea State:{" "}
+                <Text style={{ fontWeight: "700", color: COLORS.textPrimary }}>
+                  Moderate
+                </Text>
               </Text>
-            </Text>
+            </View>
             <Text style={styles.seaStateSub}>
               Wave 1.2m • Wind NW 15 km/h • Vis 8 km
             </Text>
@@ -646,9 +816,28 @@ export default function MapScreen() {
       {bottomSheet === "insights" && (
         <View style={styles.bottomSheet}>
           <View style={styles.infoSheetHandle} />
-          <Text style={styles.bsTitle}>⚓ Live Zone Insights</Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: SPACING.md,
+            }}
+          >
+            <Ionicons
+              name="analytics-outline"
+              size={20}
+              color={COLORS.primaryLight}
+            />
+            <Text style={styles.bsTitle}>Live Zone Insights</Text>
+          </View>
           <View style={styles.noAlertsBox}>
-            <Text style={styles.noAlertsEmoji}>📊</Text>
+            <Ionicons
+              name="bar-chart-outline"
+              size={36}
+              color={COLORS.textMuted}
+              style={{ marginBottom: SPACING.sm }}
+            />
             <Text style={styles.noAlertsText}>
               Zone insight data is not available. Connect to the backend API to
               see live fishing zone analytics.
@@ -664,12 +853,27 @@ export default function MapScreen() {
       {bottomSheet === "alerts" && (
         <View style={styles.bottomSheet}>
           <View style={styles.infoSheetHandle} />
-          <Text style={styles.bsTitle}>🚨 Live Alerts ({alerts.length})</Text>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              marginBottom: SPACING.md,
+            }}
+          >
+            <Ionicons name="warning-outline" size={20} color={COLORS.error} />
+            <Text style={styles.bsTitle}>Live Alerts ({alerts.length})</Text>
+          </View>
           {alertsLoading ? (
             <ActivityIndicator size="small" color={COLORS.primaryLight} />
           ) : alerts.length === 0 ? (
             <View style={styles.noAlertsBox}>
-              <Text style={styles.noAlertsEmoji}>✅</Text>
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={36}
+                color={COLORS.success}
+                style={{ marginBottom: SPACING.sm }}
+              />
               <Text style={styles.noAlertsText}>
                 All clear! No active weather alerts for Indian coastal waters.
               </Text>
@@ -694,9 +898,15 @@ export default function MapScreen() {
                       gap: 8,
                     }}
                   >
-                    <Text style={{ fontSize: 20 }}>
-                      {getAlertIcon(alert.type)}
-                    </Text>
+                    <Ionicons
+                      name={
+                        getAlertIcon(alert.type) as React.ComponentProps<
+                          typeof Ionicons
+                        >["name"]
+                      }
+                      size={20}
+                      color={getSeverityColor(alert.severity)}
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.alertCardTitle}>{alert.title}</Text>
                       <Text style={styles.alertCardDesc}>
@@ -732,7 +942,7 @@ export default function MapScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Filter by Species</Text>
-            {["All Species", ...FISH_SPECIES].map((species) => (
+            {FISH_SPECIES.map((species) => (
               <TouchableOpacity
                 key={species}
                 style={[
@@ -754,7 +964,11 @@ export default function MapScreen() {
                   {species}
                 </Text>
                 {filterSpecies === species && (
-                  <Text style={{ color: COLORS.primaryLight }}>✓</Text>
+                  <Ionicons
+                    name="checkmark"
+                    size={16}
+                    color={COLORS.primaryLight}
+                  />
                 )}
               </TouchableOpacity>
             ))}
@@ -784,7 +998,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgCard,
     borderWidth: 1,
   },
-  alertIcon: { fontSize: 22 },
+
   alertTitle: {
     fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.bold,
@@ -873,6 +1087,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
+  quickBtnInner: { flexDirection: "row", alignItems: "center", gap: 3 },
   quickBtnText: {
     fontSize: 11,
     color: COLORS.textSecondary,
@@ -912,7 +1127,6 @@ const styles = StyleSheet.create({
     borderColor: "#fff",
     elevation: 4,
   },
-  markerEmoji: { fontSize: 16 },
 
   // Recommended zone
   recZone: {
@@ -1024,7 +1238,7 @@ const styles = StyleSheet.create({
     minWidth: 75,
     alignItems: "center",
   },
-  weatherIcon: { fontSize: 18, marginBottom: SPACING.xs },
+
   weatherLabel: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textMuted,
@@ -1062,7 +1276,7 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     borderWidth: 1,
   },
-  toolEmoji: { fontSize: 20, marginBottom: 4 },
+
   toolLabel: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
   toolValue: {
     fontSize: FONTS.sizes.sm,
@@ -1140,7 +1354,7 @@ const styles = StyleSheet.create({
 
   // Alerts
   noAlertsBox: { alignItems: "center", padding: SPACING.xl },
-  noAlertsEmoji: { fontSize: 40, marginBottom: SPACING.md },
+
   noAlertsText: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,

@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { getAnalytics, getImages } from "../../lib/api-client";
 import type { AnalyticsResponse, ImageRecord } from "../../lib/api-client";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
@@ -73,7 +74,12 @@ export default function AnalyticsScreen() {
           <View
             style={{ alignItems: "center", paddingVertical: SPACING["3xl"] }}
           >
-            <Text style={{ fontSize: 48, marginBottom: SPACING.md }}>📊</Text>
+            <Ionicons
+              name="bar-chart"
+              size={48}
+              color={COLORS.textMuted}
+              style={{ marginBottom: SPACING.md }}
+            />
             <Text
               style={{
                 fontSize: FONTS.sizes.lg,
@@ -100,7 +106,7 @@ export default function AnalyticsScreen() {
           </View>
 
           {/* Still show catch history if we have images */}
-          {images.length > 0 && (
+          {images && images.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>{t("upload.title")}</Text>
               {images.slice(0, 5).map((img) => (
@@ -111,7 +117,11 @@ export default function AnalyticsScreen() {
                 >
                   <View style={styles.catchRow}>
                     <View style={styles.catchLeft}>
-                      <Text style={styles.catchEmoji}>🐟</Text>
+                      <Ionicons
+                        name="fish-outline"
+                        size={22}
+                        color={COLORS.primaryLight}
+                      />
                       <View>
                         <Text style={styles.catchSpecies}>
                           {img.status === "failed"
@@ -216,28 +226,38 @@ export default function AnalyticsScreen() {
           <StatCard
             label={t("home.statEarnings")}
             value={`₹${analytics ? (analytics.totalEarnings / 1000).toFixed(1) + "K" : "—"}`}
-            icon={<Text style={{ fontSize: 20 }}>💰</Text>}
+            icon={
+              <Ionicons
+                name="cash-outline"
+                size={20}
+                color={COLORS.secondary}
+              />
+            }
             accentColor={COLORS.secondary}
             style={styles.statCard}
           />
           <StatCard
             label={t("home.statCatches")}
             value={`${analytics?.totalCatches ?? "—"}`}
-            icon={<Text style={{ fontSize: 20 }}>🐟</Text>}
+            icon={
+              <Ionicons name="fish-outline" size={20} color={COLORS.primary} />
+            }
             accentColor={COLORS.primary}
             style={styles.statCard}
           />
           <StatCard
             label={t("map.weight")}
             value={`${analytics ? analytics.avgWeight.toFixed(0) : "—"}g`}
-            icon={<Text style={{ fontSize: 20 }}>⚖️</Text>}
+            icon={
+              <Ionicons name="scale-outline" size={20} color={COLORS.accent} />
+            }
             accentColor={COLORS.accent}
             style={styles.statCard}
           />
           <StatCard
             label={t("home.insightSpecies")}
             value={analytics?.topSpecies?.split(" ")[0] ?? "—"}
-            icon={<Text style={{ fontSize: 20 }}>🏆</Text>}
+            icon={<Ionicons name="trophy-outline" size={20} color="#7c3aed" />}
             accentColor="#7c3aed"
             style={styles.statCard}
           />
@@ -333,7 +353,7 @@ export default function AnalyticsScreen() {
 
         {/* Catch History */}
         <Text style={styles.sectionTitle}>{t("upload.title")}</Text>
-        {images.slice(0, 5).map((img) => (
+        {images && images.length > 0 && images.slice(0, 5).map((img) => (
           <Card
             key={img.imageId}
             padding={SPACING.base}
@@ -341,7 +361,11 @@ export default function AnalyticsScreen() {
           >
             <View style={styles.catchRow}>
               <View style={styles.catchLeft}>
-                <Text style={styles.catchEmoji}>🐟</Text>
+                <Ionicons
+                  name="fish-outline"
+                  size={22}
+                  color={COLORS.primaryLight}
+                />
                 <View>
                   <Text style={styles.catchSpecies}>
                     {img.status === "failed"
@@ -562,7 +586,7 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   insightBorder: { borderTopWidth: 1, borderTopColor: COLORS.border },
-  insightEmoji: { fontSize: 18 },
+
   insightText: {
     flex: 1,
     fontSize: FONTS.sizes.sm,
@@ -578,7 +602,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   catchLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.md },
-  catchEmoji: { fontSize: 22 },
+
   catchSpecies: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,

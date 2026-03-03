@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
@@ -7,7 +7,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../lib/auth-context';
 import { LanguageProvider, useLanguage } from '../lib/i18n';
 import { NetworkProvider } from '../lib/network-context';
+import { ToastProvider } from '../components/providers/ToastProvider';
 import { COLORS } from '../lib/constants';
+import { runStartupChecks } from '../lib/startup-check';
 
 function RootLayoutNav() {
     const { user, isLoading } = useAuth();
@@ -54,6 +56,45 @@ const customDarkTheme = {
 };
 
 export default function RootLayout() {
+    const [diagnosticsComplete, setDiagnosticsComplete] = useState(!__DEV__);
+
+    useEffect(() => {
+        // Initialize sync service
+        import('../lib/sync-service').then(({ SyncService }) => {
+            SyncService.initialize();
+        });
+
+        // Initialize deep linking
+        import('../lib/deep-link-service').then(({ DeepLinkService }) => {
+            DeepLinkService.initialize();
+        });
+
+        // Run startup diagnostics in development mode
+        if (__DEV__) {
+            runStartupChecks()
+                .then((results) => {
+                    if (!results.ok) {
+                        console.warn('⚠️  Startup diagnostics found issues. Check the logs above.');
+                    }
+                })
+                .catch((err) => {
+                    console.error('❌ Startup diagnostics failed:', err);
+                })
+                .finally(() => {
+                    setDiagnosticsComplete(true);
+                });
+        }
+    }, []);
+
+    // Show loading screen while diagnostics are running (dev mode only)
+    if (!diagnosticsComplete) {
+        return (
+            <View style={styles.loading}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+            </View>
+        );
+    }
+
     return (
         <GestureHandlerRootView style={styles.root}>
             <ThemeProvider value={customDarkTheme}>
@@ -61,8 +102,10 @@ export default function RootLayout() {
                     <NetworkProvider>
                         <LanguageProvider>
                             <AuthProvider>
-                                <StatusBar style="light" backgroundColor={COLORS.bgDark} />
-                                <RootLayoutNav />
+                                <ToastProvider>
+                                    <StatusBar style="light" backgroundColor={COLORS.bgDark} />
+                                    <RootLayoutNav />
+                                </ToastProvider>
                             </AuthProvider>
                         </LanguageProvider>
                     </NetworkProvider>

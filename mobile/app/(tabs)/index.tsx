@@ -5,8 +5,8 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ImageBackground,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
 import { useAuth } from "../../lib/auth-context";
@@ -24,28 +24,28 @@ export default function HomeScreen() {
 
   const FEATURES = [
     {
-      emoji: "📷",
+      icon: "camera" as const,
       title: t("nav.upload"),
       desc: t("home.toolUploadDesc"),
       route: "/upload",
       color: COLORS.primary,
     },
     {
-      emoji: "🗺️",
+      icon: "map" as const,
       title: t("nav.oceanMap"),
       desc: t("home.toolMapDesc"),
       route: "/map",
       color: COLORS.secondary,
     },
     {
-      emoji: "💬",
+      icon: "chatbubbles" as const,
       title: t("nav.assistant"),
       desc: t("home.toolChatDesc"),
       route: "/chat",
       color: COLORS.accent,
     },
     {
-      emoji: "📊",
+      icon: "bar-chart" as const,
       title: t("nav.analytics"),
       desc: t("home.toolAnalyticsDesc"),
       route: "/analytics",
@@ -79,7 +79,7 @@ export default function HomeScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>{greeting} 👋</Text>
+            <Text style={styles.greeting}>Good {greeting}</Text>
             <Text style={styles.userName}>{user?.name ?? "Fisherman"}</Text>
           </View>
           <View style={styles.avatar}>
@@ -93,7 +93,13 @@ export default function HomeScreen() {
         <View style={styles.heroBanner}>
           <View style={styles.heroContent}>
             <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>🏆 AWS AI for Bharat</Text>
+              <Ionicons
+                name="trophy"
+                size={12}
+                color="rgba(255,255,255,0.9)"
+                style={{ marginRight: 4 }}
+              />
+              <Text style={styles.heroBadgeText}>AWS AI for Bharat</Text>
             </View>
             <Text style={styles.heroTitle}>{t("home.heroTitle")}</Text>
             <Text style={styles.heroSubtitle}>{t("home.heroSubtitle")}</Text>
@@ -120,28 +126,28 @@ export default function HomeScreen() {
                 ? `₹${(analytics.totalEarnings / 1000).toFixed(0)}K`
                 : "—"
             }
-            icon={<Text style={{ fontSize: 20 }}>💰</Text>}
+            icon={<Ionicons name="cash" size={20} color={COLORS.secondary} />}
             accentColor={COLORS.secondary}
             style={styles.statCard}
           />
           <StatCard
             label={t("home.statCatches")}
             value={analytics ? `${analytics.totalCatches}` : "—"}
-            icon={<Text style={{ fontSize: 20 }}>🐟</Text>}
+            icon={<Ionicons name="fish" size={20} color={COLORS.primary} />}
             accentColor={COLORS.primary}
             style={styles.statCard}
           />
           <StatCard
             label={t("home.statZones")}
             value="12"
-            icon={<Text style={{ fontSize: 20 }}>⚓</Text>}
+            icon={<Ionicons name="boat" size={20} color={COLORS.accent} />}
             accentColor={COLORS.accent}
             style={styles.statCard}
           />
           <StatCard
             label={t("home.statEco")}
             value="88/100"
-            icon={<Text style={{ fontSize: 20 }}>🌊</Text>}
+            icon={<Ionicons name="leaf" size={20} color="#06b6d4" />}
             accentColor="#06b6d4"
             style={styles.statCard}
           />
@@ -163,11 +169,16 @@ export default function HomeScreen() {
                   { backgroundColor: f.color + "20" },
                 ]}
               >
-                <Text style={{ fontSize: 26 }}>{f.emoji}</Text>
+                <Ionicons name={f.icon} size={26} color={f.color} />
               </View>
               <Text style={styles.featureTitle}>{f.title}</Text>
               <Text style={styles.featureDesc}>{f.desc}</Text>
-              <Text style={[styles.featureArrow, { color: f.color }]}>→</Text>
+              <Ionicons
+                name="arrow-forward"
+                size={16}
+                color={f.color}
+                style={{ marginTop: SPACING.xs }}
+              />
             </TouchableOpacity>
           ))}
         </View>
@@ -177,31 +188,36 @@ export default function HomeScreen() {
         <Card style={styles.insightCard} padding={SPACING.lg}>
           {[
             {
+              icon: "time-outline" as const,
               label: t("home.insightTime"),
               value: "5:00–8:00 AM",
-              emoji: "⏰",
             },
             {
+              icon: "fish-outline" as const,
               label: t("home.insightSpecies"),
               value: analytics?.topSpecies ?? "Indian Pomfret",
-              emoji: "🐠",
             },
             {
+              icon: "leaf-outline" as const,
               label: t("home.insightSustainability"),
               value: "88/100",
-              emoji: "♻️",
             },
             {
+              icon: "trending-up-outline" as const,
               label: t("home.insightMarket"),
               value: "Pomfret ↑12%",
-              emoji: "📈",
             },
           ].map((item, i) => (
             <View
               key={item.label}
               style={[styles.insightRow, i > 0 && styles.insightRowBorder]}
             >
-              <Text style={styles.insightEmoji}>{item.emoji}</Text>
+              <Ionicons
+                name={item.icon}
+                size={18}
+                color={COLORS.primaryLight}
+                style={{ marginRight: SPACING.md }}
+              />
               <Text style={styles.insightLabel}>{item.label}</Text>
               <Text style={styles.insightValue}>{item.value}</Text>
             </View>
@@ -265,6 +281,8 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs,
     alignSelf: "flex-start",
     marginBottom: SPACING.sm,
+    flexDirection: "row",
+    alignItems: "center",
   },
   heroBadgeText: {
     color: "rgba(255,255,255,0.9)",

@@ -11,19 +11,23 @@ import {
   ScrollView,
   ActivityIndicator,
   Keyboard,
+  Modal,
+  Animated,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { sendChat, getChatHistory } from "../../lib/api-client";
-import type { ChatMessage } from "../../lib/types";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { useAuth } from "../../lib/auth-context";
 import { useLanguage } from "../../lib/i18n";
 import { useNetwork } from "../../lib/network-context";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import * as Speech from "expo-speech";
-import { Audio } from 'expo-av';
-import { synthesizeSpeech } from '../../lib/api-client';
+import { Audio } from "expo-av";
+import { synthesizeSpeech } from "../../lib/api-client";
+import Markdown from "react-native-markdown-display";
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 interface UIMessage {
   id: string;
@@ -37,6 +41,7 @@ export default function ChatScreen() {
   const { t, locale, speechCode, isLoaded } = useLanguage();
   const { effectiveMode, connectionQuality } = useNetwork();
   const params = useLocalSearchParams();
+  const navigation = useNavigation();
 
   const QUICK_ACTIONS = [
     t("chat.actionFishToday"),
@@ -61,14 +66,33 @@ export default function ChatScreen() {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [chats, setChats] = useState<{ id: string; title: string }[]>([]);
   const [showSidebar, setShowSidebar] = useState(false);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
 
   const flatListRef = useRef<FlatList>(null);
   const initialMessageSent = useRef(false);
+  const sidebarAnim = useRef(new Animated.Value(-SCREEN_WIDTH * 0.75)).current;
+
+  // Reset initial message flag when component unmounts or chat changes
+  useEffect(() => {
+    return () => {
+      initialMessageSent.current = false;
+    };
+  }, [currentChatId]);
+
+  useEffect(() => {
+    // Reset to new chat when tab is focused
+    const unsubscribe = navigation.addListener("focus", () => {
+      if (!params.initialMessage) {
+        createNewChat();
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   useEffect(() => {
     if (params.initialMessage && !initialMessageSent.current) {
       initialMessageSent.current = true;
-      // Create a new chat context and send the initial message
       setCurrentChatId(null);
       setMessages([]);
       setTimeout(() => {
@@ -78,7 +102,6 @@ export default function ChatScreen() {
   }, [params]);
 
   useEffect(() => {
-    // Load past chats on mount
     import("../../lib/api-client").then((m) => {
       m.getConversationsList()
         .then((res) => {
@@ -91,79 +114,86 @@ export default function ChatScreen() {
     });
   }, []);
 
-    const [sound, setSound] = useState<Audio.Sound | null>(null);
+  useEffect(() => {
+    Animated.timing(sidebarAnim, {
+      toValue: showSidebar ? 0 : -SCREEN_WIDTH * 0.75,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  }, [showSidebar]);
 
-    const speakMessage = async (text: string) => {
-        if (isSpeaking) {
-            if (sound) {
-                await sound.stopAsync();
-                await sound.unloadAsync();
-                setSound(null);
-            }
+  const speakMessage = async (text: string) => {
+    if (isSpeaking) {
+      if (sound) {
+        await sound.stopAsync();
+        await sound.unloadAsync();
+        setSound(null);
+      }
+      setIsSpeaking(false);
+      return;
+    }
+
+    setIsSpeaking(true);
+    try {
+      const res = await synthesizeSpeech(text, speechCode || "en-IN");
+      if (res.audioBase64) {
+        await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+        const { sound: newSound } = await Audio.Sound.createAsync(
+          { uri: `data:audio/mp3;base64,${res.audioBase64}` },
+          { shouldPlay: true },
+        );
+        setSound(newSound);
+        newSound.setOnPlaybackStatusUpdate((status: any) => {
+          if (status.isLoaded && status.didJustFinish) {
             setIsSpeaking(false);
-            return;
-        }
-
-        setIsSpeaking(true);
-        try {
-            const res = await synthesizeSpeech(text, speechCode || "en-IN");
-            if (res.audioBase64) {
-                // Ensure audio plays even if silent switch is on (iOS)
-                await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
-
-                const { sound: newSound } = await Audio.Sound.createAsync(
-                    { uri: `data:audio/mp3;base64,${res.audioBase64}` },
-                    { shouldPlay: true }
-                );
-                setSound(newSound);
-
-                newSound.setOnPlaybackStatusUpdate((status: any) => {
-                    if (status.isLoaded && status.didJustFinish) {
-                        setIsSpeaking(false);
-                        newSound.unloadAsync();
-                        setSound(null);
-                    }
-                });
-            } else {
-                setIsSpeaking(false);
-            }
-        } catch (error) {
-            console.warn("TTS Error:", error);
-            setIsSpeaking(false);
-        }
-    };
-
-    useEffect(() => {
-        return sound
-            ? () => {
-                sound.unloadAsync();
-            }
-            : undefined;
-    }, [sound]);
-
-    const loadChat = async (chatId: string) => {
-        setCurrentChatId(chatId);
-        setShowSidebar(false);
-        setMessages([]);
-        setIsTyping(true);
-        if (sound) {
-            sound.unloadAsync();
+            newSound.unloadAsync();
             setSound(null);
-        }
+          }
+        });
+      } else {
         setIsSpeaking(false);
-        try {
-            const { getChatHistory } = await import('../../lib/api-client');
-            const history = await getChatHistory(50, chatId);
-            const formatted = history.map(msg => ({
-                id: msg.id,
-                role: msg.role as 'user' | 'assistant',
-                text: msg.text,
-                timestamp: new Date(msg.timestamp)
-            }));
-            setMessages(formatted.length > 0 ? formatted : [{
-                id: 'welcome',
-                role: 'assistant',
-                text: t('chat.welcome'),
+      }
+    } catch (error) {
+      console.warn("TTS Error:", error);
+      setIsSpeaking(false);
+    }
+  };
+
+  useEffect(() => {
+    return sound
+      ? () => {
+          sound.unloadAsync();
+        }
+      : undefined;
+  }, [sound]);
+
+  const loadChat = async (chatId: string) => {
+    setCurrentChatId(chatId);
+    setShowSidebar(false);
+    setMessages([]);
+    setIsTyping(true);
+    if (sound) {
+      sound.unloadAsync();
+      setSound(null);
+    }
+    setIsSpeaking(false);
+    try {
+      const { getChatHistory } = await import("../../lib/api-client");
+      const history = await getChatHistory(50, chatId);
+      const formatted = history.map((msg) => ({
+        id: msg.id,
+        role: msg.role as "user" | "assistant",
+        text: msg.text,
+        timestamp: new Date(msg.timestamp),
+      }));
+      setMessages(
+        formatted.length > 0
+          ? formatted
+          : [
+              {
+                id: "welcome",
+                role: "assistant",
+                text: t("chat.welcome"),
                 timestamp: new Date(),
               },
             ],
@@ -196,7 +226,6 @@ export default function ChatScreen() {
 
     Speech.stop();
     setIsSpeaking(false);
-
     setInputText("");
     Keyboard.dismiss();
 
@@ -248,8 +277,6 @@ export default function ChatScreen() {
         timestamp: new Date(res.timestamp),
       };
       setMessages((prev) => [...prev, botMsg]);
-
-      // Optional auto speech: speakMessage(res.response); // Removing auto-TTS for noise control, user can click to play
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -275,15 +302,23 @@ export default function ChatScreen() {
       <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
         {!isUser && (
           <View style={styles.avatar}>
-            <Text style={styles.avatarEmoji}>🤖</Text>
+            <Ionicons
+              name="hardware-chip-outline"
+              size={18}
+              color={COLORS.primaryLight}
+            />
           </View>
         )}
         <View
           style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleBot]}
         >
-          <Text style={[styles.bubbleText, isUser && styles.bubbleTextUser]}>
-            {item.text}
-          </Text>
+          {isUser ? (
+            <Text style={[styles.bubbleText, styles.bubbleTextUser]}>
+              {item.text}
+            </Text>
+          ) : (
+            <Markdown style={markdownStyles}>{item.text}</Markdown>
+          )}
           <View style={styles.bubbleFooter}>
             {!isUser && (
               <TouchableOpacity
@@ -320,7 +355,6 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Offline Overlay */}
       {effectiveMode === "offline" && (
         <View style={styles.offlineOverlay}>
           <View style={styles.offlineCard}>
@@ -340,22 +374,101 @@ export default function ChatScreen() {
             </Text>
             <Text style={styles.offlineText}>
               {connectionQuality === "poor"
-                ? "AI Assistant requires a stable internet connection. Your connection is too slow for a good experience."
+                ? "AI Assistant requires a stable internet connection."
                 : "AI Assistant requires an active internet connection to function."}
             </Text>
           </View>
         </View>
       )}
 
+      {/* Sidebar Modal */}
+      <Modal
+        visible={showSidebar}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowSidebar(false)}
+      >
+        <TouchableOpacity
+          style={styles.sidebarOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSidebar(false)}
+        >
+          <Animated.View
+            style={[
+              styles.sidebar,
+              { transform: [{ translateX: sidebarAnim }] },
+            ]}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.sidebarHeader}>
+              <Text style={styles.sidebarTitle}>Chat History</Text>
+              <TouchableOpacity onPress={() => setShowSidebar(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.newChatBtn} onPress={createNewChat}>
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text style={styles.newChatText}>New Chat</Text>
+            </TouchableOpacity>
+
+            <ScrollView
+              style={styles.chatListScroll}
+              showsVerticalScrollIndicator={false}
+            >
+              {chats.map((chat) => (
+                <TouchableOpacity
+                  key={chat.id}
+                  style={[
+                    styles.chatListItem,
+                    currentChatId === chat.id && styles.chatListItemActive,
+                  ]}
+                  onPress={() => loadChat(chat.id)}
+                >
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={18}
+                    color={
+                      currentChatId === chat.id
+                        ? COLORS.primaryLight
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.chatListText,
+                      currentChatId === chat.id && styles.chatListTextActive,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {chat.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Animated.View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerEmoji}>🤖</Text>
+        <TouchableOpacity
+          onPress={() => setShowSidebar(true)}
+          style={styles.menuBtn}
+        >
+          <Ionicons name="menu" size={28} color={COLORS.textPrimary} />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Ionicons
+            name="hardware-chip-outline"
+            size={24}
+            color={COLORS.primaryLight}
+          />
           <View>
             <Text style={styles.headerTitle}>
               {currentChatId
                 ? chats.find((c) => c.id === currentChatId)?.title ||
-                  t("chat.title")
+                  "OceanAI Assistant"
                 : "New Chat"}
             </Text>
             <View style={styles.onlineRow}>
@@ -364,51 +477,8 @@ export default function ChatScreen() {
             </View>
           </View>
         </View>
-        <TouchableOpacity onPress={() => setShowSidebar(!showSidebar)}>
-          <Ionicons name="menu" size={28} color={COLORS.textPrimary} />
-        </TouchableOpacity>
+        <View style={{ width: 28 }} />
       </View>
-
-      {/* Chats Drawer Modal inline */}
-      {showSidebar && (
-        <View style={styles.sidebar}>
-          <TouchableOpacity style={styles.newChatBtn} onPress={createNewChat}>
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.newChatText}>New Chat</Text>
-          </TouchableOpacity>
-          <ScrollView style={styles.chatListScroll}>
-            {chats.map((chat) => (
-              <TouchableOpacity
-                key={chat.id}
-                style={[
-                  styles.chatListItem,
-                  currentChatId === chat.id && styles.chatListItemActive,
-                ]}
-                onPress={() => loadChat(chat.id)}
-              >
-                <Ionicons
-                  name="chatbubble-outline"
-                  size={16}
-                  color={
-                    currentChatId === chat.id
-                      ? COLORS.primary
-                      : COLORS.textMuted
-                  }
-                />
-                <Text
-                  style={[
-                    styles.chatListText,
-                    currentChatId === chat.id && styles.chatListTextActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {chat.title}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -432,51 +502,51 @@ export default function ChatScreen() {
         {isTyping && (
           <View style={styles.typingRow}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarEmoji}>🤖</Text>
+              <Ionicons
+                name="hardware-chip-outline"
+                size={18}
+                color={COLORS.primaryLight}
+              />
             </View>
             <View style={styles.typingBubble}>
-              <ActivityIndicator size="small" color={COLORS.textMuted} />
+              <ActivityIndicator size="small" color={COLORS.primaryLight} />
               <Text style={styles.typingText}>{t("chat.typing")}</Text>
             </View>
           </View>
         )}
 
         {/* Quick Actions */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.quickActionsScroll}
-          style={styles.quickActionsContainer}
-          keyboardShouldPersistTaps="always"
-        >
-          {QUICK_ACTIONS.map((action) => (
-            <TouchableOpacity
-              key={action}
-              style={styles.quickActionChip}
-              onPress={() => sendMessage(action)}
-              activeOpacity={0.75}
-              disabled={isTyping}
+        {messages.length <= 1 && (
+          <View style={styles.quickActionsWrapper}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.quickActionsScroll}
+              keyboardShouldPersistTaps="always"
             >
-              <Text style={styles.quickActionText}>{action}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              {QUICK_ACTIONS.map((action) => (
+                <TouchableOpacity
+                  key={action}
+                  style={styles.quickActionChip}
+                  onPress={() => sendMessage(action)}
+                  activeOpacity={0.7}
+                  disabled={isTyping}
+                >
+                  <Ionicons
+                    name="sparkles"
+                    size={14}
+                    color={COLORS.primaryLight}
+                    style={styles.quickActionIcon}
+                  />
+                  <Text style={styles.quickActionText}>{action}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Input Bar */}
         <View style={styles.inputBar}>
-          <TouchableOpacity
-            style={styles.micBtnOuter}
-            activeOpacity={0.8}
-            onPress={() =>
-              alert(
-                t("chat.micHint") ||
-                  "Use your keyboard's microphone for voice typing.",
-              )
-            }
-          >
-            <Ionicons name="mic" size={24} color={COLORS.primaryLight} />
-          </TouchableOpacity>
-
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.textInput}
@@ -485,7 +555,7 @@ export default function ChatScreen() {
               placeholder={t("chat.placeholder")}
               placeholderTextColor={COLORS.textSubtle}
               multiline
-              maxLength={500}
+              maxLength={1000}
               returnKeyType="send"
               onSubmitEditing={() => sendMessage(inputText)}
             />
@@ -498,12 +568,7 @@ export default function ChatScreen() {
               disabled={!inputText.trim() || isTyping}
               activeOpacity={0.8}
             >
-              <Ionicons
-                name="send"
-                size={18}
-                color="#fff"
-                style={{ marginLeft: 2 }}
-              />
+              <Ionicons name="send" size={20} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
@@ -511,6 +576,118 @@ export default function ChatScreen() {
     </SafeAreaView>
   );
 }
+
+const markdownStyles = StyleSheet.create({
+  body: {
+    color: COLORS.textSecondary,
+    fontSize: FONTS.sizes.sm,
+    lineHeight: 22,
+  },
+  heading1: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.xl,
+    fontWeight: FONTS.weights.bold as any,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  heading2: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.bold as any,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
+  },
+  heading3: {
+    color: COLORS.textPrimary,
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.semibold as any,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xs,
+  },
+  paragraph: {
+    marginTop: 0,
+    marginBottom: SPACING.sm,
+  },
+  strong: {
+    fontWeight: FONTS.weights.bold as any,
+    color: COLORS.textPrimary,
+  },
+  em: {
+    fontStyle: "italic" as const,
+  },
+  code_inline: {
+    backgroundColor: COLORS.bgDark,
+    color: COLORS.primaryLight,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    fontFamily: "monospace",
+    fontSize: FONTS.sizes.xs,
+  },
+  code_block: {
+    backgroundColor: COLORS.bgDark,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.md,
+    marginVertical: SPACING.xs,
+    fontFamily: "monospace",
+    fontSize: FONTS.sizes.xs,
+  },
+  fence: {
+    backgroundColor: COLORS.bgDark,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.md,
+    marginVertical: SPACING.xs,
+    fontFamily: "monospace",
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textSecondary,
+  },
+  bullet_list: {
+    marginVertical: SPACING.xs,
+  },
+  ordered_list: {
+    marginVertical: SPACING.xs,
+  },
+  list_item: {
+    marginVertical: 2,
+  },
+  blockquote: {
+    backgroundColor: COLORS.bgDark,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.primaryLight,
+    paddingLeft: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    marginVertical: SPACING.xs,
+  },
+  link: {
+    color: COLORS.primaryLight,
+    textDecorationLine: "underline" as const,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: RADIUS.sm,
+    marginVertical: SPACING.sm,
+  },
+  thead: {
+    backgroundColor: COLORS.bgDark,
+  },
+  th: {
+    padding: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    fontWeight: FONTS.weights.bold as any,
+  },
+  td: {
+    padding: SPACING.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  hr: {
+    backgroundColor: COLORS.border,
+    height: 1,
+    marginVertical: SPACING.md,
+  },
+});
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
@@ -520,54 +697,77 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: SPACING.xl,
-    paddingBottom: SPACING.md,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.bgCard,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: SPACING.md },
-  headerEmoji: { fontSize: 32 },
+  menuBtn: {
+    padding: SPACING.xs,
+  },
+  headerCenter: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    marginLeft: SPACING.sm,
+  },
   headerTitle: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
   onlineRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: SPACING.xs,
+    gap: 4,
     marginTop: 2,
   },
   onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: COLORS.success,
   },
   onlineText: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },
 
   messageList: {
-    padding: SPACING.base,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
     paddingBottom: SPACING.sm,
-    gap: SPACING.md,
   },
 
-  messageRow: { flexDirection: "row", alignItems: "flex-end", gap: SPACING.sm },
+  messageRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
+    paddingHorizontal: SPACING.xs,
+  },
   messageRowUser: { flexDirection: "row-reverse" },
 
   avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: COLORS.bgCard,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    marginTop: 4,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  avatarUser: { backgroundColor: COLORS.primary },
-  avatarEmoji: { fontSize: 16 },
+  avatarUser: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primaryLight,
+  },
   avatarText: {
     fontSize: FONTS.sizes.sm,
     color: "#fff",
@@ -575,10 +775,14 @@ const styles = StyleSheet.create({
   },
 
   bubble: {
-    maxWidth: "75%",
-    borderRadius: RADIUS.xl,
+    flex: 1,
+    borderRadius: RADIUS["2xl"],
     padding: SPACING.md,
-    gap: SPACING.xs,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   bubbleBot: {
     backgroundColor: COLORS.bgCard,
@@ -600,153 +804,208 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "flex-end",
     alignItems: "center",
-    marginTop: 4,
-    gap: SPACING.md,
+    marginTop: SPACING.xs,
+    gap: SPACING.sm,
   },
   bubbleTime: { fontSize: FONTS.sizes.xs, color: COLORS.textSubtle },
-  bubbleTimeUser: { color: "rgba(255,255,255,0.6)" },
+  bubbleTimeUser: { color: "rgba(255,255,255,0.7)" },
   ttsBtn: { padding: 2 },
 
   typingRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: SPACING.sm,
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
   },
   typingBubble: {
     flexDirection: "row",
     alignItems: "center",
     gap: SPACING.sm,
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
-    padding: SPACING.md,
+    borderRadius: RADIUS["2xl"],
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   typingText: {
     color: COLORS.textMuted,
     fontSize: FONTS.sizes.sm,
-    fontStyle: "italic",
   },
 
-  quickActionsContainer: {
-    maxHeight: 50,
+  quickActionsWrapper: {
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
+    backgroundColor: COLORS.bgCard,
+    paddingVertical: SPACING.md,
   },
   quickActionsScroll: {
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
     gap: SPACING.sm,
-    alignItems: "center",
   },
   quickActionChip: {
-    backgroundColor: COLORS.bgCard,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.primary + "15",
     borderRadius: RADIUS.full,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary + "40",
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-    flexShrink: 0,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.xs,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  quickActionIcon: {
+    marginRight: 2,
   },
   quickActionText: {
-    color: COLORS.textSecondary,
+    color: COLORS.primaryLight,
     fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.medium,
+    fontWeight: FONTS.weights.semibold,
   },
 
   inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
     padding: SPACING.md,
-    paddingBottom: Math.max(SPACING.base, 20), // Extra padding for safe area since keyboard might cut it close
-    gap: SPACING.sm,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    backgroundColor: COLORS.bgDark,
-  },
-  micBtnOuter: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.primary + "15",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: COLORS.primary + "30",
-    marginBottom: 2, // Align with input
+    backgroundColor: COLORS.bgCard,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
   },
   inputWrapper: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "flex-end",
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
-    borderWidth: 1,
+    backgroundColor: COLORS.bgDark,
+    borderRadius: RADIUS["2xl"],
+    borderWidth: 1.5,
     borderColor: COLORS.border,
     paddingLeft: SPACING.base,
     paddingRight: SPACING.xs,
-    paddingVertical: 4,
+    paddingVertical: SPACING.xs,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   textInput: {
     flex: 1,
     paddingVertical: SPACING.sm,
+    paddingRight: SPACING.sm,
     color: COLORS.textPrimary,
-    fontSize: FONTS.sizes.sm,
-    maxHeight: 100,
-    minHeight: 36, // Ensure consistent height with the send button
+    fontSize: FONTS.sizes.base,
+    maxHeight: 120,
+    minHeight: 40,
   },
   sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 2, // Ensure it stays aligned with the bottom of the input
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  sendBtnDisabled: { backgroundColor: COLORS.border },
+  sendBtnDisabled: { backgroundColor: COLORS.border, opacity: 0.5 },
 
+  sidebarOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
   sidebar: {
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: SCREEN_WIDTH * 0.75,
     backgroundColor: COLORS.bgDark,
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+    paddingTop: SPACING.xl,
+    shadowColor: "#000",
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  sidebarHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: SPACING.base,
+    paddingBottom: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
-    padding: SPACING.md,
-    maxHeight: 250,
+  },
+  sidebarTitle: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
   },
   newChatBtn: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.primary,
-    padding: SPACING.sm,
-    borderRadius: RADIUS.md,
+    marginHorizontal: SPACING.base,
+    marginVertical: SPACING.md,
+    padding: SPACING.md,
+    borderRadius: RADIUS.xl,
     gap: SPACING.sm,
     justifyContent: "center",
-    marginBottom: SPACING.sm,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
   newChatText: {
     color: "#fff",
-    fontSize: FONTS.sizes.sm,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold,
   },
-  chatListScroll: { flexGrow: 1 },
+  chatListScroll: {
+    flex: 1,
+    paddingHorizontal: SPACING.base,
+  },
   chatListItem: {
     flexDirection: "row",
-    alignItems: "center",
-    padding: SPACING.sm,
+    alignItems: "flex-start",
+    padding: SPACING.md,
     gap: SPACING.sm,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.xs,
   },
-  chatListItemActive: { backgroundColor: COLORS.bgCard },
+  chatListItemActive: {
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryLight,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   chatListText: {
     color: COLORS.textSecondary,
     fontSize: FONTS.sizes.sm,
     flex: 1,
+    lineHeight: 20,
   },
   chatListTextActive: {
     color: COLORS.primaryLight,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
   },
 
   offlineOverlay: {

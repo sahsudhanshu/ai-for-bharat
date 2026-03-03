@@ -62,6 +62,7 @@ export default function TabsLayout() {
                 }}
             />
             <Tabs.Screen name="map" options={{ title: t('nav.oceanMap'), tabBarIcon: icon('map-outline', 'map') }} />
+            <Tabs.Screen name="history" options={{ title: 'History', tabBarIcon: icon('time-outline', 'time') }} />
             <Tabs.Screen name="settings" options={{ title: t('nav.settings'), tabBarIcon: icon('settings-outline', 'settings') }} />
 
             {/* Hide analytics from standard bottom strip since we don't have enough space or it's accessed via the home page tools */}

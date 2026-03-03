@@ -19,6 +19,11 @@ export interface User {
     phone?: string;
     location?: string;
     role: 'fisherman' | 'admin';
+    port?: string;
+    customPort?: string;
+    region?: string;
+    boatType?: 'Trawler' | 'Gill Netter' | 'Purse Seiner' | 'Catamaran' | 'Country Craft' | 'Motorized' | 'Non-Motorized';
+    avatarUrl?: string;
 }
 
 interface AuthContextType {

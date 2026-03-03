@@ -11,16 +11,24 @@ import {
   Animated,
   Dimensions,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import * as ImageManipulator from "expo-image-manipulator";
 import {
   getPresignedUrl,
   uploadToS3,
   analyzeImage,
+  createGroupPresignedUrls,
+  uploadGroupToS3,
+  analyzeGroup,
 } from "../../lib/api-client";
-import type { FishAnalysisResult } from "../../lib/types";
+import type {
+  FishAnalysisResult,
+  GroupAnalysis,
+  MLCropResult,
+} from "../../lib/types";
 import {
   COLORS,
   FONTS,
@@ -32,8 +40,9 @@ import { useLanguage } from "../../lib/i18n";
 import { useNetwork } from "../../lib/network-context";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
+import { normalizeGroupAnalysisUrls } from "../../lib/url-utils";
+import ImageSlider from "../../components/ImageSlider";
 import {
-  runDetection,
   loadModel,
   reloadModel,
   getModelDebugInfo,
@@ -51,7 +60,10 @@ import {
   type OfflineDetectionResult,
 } from "../../lib/offline-inference";
 import { BoundingBoxOverlay } from "../../components/BoundingBoxOverlay";
+import { generateMockSupplement } from "../../lib/species-data";
+import { setAnalysisData } from "../../lib/analysis-store";
 
+const YOLO_CONFIDENCE_THRESHOLD = 0.3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
 type Step = "idle" | "uploading" | "processing" | "done" | "error";
@@ -59,14 +71,27 @@ type Step = "idle" | "uploading" | "processing" | "done" | "error";
 export default function UploadScreen() {
   const { t, isLoaded } = useLanguage();
   const { effectiveMode, connectionQuality } = useNetwork();
-  const [imageUri, setImageUri] = useState<string | null>(null);
+
+  // Multi-image state
+  const [imageUris, setImageUris] = useState<string[]>([]);
+  const [imageUri, setImageUri] = useState<string | null>(null); // Keep for backward compat
+
   const [step, setStep] = useState<Step>("idle");
   const [progress, setProgress] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>(
+    {},
+  );
   const [result, setResult] = useState<FishAnalysisResult | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
     null,
   );
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  // Group analysis state
+  const [groupAnalysis, setGroupAnalysis] = useState<GroupAnalysis | null>(
+    null,
+  );
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // ── Detection state ──
   const [detections, setDetections] = useState<BoundingBox[]>([]);
@@ -193,10 +218,15 @@ export default function UploadScreen() {
       mediaTypes: "images",
       quality: 0.8,
       allowsEditing: false,
+      allowsMultipleSelection: true, // Enable multi-select
     });
-    if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+    if (!result.canceled && result.assets.length > 0) {
+      const uris = result.assets.map((asset) => asset.uri);
+      setImageUris(uris);
+      setImageUri(uris[0]); // Set first as primary for backward compat
       setResult(null);
+      setGroupAnalysis(null);
+      setCurrentImageIndex(0);
       setStep("idle");
       captureLocation();
     }
@@ -213,18 +243,22 @@ export default function UploadScreen() {
       allowsEditing: false,
     });
     if (!result.canceled && result.assets[0]) {
-      setImageUri(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      setImageUris([uri]);
+      setImageUri(uri);
       setResult(null);
+      setGroupAnalysis(null);
+      setCurrentImageIndex(0);
       setStep("idle");
       captureLocation();
     }
   };
 
   // ── Decide whether to use offline or online mode ──
-  const shouldUseOffline = IS_DEMO_MODE || effectiveMode === "offline";
+  const isMultiImage = imageUris.length > 1;
 
   const startAnalysis = async () => {
-    if (!imageUri) return;
+    if (imageUris.length === 0 && !imageUri) return;
 
     // Reset state
     setDetections([]);
@@ -233,23 +267,30 @@ export default function UploadScreen() {
     setOfflineResults([]);
     setOfflineProcessingTime(null);
     setResult(null);
+    setGroupAnalysis(null);
+    setUploadProgress({});
+    setCurrentImageIndex(0);
 
     console.log("\n╔════════════════════════════════════════════════════╗");
     console.log("  🚀  ANALYSIS STARTED");
+    const isOffline = IS_DEMO_MODE || effectiveMode === "offline";
     console.log(
-      `  Mode          : ${shouldUseOffline ? "OFFLINE (on-device)" : "ONLINE (cloud)"}`,
+      `  Mode          : ${isOffline ? `OFFLINE (${IS_DEMO_MODE ? "demo" : "network unavailable"})` : "ONLINE (cloud) → offline fallback"}`,
     );
     console.log(
       `  Network       : ${effectiveMode} (quality: ${connectionQuality})`,
     );
     console.log(`  Demo mode     : ${IS_DEMO_MODE}`);
-    console.log(`  Image URI     : ${imageUri.substring(0, 80)}…`);
+    console.log(`  Image count   : ${imageUris.length}`);
     console.log("╚════════════════════════════════════════════════════╝\n");
 
-    if (shouldUseOffline) {
+    if (isOffline) {
       // ═══════════════════════════════════════════════════
-      // OFFLINE PATH: Full on-device pipeline
+      // OFFLINE PATH: Full on-device pipeline (single image only)
       // ═══════════════════════════════════════════════════
+      const targetUri = imageUri || imageUris[0];
+      if (!targetUri) return;
+
       setAnalysisMode("offline");
       try {
         // Step 1: Show detecting state
@@ -277,7 +318,7 @@ export default function UploadScreen() {
           detections: offlineDets,
           processingTime,
           errors,
-        } = await runOfflineInference(imageUri);
+        } = await runOfflineInference(targetUri);
         clearInterval(interval);
 
         console.log(
@@ -292,14 +333,22 @@ export default function UploadScreen() {
         setOfflineProcessingTime(processingTime);
         setIsDetecting(false);
 
+        // Save to analysis store for detailed report page
+        setAnalysisData({
+          mode: "offline",
+          offlineResults: offlineDets,
+          processingTime,
+          imageUri: targetUri,
+          location,
+        });
+
         // Extract detection boxes for the BoundingBoxOverlay
         if (offlineDets.length > 0) {
           // Reconstruct BoundingBox[] from offline results for overlay
-          // We need the original image dimensions
           const imgDims = await new Promise<{ w: number; h: number }>(
             (resolve) => {
               Image.getSize(
-                imageUri,
+                targetUri,
                 (w, h) => resolve({ w, h }),
                 () => resolve({ w: 1, h: 1 }),
               );
@@ -322,39 +371,6 @@ export default function UploadScreen() {
             .filter((d) => d.cropUri)
             .map((d) => d.cropUri!);
           setCropUris(crops);
-
-          // Convert the best detection (highest confidence) to FishAnalysisResult for the summary card
-          const best = offlineDets.reduce((a, b) =>
-            b.speciesConfidence > a.speciesConfidence ? b : a,
-          );
-          const analysisResult = offlineResultToAnalysisResult(best);
-          console.log(
-            "[Upload] 📊 Best detection converted to FishAnalysisResult:",
-          );
-          console.log(`  Species     : ${analysisResult.species}`);
-          console.log(`  Scientific  : ${analysisResult.scientificName}`);
-          console.log(
-            `  Confidence  : ${(analysisResult.confidence * 100).toFixed(1)}%`,
-          );
-          console.log(`  Quality     : ${analysisResult.qualityGrade}`);
-          console.log(
-            `  Weight      : ${analysisResult.measurements.weight_g}g`,
-          );
-          console.log(
-            `  Length      : ${analysisResult.measurements.length_mm}mm`,
-          );
-          console.log(
-            `  Value       : ₹${analysisResult.marketEstimate.estimated_value}`,
-          );
-          console.log(
-            `  Legal       : ${analysisResult.compliance.is_legal_size ? "Yes" : "No"}`,
-          );
-          console.log(
-            `  Sustainable : ${analysisResult.isSustainable ? "Yes" : "No"}`,
-          );
-
-          // User requested to remove the top summary card for offline mode to avoid duplicates
-          // setResult(analysisResult);
         } else {
           console.warn("[Upload] ⚠️ No fish detected in image");
           Alert.alert(
@@ -371,94 +387,155 @@ export default function UploadScreen() {
         console.error("[Upload] ❌ Offline analysis failed:", e.message);
         Alert.alert("Offline Analysis Failed", e.message || t("common.error"));
       }
-    } else {
+    } else if (isMultiImage) {
       // ═══════════════════════════════════════════════════
-      // ONLINE PATH: Cloud upload + analysis (with offline fallback)
+      // ONLINE PATH - MULTI-IMAGE: Group upload + analysis
+      // (only reached when network is available)
       // ═══════════════════════════════════════════════════
       setAnalysisMode("online");
       try {
-        // Step 0: Run on-device TFLite detection (for display)
-        setIsDetecting(true);
-        const t0 = Date.now();
-        console.log("[Upload] 🔍 Running TFLite detection for preview…");
-        try {
-          const boxes = await runDetection(imageUri);
-          setDetections(boxes);
-          setDetectionTime(Date.now() - t0);
-          console.log(
-            `[Upload] ✅ TFLite detection: ${boxes.length} fish in ${Date.now() - t0}ms`,
-          );
-
-          if (boxes.length > 0) {
-            Image.getSize(
-              imageUri,
-              async (imgW, imgH) => {
-                const nextCrops: string[] = [];
-                for (const box of boxes.slice(0, 6)) {
-                  const originX = Math.max(0, Math.floor(box.x1 * imgW));
-                  const originY = Math.max(0, Math.floor(box.y1 * imgH));
-                  const width = Math.max(
-                    1,
-                    Math.floor((box.x2 - box.x1) * imgW),
-                  );
-                  const height = Math.max(
-                    1,
-                    Math.floor((box.y2 - box.y1) * imgH),
-                  );
-
-                  if (originX + width > imgW || originY + height > imgH) {
-                    continue;
-                  }
-
-                  try {
-                    const cropped = await ImageManipulator.manipulateAsync(
-                      imageUri,
-                      [{ crop: { originX, originY, width, height } }],
-                      {
-                        compress: 0.9,
-                        format: ImageManipulator.SaveFormat.JPEG,
-                      },
-                    );
-                    nextCrops.push(cropped.uri);
-                  } catch {
-                    // ignore individual crop failure
-                  }
-                }
-                setCropUris(nextCrops);
-              },
-              () => setCropUris([]),
-            );
-          }
-        } catch (detErr: any) {
-          console.warn("[Upload] ⚠️ TFLite detection error:", detErr.message);
-        }
-        setIsDetecting(false);
-
-        // Step 1: Get presigned URL
+        // Step 1: Get group presigned URLs
         setStep("uploading");
         animateProgress(0);
-        console.log("[Upload] ☁️ Getting presigned URL…");
-        const fileName = `catch_${Date.now()}.jpg`;
-        const { uploadUrl, imageId } = await getPresignedUrl(
-          fileName,
-          "image/jpeg",
+        console.log("[Upload] ☁️ Getting group presigned URLs…");
+
+        const files = imageUris.map((uri, idx) => ({
+          fileName: `catch_${Date.now()}_${idx}.jpg`,
+          fileType: "image/jpeg",
+        }));
+
+        const { groupId, presignedUrls } = await createGroupPresignedUrls(
+          files,
           location?.lat,
           location?.lng,
         );
-        console.log(`[Upload] ✅ Got presigned URL for imageId: ${imageId}`);
+        console.log(
+          `[Upload] ✅ Got group presigned URLs for groupId: ${groupId}`,
+        );
 
-        // Step 2: Upload
+        // Step 2: Upload all images concurrently
+        console.log("[Upload] ☁️ Uploading images to S3…");
+        const fileTypes = imageUris.map(() => "image/jpeg");
+        await uploadGroupToS3(
+          presignedUrls,
+          imageUris,
+          fileTypes,
+          (index, pct) => {
+            setUploadProgress((prev) => ({ ...prev, [index]: pct }));
+            // Calculate overall progress
+            const totalProgress =
+              Object.values({ ...uploadProgress, [index]: pct }).reduce(
+                (sum, p) => sum + p,
+                0,
+              ) / imageUris.length;
+            animateProgress(totalProgress);
+          },
+        );
+        animateProgress(100);
+        console.log("[Upload] ✅ All images uploaded");
+
+        // Step 3: Analyze group via cloud
+        setStep("processing");
+        animateProgress(0);
+        console.log("[Upload] 🧠 Requesting group analysis…");
+        const interval = setInterval(() => {
+          setProgress((prev) => {
+            const next = Math.min(prev + 8, 85);
+            Animated.timing(progressAnim, {
+              toValue: next,
+              duration: 250,
+              useNativeDriver: false,
+            }).start();
+            return next;
+          });
+        }, 400);
+
+        const { analysisResult } = await analyzeGroup(groupId);
+        clearInterval(interval);
+        animateProgress(100);
+
+        // Print raw JSON response
+        console.log("[Upload] ☁️ Raw Cloud Analysis Response (JSON):");
+        console.log(JSON.stringify(analysisResult, null, 2));
+
+        console.log("[Upload] ☁️ Group analysis complete");
+        console.log(
+          `  • Total fish: ${analysisResult.aggregateStats.totalFishCount}`,
+        );
+        console.log(`  • Images processed: ${analysisResult.images.length}`);
+        console.log(
+          `  • Total weight: ${analysisResult.aggregateStats.totalEstimatedWeight}kg`,
+        );
+        console.log(
+          `  • Total value: ₹${analysisResult.aggregateStats.totalEstimatedValue}`,
+        );
+
+        // Normalize URLs to ensure gradcam and crop images load correctly
+        const normalizedAnalysis = normalizeGroupAnalysisUrls(analysisResult);
+        // Save to analysis store for detailed report page
+        setAnalysisData({
+          mode: "online",
+          groupAnalysis: normalizedAnalysis,
+          groupId,
+          imageUris,
+          location,
+        });
+        setGroupAnalysis(normalizedAnalysis);
+        setStep("done");
+      } catch (e: any) {
+        console.error(`[Upload] ☁️ Group analysis failed: ${e.message}`);
+        setStep("error");
+        Alert.alert("Group Analysis Failed", e.message || t("common.error"));
+      }
+    } else {
+      // ═══════════════════════════════════════════════════
+      // ONLINE PATH - SINGLE IMAGE: Cloud upload + analysis (using GROUP API)
+      // Note: Always try online first; fall back to offline on failure.
+      // ═══════════════════════════════════════════════════
+      const targetUri = imageUri || imageUris[0];
+      if (!targetUri) return;
+
+      setAnalysisMode("online");
+      try {
+        // Step 1: Get group presigned URLs (for single image as a group of one)
+        setStep("uploading");
+        animateProgress(0);
+        console.log(
+          "[Upload] ☁️ Getting group presigned URL for single image…",
+        );
+
+        const files = [
+          {
+            fileName: `catch_${Date.now()}.jpg`,
+            fileType: "image/jpeg",
+          },
+        ];
+
+        const { groupId, presignedUrls } = await createGroupPresignedUrls(
+          files,
+          location?.lat,
+          location?.lng,
+        );
+        console.log(
+          `[Upload] ✅ Got group presigned URL for groupId: ${groupId}`,
+        );
+
+        // Step 2: Upload image
         console.log("[Upload] ☁️ Uploading to S3…");
-        await uploadToS3(uploadUrl, imageUri, "image/jpeg", (pct) =>
-          animateProgress(pct),
+        const fileTypes = ["image/jpeg"];
+        await uploadGroupToS3(
+          presignedUrls,
+          [targetUri],
+          fileTypes,
+          (index, pct) => animateProgress(pct),
         );
         animateProgress(100);
         console.log("[Upload] ✅ Upload complete");
 
-        // Step 3: Analyze via cloud
+        // Step 3: Analyze via cloud using group API
         setStep("processing");
         animateProgress(0);
-        console.log("[Upload] 🧠 Requesting cloud analysis…");
+        console.log("[Upload] 🧠 Requesting cloud analysis (group API)…");
         const interval = setInterval(() => {
           setProgress((prev) => {
             const next = Math.min(prev + 12, 85);
@@ -470,44 +547,31 @@ export default function UploadScreen() {
             return next;
           });
         }, 300);
-        const cloudResponse = await analyzeImage(imageId);
-        const { analysisResult } = cloudResponse;
+        const { analysisResult } = await analyzeGroup(groupId);
         clearInterval(interval);
         animateProgress(100);
 
-        console.log("[Upload] ☁️ Cloud analysis raw response JSON:");
-        console.log(JSON.stringify(cloudResponse, null, 2));
+        // Print raw JSON response
+        console.log("[Upload] ☁️ Raw Cloud Analysis Response (JSON):");
+        console.log(JSON.stringify(analysisResult, null, 2));
 
-        console.log("\n╔════════════════════════════════════════════════════╗");
-        console.log("║  ☁️  CLOUD ANALYSIS COMPLETE                        ║");
-        console.log("╚════════════════════════════════════════════════════╝");
-        console.log(`  • Species     : ${analysisResult.species}`);
-        console.log(`    └ Scientific: ${analysisResult.scientificName}`);
+        console.log("[Upload] ☁️ Cloud analysis complete");
         console.log(
-          `    └ Confidence: ${(analysisResult.confidence * 100).toFixed(1)}%`,
+          `  • Total fish: ${analysisResult.aggregateStats.totalFishCount}`,
         );
-        console.log(`  • Quality     : ${analysisResult.qualityGrade}`);
-        console.log("  ────────────────────────────────────────────────────");
-        console.log(`  • Measurements:`);
-        console.log(
-          `    └ Weight    : ${(analysisResult.measurements.weight_g / 1000).toFixed(2)} kg`,
-        );
-        console.log(
-          `    └ Length    : ${analysisResult.measurements.length_mm} mm`,
-        );
-        console.log(
-          `    └ Legal     : ${analysisResult.compliance.is_legal_size ? "✅ Yes" : "❌ No"}`,
-        );
-        console.log(`  • Economics   :`);
-        console.log(
-          `    └ Price/kg  : ₹${analysisResult.marketEstimate.price_per_kg}`,
-        );
-        console.log(
-          `    └ Value     : ₹${analysisResult.marketEstimate.estimated_value}`,
-        );
-        console.log("\n");
+        console.log(`  • Images processed: ${analysisResult.images.length}`);
 
-        setResult(analysisResult);
+        // Normalize URLs to ensure gradcam and crop images load correctly
+        const normalizedAnalysis = normalizeGroupAnalysisUrls(analysisResult);
+        // Save to analysis store for detailed report page
+        setAnalysisData({
+          mode: "online",
+          groupAnalysis: normalizedAnalysis,
+          groupId,
+          imageUris: [targetUri],
+          location,
+        });
+        setGroupAnalysis(normalizedAnalysis);
         setStep("done");
       } catch (e: any) {
         // ── Cloud failed → fallback to offline ──
@@ -535,7 +599,7 @@ export default function UploadScreen() {
             detections: offlineDets,
             processingTime,
             errors,
-          } = await runOfflineInference(imageUri);
+          } = await runOfflineInference(targetUri);
           clearInterval(interval);
 
           console.log(
@@ -544,12 +608,21 @@ export default function UploadScreen() {
           setOfflineResults(offlineDets);
           setOfflineProcessingTime(processingTime);
 
+          // Save to analysis store for detailed report page
+          setAnalysisData({
+            mode: "offline",
+            offlineResults: offlineDets,
+            processingTime,
+            imageUri: targetUri,
+            location,
+          });
+
           if (offlineDets.length > 0) {
             // Reconstruct boxes for overlay
             const imgDims = await new Promise<{ w: number; h: number }>(
               (resolve) => {
                 Image.getSize(
-                  imageUri!,
+                  targetUri!,
                   (w, h) => resolve({ w, h }),
                   () => resolve({ w: 1, h: 1 }),
                 );
@@ -568,12 +641,6 @@ export default function UploadScreen() {
             setCropUris(
               offlineDets.filter((d) => d.cropUri).map((d) => d.cropUri!),
             );
-
-            const best = offlineDets.reduce((a, b) =>
-              b.speciesConfidence > a.speciesConfidence ? b : a,
-            );
-            // User requested to remove the top summary card for offline mode to avoid duplicates
-            // setResult(offlineResultToAnalysisResult(best));
           } else {
             Alert.alert("No Fish Detected", "No fish detected in this image.");
           }
@@ -597,9 +664,12 @@ export default function UploadScreen() {
 
   const reset = () => {
     setImageUri(null);
+    setImageUris([]);
     setResult(null);
+    setGroupAnalysis(null);
     setStep("idle");
     setProgress(0);
+    setUploadProgress({});
     progressAnim.setValue(0);
     setLocation(null);
     setDetections([]);
@@ -609,6 +679,30 @@ export default function UploadScreen() {
     setOfflineResults([]);
     setOfflineProcessingTime(null);
     setAnalysisMode(null);
+    setCurrentImageIndex(0);
+  };
+
+  const removeImage = (index: number) => {
+    const newUris = imageUris.filter((_, i) => i !== index);
+    setImageUris(newUris);
+    if (newUris.length > 0) {
+      setImageUri(newUris[0]);
+      if (currentImageIndex >= newUris.length) {
+        setCurrentImageIndex(newUris.length - 1);
+      }
+    } else {
+      setImageUri(null);
+      setCurrentImageIndex(0);
+    }
+  };
+
+  const navigateImage = (direction: "prev" | "next") => {
+    if (!groupAnalysis) return;
+    const newIndex =
+      direction === "prev"
+        ? Math.max(0, currentImageIndex - 1)
+        : Math.min(groupAnalysis.images.length - 1, currentImageIndex + 1);
+    setCurrentImageIndex(newIndex);
   };
 
   const gradeColor =
@@ -634,22 +728,26 @@ export default function UploadScreen() {
         </View>
 
         {/* Upload Zone */}
-        {!imageUri ? (
+        {imageUris.length === 0 && !imageUri ? (
           <View style={styles.uploadZone}>
-            <Text style={styles.uploadEmoji}>📸</Text>
+            <Ionicons name="camera-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: SPACING.md }} />
             <Text style={styles.uploadTitle}>{t("upload.cta")}</Text>
             <Text style={styles.uploadHint}>{t("upload.hint")}</Text>
             <View style={styles.uploadBtns}>
               <Button
-                label={`📷  ${t("upload.btnCamera")}`}
+                label={t("upload.btnCamera")}
                 onPress={captureFromCamera}
                 variant="primary"
+                icon={<Ionicons name="camera" size={16} color="#fff" />}
+                iconPosition="left"
                 style={styles.uploadBtn}
               />
               <Button
-                label={`🖼️  ${t("upload.btnGallery")}`}
+                label={t("upload.btnGallery")}
                 onPress={pickFromGallery}
                 variant="outline"
+                icon={<Ionicons name="images" size={16} color={COLORS.primaryLight} />}
+                iconPosition="left"
                 style={styles.uploadBtn}
               />
             </View>
@@ -659,33 +757,89 @@ export default function UploadScreen() {
               <Text style={styles.tipItem}>• {t("upload.tip1")}</Text>
               <Text style={styles.tipItem}>• {t("upload.tip2")}</Text>
               <Text style={styles.tipItem}>• {t("upload.tip3")}</Text>
+              <Text style={styles.tipItem}>
+                • Select multiple images for batch analysis
+              </Text>
             </View>
           </View>
         ) : (
           <>
-            {/* Image Preview */}
-            <View style={styles.previewCard}>
-              <Image
-                source={{ uri: imageUri }}
-                style={styles.previewImage}
-                resizeMode="cover"
-              />
-              {location && (
-                <View style={styles.locationBadge}>
-                  <Text style={styles.locationText}>
-                    📍 {location.lat.toFixed(3)}°N, {location.lng.toFixed(3)}°E
+            {/* Multi-Image Preview Grid */}
+            {imageUris.length > 1 && (
+              <Card style={styles.multiImageCard} padding={SPACING.base}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Ionicons name="images-outline" size={16} color={COLORS.primaryLight} />
+                  <Text style={styles.multiImageTitle}>
+                    {imageUris.length} Images Selected
                   </Text>
                 </View>
-              )}
-            </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.multiImageScroll}
+                >
+                  {imageUris.map((uri, idx) => (
+                    <View key={idx} style={styles.multiImageItem}>
+                      <Image
+                        source={{ uri }}
+                        style={styles.multiImageThumb}
+                        resizeMode="cover"
+                      />
+                      {step === "idle" && (
+                        <TouchableOpacity
+                          style={styles.multiImageRemove}
+                          onPress={() => removeImage(idx)}
+                        >
+                          <Text style={styles.multiImageRemoveText}>✕</Text>
+                        </TouchableOpacity>
+                      )}
+                      <Text style={styles.multiImageIndex}>#{idx + 1}</Text>
+                      {step === "uploading" &&
+                        uploadProgress[idx] !== undefined && (
+                          <View style={styles.multiImageProgress}>
+                            <View
+                              style={[
+                                styles.multiImageProgressFill,
+                                { width: `${uploadProgress[idx]}%` },
+                              ]}
+                            />
+                          </View>
+                        )}
+                    </View>
+                  ))}
+                </ScrollView>
+              </Card>
+            )}
+
+            {/* Single Image Preview */}
+            {imageUris.length === 1 && imageUri && (
+              <View style={styles.previewCard}>
+                <Image
+                  source={{ uri: imageUri }}
+                  style={styles.previewImage}
+                  resizeMode="cover"
+                />
+                        {location && (
+                  <View style={styles.locationBadge}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Ionicons name="location-outline" size={12} color={COLORS.textMuted} />
+                      <Text style={styles.locationText}>
+                        {location.lat.toFixed(3)}°N, {location.lng.toFixed(3)}
+                        °E
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* Progress */}
             {isAnalyzing && (
               <Card style={styles.progressCard} padding={SPACING.base}>
                 <Text style={styles.progressLabel}>
                   {step === "uploading"
-                    ? `☁️ ${t("upload.uploading")}...`
-                    : `🧠 ${t("upload.analyzing")}...`}
+                    ? `${t("upload.uploading")}...`
+                    : `${t("upload.analyzing")}...`}
                 </Text>
                 <View style={styles.progressBar}>
                   <Animated.View
@@ -703,7 +857,7 @@ export default function UploadScreen() {
                 {step === "processing" && (
                   <Text style={styles.progressHint}>
                     {analysisMode === "offline"
-                      ? "🔌 Offline: YOLOv8 → Species → Disease → GradCAM"
+                      ? "Offline: YOLOv8 → Species → Disease → GradCAM"
                       : "YOLOv11 → Species Classification → Weight Estimation"}
                   </Text>
                 )}
@@ -714,7 +868,7 @@ export default function UploadScreen() {
             {step === "idle" && (
               <View style={styles.controlRow}>
                 <Button
-                  label={`${t("upload.btnStartAnalysis")} ⚡`}
+                  label={t("upload.btnStartAnalysis")}
                   onPress={startAnalysis}
                   size="lg"
                   style={styles.analyzeBtn}
@@ -754,108 +908,36 @@ export default function UploadScreen() {
           </>
         )}
 
-        {/* On-device Model Status */}
-        <Card style={styles.modelStatusCard} padding={SPACING.base}>
-          <Text
-            style={[
-              styles.modelStatusTitle,
-              { fontSize: FONTS.sizes.base, marginBottom: SPACING.sm },
-            ]}
-          >
-            🧩 On-Device Models
-          </Text>
-
-          {/* Detection model (TFLite) */}
-          <View style={styles.modelRow}>
-            <View
-              style={[
-                styles.modelDot,
-                { backgroundColor: modelError ? COLORS.error : COLORS.success },
-              ]}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.modelRowLabel}>YOLOv8 Detection</Text>
-              <Text style={styles.modelStatusPath} numberOfLines={1}>
-                {modelName}
-              </Text>
-              <Text style={styles.modelStatusPath} numberOfLines={1}>
-                {modelError ? "❌ Not found" : `✅ ${modelSource}`}
-              </Text>
-            </View>
-          </View>
-
-          {/* Species model (TFLite) */}
-          <View style={styles.modelRow}>
-            <View
-              style={[
-                styles.modelDot,
-                {
-                  backgroundColor: tfliteInfo?.speciesModel.isLoaded
-                    ? COLORS.success
-                    : COLORS.error,
-                },
-              ]}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.modelRowLabel}>
-                Species Classification (Fish.tflite)
-              </Text>
-              <Text style={styles.modelStatusPath} numberOfLines={1}>
-                {tfliteLoading
-                  ? "⏳ Loading…"
-                  : tfliteInfo?.speciesModel.isLoaded
-                    ? `✅ ${tfliteInfo.speciesModel.loadedUri}`
-                    : "❌ Not found"}
-              </Text>
-            </View>
-          </View>
-
-          {/* Disease model (TFLite) */}
-          <View style={styles.modelRow}>
-            <View
-              style={[
-                styles.modelDot,
-                {
-                  backgroundColor: tfliteInfo?.diseaseModel.isLoaded
-                    ? COLORS.success
-                    : COLORS.error,
-                },
-              ]}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.modelRowLabel}>
-                Disease Detection (Fish_disease.tflite)
-              </Text>
-              <Text style={styles.modelStatusPath} numberOfLines={1}>
-                {tfliteLoading
-                  ? "⏳ Loading…"
-                  : tfliteInfo?.diseaseModel.isLoaded
-                    ? `✅ ${tfliteInfo.diseaseModel.loadedUri}`
-                    : "❌ Not found"}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.modelActionsRow}>
-            <Button
-              label="Reload All Models"
-              onPress={handleReloadModel}
-              variant="outline"
-              size="sm"
-              loading={isReloadingModel}
-              style={styles.reloadButton}
-            />
-          </View>
-
-          {(modelError || tfliteError) && (
-            <Text style={styles.modelStatusError}>
-              {modelError
-                ? "Models not deployed.\nRun: npm run deploy-models\n(or see README for ADB commands)\n"
-                : ""}
-              {tfliteError ? tfliteError : ""}
-            </Text>
-          )}
-        </Card>
+        {/* On-device Model Status — compact */}
+        {(() => {
+          const allLoaded = !modelError && !tfliteLoading && tfliteInfo?.speciesModel.isLoaded && tfliteInfo?.diseaseModel.isLoaded;
+          const statusColor = allLoaded ? COLORS.success : COLORS.error;
+          const statusLabel = allLoaded ? 'All 3 models loaded' : modelError || tfliteError ? 'One or more models missing' : 'Loading models…';
+          return (
+            <Card style={styles.modelStatusCard} padding={SPACING.md}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
+                  <Ionicons name="hardware-chip-outline" size={18} color={statusColor} />
+                  <Text style={[styles.modelStatusTitle, { color: statusColor, marginBottom: 0 }]}>
+                    {tfliteLoading ? 'Loading models…' : statusLabel}
+                  </Text>
+                </View>
+                <Button
+                  label="Reload"
+                  onPress={handleReloadModel}
+                  variant="outline"
+                  size="sm"
+                  loading={isReloadingModel}
+                />
+              </View>
+              {(modelError || tfliteError) && (
+                <Text style={[styles.modelStatusError, { marginTop: SPACING.xs }]}>
+                  Run: npm run deploy-models
+                </Text>
+              )}
+            </Card>
+          );
+        })()}
 
         {isDetecting && (
           <Card style={styles.detectionCard} padding={SPACING.base}>
@@ -870,7 +952,10 @@ export default function UploadScreen() {
 
         {detections.length > 0 && imageUri && (
           <View style={styles.detectionSection}>
-            <Text style={styles.sectionTitle}>🔍 Detection Results</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
+              <Ionicons name="scan-outline" size={16} color={COLORS.primaryLight} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Detection Results</Text>
+            </View>
             <Card style={styles.detectionCard} padding={0}>
               <BoundingBoxOverlay
                 imageUri={imageUri}
@@ -881,7 +966,7 @@ export default function UploadScreen() {
             </Card>
             {detectionTime !== null && (
               <Text style={styles.detectionMeta}>
-                ⚡ {detections.length} fish detected in {detectionTime}ms
+                {detections.length} fish detected in {detectionTime}ms
                 (on-device)
               </Text>
             )}
@@ -909,174 +994,573 @@ export default function UploadScreen() {
           </View>
         )}
 
-        {/* Analysis Results */}
-        {result && (
-          <View style={styles.resultsSection}>
-            <Text style={styles.sectionTitle}>{t("upload.results")}</Text>
+        {/* ═══ GROUP ANALYSIS RESULTS ═══ */}
+        {groupAnalysis && (
+          <View style={styles.groupSection}>
+            {/* Aggregate Statistics Card */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
+              <Ionicons name="bar-chart" size={16} color={COLORS.primaryLight} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Group Analysis Summary</Text>
+            </View>
+            <Card style={styles.aggregateCard} padding={SPACING.xl}>
+              <View style={styles.aggregateHeader}>
+                <Text style={styles.aggregateTitle}>
+                  {groupAnalysis.images.length} Images Analyzed
+                </Text>
+                <Text style={styles.aggregateTime}>
+                  {new Date(groupAnalysis.processedAt).toLocaleTimeString()}
+                </Text>
+              </View>
 
-            {/* Species Card */}
-            <Card style={styles.resultCard} padding={SPACING.xl}>
-              <View style={styles.statusRow}>
+              {/* Total Fish Count */}
+              <View style={styles.aggregateRow}>
+                <Text style={styles.aggregateLabel}>
+                  Total Fish Detected
+                </Text>
+                <Text style={styles.aggregateValue}>
+                  {groupAnalysis.aggregateStats.totalFishCount}
+                </Text>
+              </View>
+
+              {/* Average Confidence */}
+              <View style={styles.aggregateRow}>
+                <Text style={styles.aggregateLabel}>Average Confidence</Text>
+                <Text style={styles.aggregateValue}>
+                  {(
+                    groupAnalysis.aggregateStats.averageConfidence * 100
+                  ).toFixed(1)}
+                  %
+                </Text>
+              </View>
+
+              {/* Total Weight */}
+              <View style={styles.aggregateRow}>
+                <Text style={styles.aggregateLabel}>Total Weight</Text>
+                <Text style={styles.aggregateValue}>
+                  {groupAnalysis.aggregateStats.totalEstimatedWeight.toFixed(2)}{" "}
+                  kg
+                </Text>
+              </View>
+
+              {/* Total Value */}
+              <View style={styles.aggregateRow}>
+                <Text style={styles.aggregateLabel}>Total Value</Text>
+                <Text style={styles.aggregateValue}>
+                  ₹
+                  {groupAnalysis.aggregateStats.totalEstimatedValue.toLocaleString(
+                    "en-IN",
+                  )}
+                </Text>
+              </View>
+
+              {/* Disease Detection */}
+              <View style={styles.aggregateRow}>
+                <Text style={styles.aggregateLabel}>Disease Status</Text>
                 <View
                   style={[
-                    styles.statusChip,
+                    styles.diseaseStatusBadge,
                     {
-                      backgroundColor: result.isSustainable
-                        ? COLORS.success + "20"
-                        : COLORS.warning + "20",
+                      backgroundColor: groupAnalysis.aggregateStats
+                        .diseaseDetected
+                        ? COLORS.warning + "20"
+                        : COLORS.success + "20",
                     },
                   ]}
                 >
                   <Text
                     style={[
-                      styles.statusChipText,
+                      styles.diseaseStatusText,
                       {
-                        color: result.isSustainable
-                          ? COLORS.success
-                          : COLORS.warning,
+                        color: groupAnalysis.aggregateStats.diseaseDetected
+                          ? COLORS.warning
+                          : COLORS.success,
                       },
                     ]}
-                    numberOfLines={1}
                   >
-                    {result.isSustainable
-                      ? "✓ Sustainable"
-                      : "⚠ Not sustainable"}
+                    {groupAnalysis.aggregateStats.diseaseDetected
+                      ? "Disease Detected"
+                      : "All Healthy"}
                   </Text>
                 </View>
               </View>
 
-              <Text style={styles.speciesLabel}>{t("upload.species")}</Text>
-              <Text style={styles.speciesName} numberOfLines={2}>
-                {result.species}
-              </Text>
-              <Text style={styles.scientificName} numberOfLines={2}>
-                {result.scientificName}
-              </Text>
-
-              <View style={styles.confidenceRow}>
-                <Text style={styles.confidenceLabel}>
-                  {t("upload.confidence")}
-                </Text>
-                <Text style={styles.confidenceValue}>
-                  {(result.confidence * 100).toFixed(1)}%
-                </Text>
-              </View>
+              {/* Species Distribution */}
+              {Object.keys(groupAnalysis.aggregateStats.speciesDistribution)
+                .length > 0 && (
+                <View style={styles.speciesDistSection}>
+                  <Text style={styles.speciesDistTitle}>Species Breakdown</Text>
+                  {Object.entries(
+                    groupAnalysis.aggregateStats.speciesDistribution,
+                  )
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([species, count]) => (
+                      <View key={species} style={styles.speciesDistRow}>
+                        <Text style={styles.speciesDistName}>{species}</Text>
+                        <View style={styles.speciesDistRight}>
+                          <Text style={styles.speciesDistCount}>{count}</Text>
+                          <View style={styles.speciesDistBar}>
+                            <View
+                              style={[
+                                styles.speciesDistBarFill,
+                                {
+                                  width: `${(count / groupAnalysis.aggregateStats.totalFishCount) * 100}%`,
+                                },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                </View>
+              )}
             </Card>
 
-            {/* Metrics Grid */}
-            <View style={styles.metricsGrid}>
-              <Card style={styles.metricCard} padding={SPACING.base}>
-                <Text style={styles.metricEmoji}>⚖️</Text>
-                <Text style={styles.metricLabel}>{t("map.weight")}</Text>
-                <Text style={styles.metricValue}>
-                  {(result.measurements.weight_g / 1000).toFixed(2)} KG
-                </Text>
-                <Text style={styles.metricSub}>
-                  {result.measurements.length_mm} mm
-                </Text>
-              </Card>
-              <Card style={styles.metricCard} padding={SPACING.base}>
-                <Text style={styles.metricEmoji}>🏷️</Text>
-                <Text style={styles.metricLabel}>{t("upload.quality")}</Text>
-                <Text style={[styles.metricValue, { color: gradeColor }]}>
-                  {result.qualityGrade}
-                </Text>
-                <Text style={styles.metricSub}>Physical markers</Text>
-              </Card>
+            {/* Action Buttons */}
+            <View style={styles.actionButtonsRow}>
+              <Button
+                label="View Detailed Report"
+                onPress={() => router.push("/analysis/detail")}
+                variant="primary"
+                icon={<Ionicons name="document-text" size={16} color="#fff" />}
+                iconPosition="left"
+                style={styles.actionButton}
+              />
+              <Button
+                label="Export PDF"
+                onPress={async () => {
+                  try {
+                    const { exportAnalysisToPDF } = await import("../../lib/pdf-export");
+                    await exportAnalysisToPDF();
+                  } catch (error) {
+                    Alert.alert("Export Failed", "Could not export PDF");
+                  }
+                }}
+                variant="outline"
+                icon={<Ionicons name="download" size={16} color={COLORS.primaryLight} />}
+                iconPosition="left"
+                style={styles.actionButton}
+              />
             </View>
-
-            {/* Market Value */}
-            <Card style={styles.marketCard} padding={SPACING.xl}>
-              <View style={styles.marketRow}>
-                <View style={styles.marketPrimaryBlock}>
-                  <Text style={styles.marketLabel}>
-                    📈 {t("upload.marketValue")}
-                  </Text>
-                  <Text style={styles.marketValue}>
-                    ₹
-                    {result.marketEstimate.estimated_value.toLocaleString(
-                      "en-IN",
-                    )}
-                  </Text>
-                  <Text style={styles.marketRate}>
-                    @ ₹{result.marketEstimate.price_per_kg}/kg
-                  </Text>
-                </View>
-                <View style={styles.marketSecondaryBlock}>
-                  <Text style={styles.legalLabel}>{t("upload.legalSize")}</Text>
-                  <View
-                    style={[
-                      styles.legalBadge,
-                      {
-                        backgroundColor: result.compliance.is_legal_size
-                          ? COLORS.success + "20"
-                          : COLORS.error + "20",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.legalText,
-                        {
-                          color: result.compliance.is_legal_size
-                            ? COLORS.success
-                            : COLORS.error,
-                        },
-                      ]}
-                    >
-                      {result.compliance.is_legal_size
-                        ? `≥${result.compliance.min_legal_size_mm}mm ✓`
-                        : "Below Limit"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            </Card>
-
-            {/* Sustainability */}
-            <Card
-              style={{
-                ...styles.sustainCard,
-                borderColor: result.isSustainable
-                  ? COLORS.success + "40"
-                  : COLORS.warning + "40",
+            <Button
+              label="Ask AI About This Catch"
+              onPress={() => {
+                const prompt = `I just analyzed a group of ${groupAnalysis.aggregateStats.totalFishCount} fish. Total weight: ${groupAnalysis.aggregateStats.totalEstimatedWeight.toFixed(2)} kg, Total value: ₹${groupAnalysis.aggregateStats.totalEstimatedValue}. Species: ${Object.keys(groupAnalysis.aggregateStats.speciesDistribution).join(", ")}. What are the current market prices and any recommendations?`;
+                router.push({
+                  pathname: "/(tabs)/chat",
+                  params: { initialMessage: prompt }
+                });
               }}
-              padding={SPACING.base}
-            >
-              <Text style={{ fontSize: 20, marginBottom: SPACING.xs }}>
-                {result.isSustainable ? "✅" : "⚠️"}
-              </Text>
-              <Text style={styles.sustainText}>
-                {result.isSustainable
-                  ? t("upload.sustainMsg")
-                  : t("upload.warningMsg")}
-              </Text>
-            </Card>
+              variant="secondary"
+              icon={<Ionicons name="chatbubbles" size={16} color="#fff" />}
+              iconPosition="left"
+              fullWidth
+              style={{ marginBottom: SPACING.md }}
+            />
 
-            {/* Analysis mode badge */}
-            {analysisMode && (
-              <View style={styles.modeBadge}>
-                <Text style={styles.modeBadgeText}>
-                  {analysisMode === "offline"
-                    ? "🔌 Analyzed Offline (On-Device)"
-                    : "☁️ Analyzed via Cloud"}
-                </Text>
-                {offlineProcessingTime !== null && (
-                  <Text style={styles.modeBadgeSub}>
-                    Pipeline completed in {offlineProcessingTime}ms
-                  </Text>
+            {/* Image Slider - Like Photo Gallery */}
+            <ImageSlider
+              images={imageUris.map((uri, idx) => ({
+                uri,
+                label: `Image ${idx + 1}`,
+              }))}
+              currentIndex={currentImageIndex}
+              onIndexChange={setCurrentImageIndex}
+              imageHeight={300}
+              showIndicators={true}
+            />
+
+            {/* Results for Current Image */}
+            {groupAnalysis.images[currentImageIndex] && (
+              <View style={styles.currentImageSection}>
+                {/* Error Message */}
+                {groupAnalysis.images[currentImageIndex].error && (
+                  <Card style={styles.errorCard} padding={SPACING.base}>
+                    <Text style={styles.errorText}>
+                      ⚠️ {groupAnalysis.images[currentImageIndex].error}
+                    </Text>
+                  </Card>
+                )}
+
+                {/* Crops for Current Image */}
+                {Object.keys(groupAnalysis.images[currentImageIndex].crops)
+                  .length > 0 ? (
+                  <View style={styles.cropsSection}>
+                    {(() => {
+                      const allCrops = Object.entries(
+                        groupAnalysis.images[currentImageIndex].crops,
+                      );
+                      const visibleCrops = allCrops.filter(
+                        ([, c]) =>
+                          c.yolo_confidence >= YOLO_CONFIDENCE_THRESHOLD,
+                      );
+                      const filteredCount =
+                        allCrops.length - visibleCrops.length;
+                      return (
+                        <>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
+                            <Ionicons name="fish-outline" size={16} color={COLORS.primaryLight} />
+                            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                              Detected Fish ({visibleCrops.length})
+                            </Text>
+                            {filteredCount > 0 && (
+                              <Text
+                                style={{
+                                  color: COLORS.textMuted,
+                                  fontSize: FONTS.sizes.sm,
+                                }}
+                              >
+                                {" "}
+                                · {filteredCount} below 30% confidence hidden
+                              </Text>
+                            )}
+                          </View>
+                          {visibleCrops.map(([cropKey, crop], cropIdx) => {
+                            const supplement = generateMockSupplement(
+                              crop.species.label,
+                              cropIdx,
+                            );
+                            const diseaseColor =
+                              crop.disease.label === "Healthy Fish"
+                                ? COLORS.success
+                                : COLORS.warning;
+                            const qualColor =
+                              supplement.qualityGrade === "Premium"
+                                ? COLORS.success
+                                : supplement.qualityGrade === "Standard"
+                                  ? COLORS.warning
+                                  : COLORS.error;
+
+                            return (
+                              <Card
+                                key={cropKey}
+                                style={styles.cropCard}
+                                padding={SPACING.base}
+                              >
+                                {/* Header */}
+                                <View style={styles.cropCardHeader}>
+                                  <Text style={styles.cropCardTitle}>
+                                    Fish #{cropIdx + 1}
+                                  </Text>
+                                  <View
+                                    style={[
+                                      styles.cropConfBadge,
+                                      {
+                                        backgroundColor:
+                                          COLORS.primaryLight + "20",
+                                      },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.cropConfText,
+                                        { color: COLORS.primaryLight },
+                                      ]}
+                                    >
+                                      {(crop.yolo_confidence * 100).toFixed(1)}%
+                                      YOLO
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                {/* Species */}
+                                <Text style={styles.cropSpecies}>
+                                  {crop.species.label}
+                                </Text>
+                                <Text style={styles.cropScientific}>
+                                  {supplement.scientificName}
+                                </Text>
+
+                                {/* Disease */}
+                                <View style={styles.cropRow}>
+                                  <Text style={styles.cropLabel}>Health:</Text>
+                                  <Text
+                                    style={[
+                                      styles.cropValue,
+                                      { color: diseaseColor },
+                                    ]}
+                                  >
+                                    {crop.disease.label}
+                                  </Text>
+                                </View>
+
+                                {/* Quality */}
+                                <View style={styles.cropRow}>
+                                  <Text style={styles.cropLabel}>Quality:</Text>
+                                  <Text
+                                    style={[
+                                      styles.cropValue,
+                                      { color: qualColor },
+                                    ]}
+                                  >
+                                    {supplement.qualityGrade}
+                                  </Text>
+                                </View>
+
+                                {/* Measurements */}
+                                <View style={styles.cropMetrics}>
+                                  <View style={styles.cropMetricItem}>
+                                    <Text style={styles.cropMetricVal}>
+                                      {supplement.weight_kg.toFixed(2)} kg
+                                    </Text>
+                                    <Text style={styles.cropMetricLabel}>
+                                      Weight
+                                    </Text>
+                                  </View>
+                                  <View style={styles.cropMetricItem}>
+                                    <Text style={styles.cropMetricVal}>
+                                      {supplement.length_mm} mm
+                                    </Text>
+                                    <Text style={styles.cropMetricLabel}>
+                                      Length
+                                    </Text>
+                                  </View>
+                                  <View style={styles.cropMetricItem}>
+                                    <Text style={styles.cropMetricVal}>
+                                      ₹{supplement.estimatedValue}
+                                    </Text>
+                                    <Text style={styles.cropMetricLabel}>
+                                      Value
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                {/* Legal size */}
+                                <View
+                                  style={[
+                                    styles.cropRow,
+                                    { marginBottom: SPACING.sm },
+                                  ]}
+                                >
+                                  <Text style={styles.cropLabel}>
+                                    Legal Size:
+                                  </Text>
+                                  <Text
+                                    style={[
+                                      styles.cropValue,
+                                      {
+                                        color: supplement.isSustainable
+                                          ? COLORS.success
+                                          : COLORS.error,
+                                      },
+                                    ]}
+                                  >
+                                    {supplement.isSustainable
+                                      ? "Legal"
+                                      : "Below Limit"}
+                                  </Text>
+                                </View>
+
+                                {/* Detailed Report Button */}
+                                <Button
+                                  label="View Detailed Report →"
+                                  onPress={() =>
+                                    router.push("/analysis/detail")
+                                  }
+                                  variant="outline"
+                                  size="sm"
+                                  fullWidth
+                                />
+                              </Card>
+                            );
+                          })}
+                        </>
+                      );
+                    })()}
+                  </View>
+                ) : (
+                  !groupAnalysis.images[currentImageIndex].error && (
+                    <Card style={styles.noFishCard} padding={SPACING.xl}>
+                      <Text style={styles.noFishText}>
+                        🔍 No fish detected in this image
+                      </Text>
+                    </Card>
+                  )
                 )}
               </View>
             )}
           </View>
         )}
 
+        {/* ═══ Offline Analysis Summary ═══ */}
+        {offlineResults.length > 0 &&
+          (() => {
+            const totalFish = offlineResults.length;
+            const avgConf =
+              offlineResults.reduce((s, d) => s + d.speciesConfidence, 0) /
+              totalFish;
+            const totalWeightKg =
+              offlineResults.reduce((s, d) => s + d.weightG, 0) / 1000;
+            const totalValue = offlineResults.reduce(
+              (s, d) => s + d.estimatedValue,
+              0,
+            );
+            const anyDisease = offlineResults.some(
+              (d) => d.disease !== "Healthy Fish",
+            );
+            const speciesDist = offlineResults.reduce<Record<string, number>>(
+              (acc, d) => {
+                acc[d.species] = (acc[d.species] || 0) + 1;
+                return acc;
+              },
+              {},
+            );
+            return (
+              <View style={styles.groupSection}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
+                  <Ionicons name="bar-chart" size={16} color={COLORS.primaryLight} />
+                  <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                  Offline Analysis Summary
+                </Text>
+                </View>
+                <Card style={styles.aggregateCard} padding={SPACING.xl}>
+                  <View style={styles.aggregateHeader}>
+                    <Text style={styles.aggregateTitle}>
+                      {totalFish} Fish Detected (On-Device)
+                    </Text>
+                    {offlineProcessingTime !== null && (
+                      <Text style={styles.aggregateTime}>
+                        {offlineProcessingTime}ms
+                      </Text>
+                    )}
+                  </View>
+
+                  <View style={styles.aggregateRow}>
+                    <Text style={styles.aggregateLabel}>Total Fish</Text>
+                    <Text style={styles.aggregateValue}>{totalFish}</Text>
+                  </View>
+
+                  <View style={styles.aggregateRow}>
+                    <Text style={styles.aggregateLabel}>Avg Confidence</Text>
+                    <Text style={styles.aggregateValue}>
+                      {(avgConf * 100).toFixed(1)}%
+                    </Text>
+                  </View>
+
+                  <View style={styles.aggregateRow}>
+                    <Text style={styles.aggregateLabel}>Total Weight</Text>
+                    <Text style={styles.aggregateValue}>
+                      {totalWeightKg.toFixed(2)} kg
+                    </Text>
+                  </View>
+
+                  <View style={styles.aggregateRow}>
+                    <Text style={styles.aggregateLabel}>Total Value</Text>
+                    <Text style={styles.aggregateValue}>
+                      ₹{totalValue.toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.aggregateRow}>
+                    <Text style={styles.aggregateLabel}>Disease Status</Text>
+                    <View
+                      style={[
+                        styles.diseaseStatusBadge,
+                        {
+                          backgroundColor: anyDisease
+                            ? COLORS.warning + "20"
+                            : COLORS.success + "20",
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.diseaseStatusText,
+                          {
+                            color: anyDisease ? COLORS.warning : COLORS.success,
+                          },
+                        ]}
+                      >
+                        {anyDisease ? "Disease Detected" : "All Healthy"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {Object.keys(speciesDist).length > 0 && (
+                    <View style={styles.speciesDistSection}>
+                      <Text style={styles.speciesDistTitle}>
+                        Species Breakdown
+                      </Text>
+                      {Object.entries(speciesDist)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([species, count]) => (
+                          <View key={species} style={styles.speciesDistRow}>
+                            <Text style={styles.speciesDistName}>
+                              {species}
+                            </Text>
+                            <View style={styles.speciesDistRight}>
+                              <Text style={styles.speciesDistCount}>
+                                {count}
+                              </Text>
+                              <View style={styles.speciesDistBar}>
+                                <View
+                                  style={[
+                                    styles.speciesDistBarFill,
+                                    { width: `${(count / totalFish) * 100}%` },
+                                  ]}
+                                />
+                              </View>
+                            </View>
+                          </View>
+                        ))}
+                    </View>
+                  )}
+                </Card>
+
+                {/* Action Buttons */}
+                <View style={styles.actionButtonsRow}>
+                  <Button
+                    label="View Detailed Report"
+                    onPress={() => router.push("/analysis/detail")}
+                    variant="primary"
+                    icon={<Ionicons name="document-text" size={16} color="#fff" />}
+                    iconPosition="left"
+                    style={styles.actionButton}
+                  />
+                  <Button
+                    label="Export PDF"
+                    onPress={async () => {
+                      try {
+                        const { exportAnalysisToPDF } = await import("../../lib/pdf-export");
+                        await exportAnalysisToPDF();
+                      } catch (error) {
+                        Alert.alert("Export Failed", "Could not export PDF");
+                      }
+                    }}
+                    variant="outline"
+                    icon={<Ionicons name="download" size={16} color={COLORS.primaryLight} />}
+                    iconPosition="left"
+                    style={styles.actionButton}
+                  />
+                </View>
+                <Button
+                  label="Ask AI About This Catch"
+                  onPress={() => {
+                    const speciesList = Object.keys(speciesDist).join(", ");
+                    const prompt = `I just analyzed ${totalFish} fish using offline detection. Total weight: ${totalWeightKg.toFixed(2)} kg, Total value: ₹${totalValue}. Species: ${speciesList}. What are the current market prices and any recommendations?`;
+                    router.push({
+                      pathname: "/(tabs)/chat",
+                      params: { initialMessage: prompt }
+                    });
+                  }}
+                  variant="secondary"
+                  icon={<Ionicons name="chatbubbles" size={16} color="#fff" />}
+                  iconPosition="left"
+                  fullWidth
+                  style={{ marginBottom: SPACING.md }}
+                />
+              </View>
+            );
+          })()}
+
         {/* ═══ Per-Fish Offline Results ═══ */}
         {offlineResults.length > 0 && (
           <View style={styles.offlineSection}>
-            <Text style={styles.sectionTitle}>
-              🐟 Detected Fish ({offlineResults.length})
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
+              <Ionicons name="fish-outline" size={16} color={COLORS.primaryLight} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                Detected Fish ({offlineResults.length})
+              </Text>
+            </View>
             {offlineResults.map((det, idx) => {
               const diseaseColor =
                 det.disease === "Healthy Fish"
@@ -1154,7 +1638,7 @@ export default function UploadScreen() {
                   </View>
 
                   {/* Legal size */}
-                  <View style={styles.fishRow}>
+                  <View style={[styles.fishRow, { marginBottom: SPACING.sm }]}>
                     <Text style={styles.fishLabel}>Legal Size:</Text>
                     <Text
                       style={[
@@ -1167,39 +1651,24 @@ export default function UploadScreen() {
                       ]}
                     >
                       {det.isLegalSize
-                        ? `✓ ≥${det.minLegalSize}mm`
-                        : `✗ Below ${det.minLegalSize}mm`}
+                        ? `≥${det.minLegalSize}mm`
+                        : `Below ${det.minLegalSize}mm`}
                     </Text>
-                  </View>
-
-                  {/* Crop + GradCAM images */}
-                  <View style={styles.fishImages}>
-                    {det.cropUri && (
-                      <View style={styles.fishImgBox}>
-                        <Image
-                          source={{ uri: det.cropUri }}
-                          style={styles.fishImg}
-                          resizeMode="cover"
-                        />
-                        <Text style={styles.fishImgLabel}>Crop</Text>
-                      </View>
-                    )}
-                    {det.gradcamUri && (
-                      <View style={styles.fishImgBox}>
-                        <Image
-                          source={{ uri: det.gradcamUri }}
-                          style={styles.fishImg}
-                          resizeMode="cover"
-                        />
-                        <Text style={styles.fishImgLabel}>GradCAM</Text>
-                      </View>
-                    )}
                   </View>
 
                   {/* Error notice */}
                   {det.error && (
-                    <Text style={styles.fishError}>⚠️ {det.error}</Text>
+                    <Text style={styles.fishError}>{det.error}</Text>
                   )}
+
+                  {/* Detailed Report Button */}
+                  <Button
+                    label="View Detailed Report →"
+                    onPress={() => router.push("/analysis/detail")}
+                    variant="outline"
+                    size="sm"
+                    fullWidth
+                  />
                 </Card>
               );
             })}
@@ -1237,7 +1706,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: SPACING.xl,
   },
-  uploadEmoji: { fontSize: 48, marginBottom: SPACING.md },
+
   uploadTitle: {
     fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
@@ -1398,7 +1867,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   metricCard: { flex: 1 },
-  metricEmoji: { fontSize: 22, marginBottom: SPACING.xs },
+
   metricLabel: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textMuted,
@@ -1653,5 +2122,333 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     marginTop: 2,
     fontFamily: "monospace",
+  },
+
+  // ── Multi-image preview styles ──
+  multiImageCard: {
+    marginBottom: SPACING.md,
+  },
+  multiImageTitle: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
+  },
+  multiImageScroll: {
+    gap: SPACING.sm,
+    paddingRight: SPACING.sm,
+  },
+  multiImageItem: {
+    width: 100,
+    height: 100,
+    borderRadius: RADIUS.md,
+    overflow: "hidden",
+    position: "relative",
+    borderWidth: 2,
+    borderColor: COLORS.border,
+  },
+  multiImageThumb: {
+    width: "100%",
+    height: "100%",
+  },
+  multiImageRemove: {
+    position: "absolute",
+    top: 4,
+    right: 4,
+    backgroundColor: COLORS.error,
+    borderRadius: RADIUS.full,
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  multiImageRemoveText: {
+    color: "#fff",
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+  },
+  multiImageIndex: {
+    position: "absolute",
+    bottom: 4,
+    left: 4,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    color: "#fff",
+    fontSize: FONTS.sizes.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: RADIUS.sm,
+    fontWeight: FONTS.weights.bold,
+  },
+  multiImageProgress: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+    backgroundColor: "rgba(0,0,0,0.3)",
+  },
+  multiImageProgressFill: {
+    height: "100%",
+    backgroundColor: COLORS.primary,
+  },
+
+  // ── Group analysis styles ──
+  groupSection: {
+    marginTop: SPACING.xl,
+  },
+  aggregateCard: {
+    marginBottom: SPACING.md,
+  },
+  aggregateHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: SPACING.md,
+    paddingBottom: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  aggregateTitle: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.primaryLight,
+  },
+  aggregateTime: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+  },
+  aggregateRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  aggregateLabel: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+    fontWeight: FONTS.weights.medium,
+  },
+  aggregateValue: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  diseaseStatusBadge: {
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+  },
+  diseaseStatusText: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+  },
+  speciesDistSection: {
+    marginTop: SPACING.md,
+    paddingTop: SPACING.md,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  speciesDistTitle: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
+  },
+  speciesDistRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: SPACING.sm,
+  },
+  speciesDistName: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+    flex: 1,
+  },
+  speciesDistRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    flex: 1,
+  },
+  speciesDistCount: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+    minWidth: 30,
+    textAlign: "right",
+  },
+  speciesDistBar: {
+    flex: 1,
+    height: 8,
+    backgroundColor: COLORS.border,
+    borderRadius: RADIUS.full,
+    overflow: "hidden",
+  },
+  speciesDistBarFill: {
+    height: "100%",
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.full,
+  },
+
+  // ── Image navigation styles ──
+  imageNavSection: {
+    marginBottom: SPACING.md,
+  },
+  imageNavControls: {
+    flexDirection: "row",
+    gap: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+
+  // ── Current image results styles ──
+  currentImageSection: {
+    marginTop: SPACING.sm,
+  },
+  currentImageCard: {
+    marginBottom: SPACING.md,
+    overflow: "hidden",
+  },
+  currentImagePreview: {
+    width: "100%",
+    height: 280,
+  },
+  errorCard: {
+    marginBottom: SPACING.md,
+    backgroundColor: COLORS.error + "10",
+    borderWidth: 1,
+    borderColor: COLORS.error + "40",
+  },
+  errorText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.error,
+    textAlign: "center",
+  },
+  noFishCard: {
+    marginTop: SPACING.md,
+    alignItems: "center",
+  },
+  noFishText: {
+    fontSize: FONTS.sizes.md,
+    color: COLORS.textMuted,
+    textAlign: "center",
+  },
+
+  // ── Crop card styles (for group analysis) ──
+  cropCard: {
+    marginBottom: SPACING.md,
+  },
+  cropCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: SPACING.sm,
+  },
+  cropCardTitle: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  cropConfBadge: {
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 2,
+  },
+  cropConfText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+  },
+  cropSpecies: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.extrabold,
+    color: COLORS.primaryLight,
+    marginBottom: 2,
+  },
+  cropScientific: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textMuted,
+    fontStyle: "italic",
+    marginBottom: SPACING.sm,
+  },
+  cropRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: SPACING.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  cropLabel: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textMuted,
+  },
+  cropValue: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semibold,
+    color: COLORS.textPrimary,
+  },
+  cropMetrics: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.bgDark,
+    borderRadius: RADIUS.lg,
+  },
+  cropMetricItem: {
+    alignItems: "center",
+  },
+  cropMetricVal: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  cropMetricLabel: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: 2,
+  },
+  cropImages: {
+    flexDirection: "row",
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    flexWrap: "wrap",
+  },
+  cropImgBox: {
+    flex: 1,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  cropImg: {
+    width: "100%",
+    height: 100,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  cropImgLabel: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: SPACING.xs,
+  },
+  cropYoloConf: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: SPACING.sm,
+    textAlign: "center",
+    fontFamily: "monospace",
+  },
+
+  // Action buttons
+  actionButtonsRow: {
+    flexDirection: "row",
+    gap: SPACING.md,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  actionButton: {
+    flex: 1,
   },
 });

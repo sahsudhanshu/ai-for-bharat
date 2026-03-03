@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect } from "react";
 import { View, Image, StyleSheet, Text } from "react-native";
+import { Ionicons } from '@expo/vector-icons';
 import type { BoundingBox } from "../lib/detection";
 import { COLORS, FONTS, SPACING, RADIUS } from "../lib/constants";
 
@@ -89,7 +90,8 @@ export function BoundingBoxOverlay({
 
       {/* Detection count badge */}
       <View style={styles.countBadge}>
-        <Text style={styles.countText}>🐟 {detections.length} detected</Text>
+        <Ionicons name="fish" size={16} color={COLORS.white} />
+        <Text style={styles.countText}>{detections.length} detected</Text>
       </View>
     </View>
   );

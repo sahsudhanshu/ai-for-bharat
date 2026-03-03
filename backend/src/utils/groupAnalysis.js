@@ -121,6 +121,26 @@ function calculateAggregateStats(images) {
 }
 
 /**
+ * Convert relative ML API URLs to absolute URLs
+ * 
+ * @param {string} url - URL to convert (may be relative or absolute)
+ * @param {string} mlApiBaseUrl - Base URL of the ML API
+ * @returns {string} Absolute URL
+ */
+function ensureAbsoluteUrl(url, mlApiBaseUrl) {
+    if (!url) return url;
+    
+    // Already absolute
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        return url;
+    }
+    
+    // Relative URL - convert to absolute using ML API base URL
+    const cleanUrl = url.startsWith('/') ? url : `/${url}`;
+    return `${mlApiBaseUrl}${cleanUrl}`;
+}
+
+/**
  * Combine individual ML API responses into Group_Analysis
  * 
  * @param {Array} mlResults - Array of ML API results from processImagesAsync
@@ -129,13 +149,36 @@ function calculateAggregateStats(images) {
  * Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5, 4.9
  */
 function combineMLResponses(mlResults) {
+    // Get ML API base URL from environment
+    const ML_API_URL = process.env.ML_API_URL || "https://kyanmahajan-fish-pred.hf.space/predict";
+    const ML_API_BASE = ML_API_URL.replace(/\/predict$/, ''); // Remove /predict endpoint
+    
     // Map each ML response to ImageAnalysis format
     const images = mlResults.map((result) => {
+        // Convert all relative URLs to absolute URLs pointing to ML API
+        const crops = {};
+        if (result.crops) {
+            for (const [cropKey, crop] of Object.entries(result.crops)) {
+                crops[cropKey] = {
+                    ...crop,
+                    crop_url: ensureAbsoluteUrl(crop.crop_url, ML_API_BASE),
+                    species: crop.species ? {
+                        ...crop.species,
+                        gradcam_url: ensureAbsoluteUrl(crop.species.gradcam_url, ML_API_BASE),
+                    } : crop.species,
+                    disease: crop.disease ? {
+                        ...crop.disease,
+                        gradcam_url: ensureAbsoluteUrl(crop.disease.gradcam_url, ML_API_BASE),
+                    } : crop.disease,
+                };
+            }
+        }
+        
         const imageAnalysis = {
             imageIndex: result.imageIndex,
             s3Key: result.s3Key,
-            crops: result.crops || {},
-            yolo_image_url: result.yolo_image_url || "",
+            crops,
+            yolo_image_url: ensureAbsoluteUrl(result.yolo_image_url, ML_API_BASE),
         };
         
         // Add error information if present

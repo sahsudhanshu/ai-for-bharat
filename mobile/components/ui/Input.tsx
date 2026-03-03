@@ -1,5 +1,6 @@
-import React from 'react';
-import { View, TextInput, Text, StyleSheet, TextInputProps, ViewStyle } from 'react-native';
+import React, { useState } from 'react';
+import { View, TextInput, Text, StyleSheet, TextInputProps, ViewStyle, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
 
 interface InputProps extends TextInputProps {
@@ -8,6 +9,7 @@ interface InputProps extends TextInputProps {
     containerStyle?: ViewStyle;
     leftIcon?: React.ReactNode;
     rightIcon?: React.ReactNode;
+    showPasswordToggle?: boolean;
 }
 
 export function Input({
@@ -17,8 +19,13 @@ export function Input({
     leftIcon,
     rightIcon,
     style,
+    showPasswordToggle,
+    secureTextEntry,
     ...rest
 }: InputProps) {
+    const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+    const isPassword = showPasswordToggle || secureTextEntry;
+    
     return (
         <View style={[styles.container, containerStyle]}>
             {label && <Text style={styles.label}>{label}</Text>}
@@ -27,9 +34,22 @@ export function Input({
                 <TextInput
                     placeholderTextColor={COLORS.textSubtle}
                     style={[styles.input, leftIcon ? styles.inputWithLeftIcon : null, style]}
+                    secureTextEntry={isPassword && !isPasswordVisible}
                     {...rest}
                 />
-                {rightIcon && <View style={styles.rightIcon}>{rightIcon}</View>}
+                {isPassword && (
+                    <TouchableOpacity
+                        onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+                        style={styles.rightIcon}
+                    >
+                        <Ionicons
+                            name={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+                            size={20}
+                            color={COLORS.textMuted}
+                        />
+                    </TouchableOpacity>
+                )}
+                {!isPassword && rightIcon && <View style={styles.rightIcon}>{rightIcon}</View>}
             </View>
             {error && <Text style={styles.error}>{error}</Text>}
         </View>

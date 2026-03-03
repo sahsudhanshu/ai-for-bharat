@@ -20,7 +20,7 @@ import * as FileSystem from "expo-file-system/legacy";
 const MODEL_INPUT_SIZE = 256;
 const NUM_CLASSES = 4;
 const NUM_DETECTIONS = 1344;
-const CONFIDENCE_THRESHOLD = 0.25;
+const CONFIDENCE_THRESHOLD = 0.30;
 const IOU_THRESHOLD = 0.45;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
