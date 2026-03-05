@@ -6,8 +6,7 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
-    "deploy-models": "./scripts/deploy-models.sh"
+    "web": "expo start --web"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -16,6 +15,7 @@
     "@shopify/react-native-skia": "2.2.12",
     "amazon-cognito-identity-js": "^6.3.16",
     "expo": "54.0.33",
+    "expo-asset": "^55.0.8",
     "expo-av": "~16.0.8",
     "expo-camera": "~17.0.10",
     "expo-constants": "~18.0.13",

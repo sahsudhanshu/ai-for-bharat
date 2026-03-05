@@ -1,13 +1,11 @@
 # OceanAI – On-Device TFLite Models
 
 These are the pre-trained TensorFlow Lite models used for **on-device** fish
-analysis. They are checked into the repository so contributors can download
-them without an extra build step.
+analysis. They are **bundled directly into the app** as assets and loaded at runtime.
 
-> **Note:** Models are **not** bundled inside the Android/iOS app.  
-> They must be deployed to the device manually using the ADB commands below
-> before the app can run inference. See the [root README](../README.md) for
-> the full setup guide.
+> **Note:** Models are now **bundled inside the Android/iOS app** automatically.  
+> No manual deployment via ADB is required. The models are copied to `assets/models/`
+> and included in the app bundle during the build process.
 
 ## Models
 
@@ -34,14 +32,8 @@ Bacterial Red disease, Bacterial diseases (Aeromoniasis), Bacterial gill disease
 Fungal diseases (Saprolegniasis), Healthy Fish, Parasitic diseases,
 Viral diseases (White tail disease)
 
-## Quick ADB Deploy
+## Development
 
-```bash
-# From the mobile/ directory:
-npm run deploy-models
-
-# Or manually (see scripts/deploy-models.sh for full script):
-adb push models/detection_float32.tflite /sdcard/detection_float32.tflite
-adb shell run-as com.aiforbharat.oceanai sh -c \
-  'mkdir -p files/models && cp /sdcard/detection_float32.tflite files/models/ && rm /sdcard/detection_float32.tflite'
-```
+The models in this directory are the source files. During development, they are
+copied to `assets/models/` to be bundled with the app. The Metro bundler is
+configured to handle `.tflite` files as assets.

@@ -11,7 +11,6 @@ import {
   type TensorflowModel,
 } from "react-native-fast-tflite";
 import * as ImageManipulator from "expo-image-manipulator";
-import * as FileSystem from "expo-file-system/legacy";
 import * as jpeg from "jpeg-js";
 import { getModelDevicePath } from "./detection";
 
@@ -147,15 +146,8 @@ export async function loadSpeciesModel(): Promise<void> {
   if (_speciesLoadingPromise) return _speciesLoadingPromise;
   _speciesLoadingPromise = (async () => {
     try {
-      const modelUri = getModelDevicePath("Fish.tflite");
-      const info = await FileSystem.getInfoAsync(modelUri);
-      if (!info.exists) {
-        throw new Error(
-          `Species model not found at ${modelUri}.\n` +
-            `Deploy models to device first:\n  npm run deploy-models`,
-        );
-      }
-      console.log(`[TFLite] Loading species model from ${modelUri}`);
+      const modelUri = await getModelDevicePath("Fish.tflite");
+      console.log(`[TFLite] Loading bundled species model from ${modelUri}`);
       _speciesModel = await loadTensorflowModel({ url: modelUri });
       _speciesModelUri = modelUri;
       console.log(`[TFLite] Species model loaded successfully`);
@@ -174,15 +166,8 @@ export async function loadDiseaseModel(): Promise<void> {
   if (_diseaseLoadingPromise) return _diseaseLoadingPromise;
   _diseaseLoadingPromise = (async () => {
     try {
-      const modelUri = getModelDevicePath("Fish_disease.tflite");
-      const info = await FileSystem.getInfoAsync(modelUri);
-      if (!info.exists) {
-        throw new Error(
-          `Disease model not found at ${modelUri}.\n` +
-            `Deploy models to device first:\n  npm run deploy-models`,
-        );
-      }
-      console.log(`[TFLite] Loading disease model from ${modelUri}`);
+      const modelUri = await getModelDevicePath("Fish_disease.tflite");
+      console.log(`[TFLite] Loading bundled disease model from ${modelUri}`);
       _diseaseModel = await loadTensorflowModel({ url: modelUri });
       _diseaseModelUri = modelUri;
       console.log(`[TFLite] Disease model loaded successfully`);
@@ -209,12 +194,12 @@ export function getTFLiteModelDebugInfo(): TFLiteModelDebugInfo {
     speciesModel: {
       isLoaded: _speciesModel !== null,
       loadedUri: _speciesModelUri,
-      searchLocations: [getModelDevicePath("Fish.tflite")],
+      searchLocations: ["bundled:Fish.tflite"],
     },
     diseaseModel: {
       isLoaded: _diseaseModel !== null,
       loadedUri: _diseaseModelUri,
-      searchLocations: [getModelDevicePath("Fish_disease.tflite")],
+      searchLocations: ["bundled:Fish_disease.tflite"],
     },
   };
 }

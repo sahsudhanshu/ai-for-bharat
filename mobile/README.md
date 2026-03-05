@@ -45,13 +45,16 @@ mobile/
 │   ├── constants.ts        # Shared colours, fonts, config
 │   ├── types.ts            # Shared TypeScript types
 │   └── i18n/               # Internationalisation (6 languages)
-├── models/                 # ✅ TFLite models tracked in Git LFS (deploy via ADB)
+├── models/                 # ✅ TFLite models (bundled in app assets)
 │   ├── detection_float32.tflite  (~12 MB)
 │   ├── Fish.tflite               (~43 MB)
 │   ├── Fish_disease.tflite       (~43 MB)
 │   └── README.md
+├── assets/
+│   ├── models/             # Bundled TFLite models (copied from models/)
+│   └── ...                 # Icons, splash, fonts
 ├── scripts/
-│   └── deploy-models.sh    # ADB model deployment script
+│   └── deploy-models.sh    # (DEPRECATED - models now bundled in app)
 ├── backend/                # Local Python dev server (FastAPI)
 ├── .gitattributes          # Git LFS rules for .tflite files
 ├── .gitignore
@@ -68,7 +71,6 @@ mobile/
 
 - **Node.js** ≥ 20
 - **Android Studio** + Android SDK (for Android development)
-- **ADB** in your `PATH`
 - **Java 17** (for Gradle)
 - An Android device (USB debug enabled) **or** an emulator
 
@@ -104,19 +106,7 @@ The `ios/` and `android/` folders are **not committed** — they are generated f
 npx expo prebuild --clean
 ```
 
-### 4 — Deploy models to device (ADB)
-
-> **Models are not bundled inside the app.**  
-> They must be pushed to the device once using ADB.
-
-```bash
-# Recommended: use the automated script
-npm run deploy-models
-
-# Or manually — see the section below for step-by-step commands
-```
-
-### 5 — Build & run
+### 4 — Build & run
 
 ```bash
 # Android
@@ -276,12 +266,11 @@ Copy `.env.example` to `.env.local` and fill in the values.
 
 ## Available NPM Scripts
 
-| Script                  | Description                                            |
-| ----------------------- | ------------------------------------------------------ |
-| `npm start`             | Start Metro bundler                                    |
-| `npm run android`       | Build & run on Android device/emulator                 |
-| `npm run ios`           | Build & run on iOS simulator (macOS only)              |
-| `npm run deploy-models` | Push TFLite models to connected Android device via ADB |
+| Script            | Description                               |
+| ----------------- | ----------------------------------------- |
+| `npm start`       | Start Metro bundler                       |
+| `npm run android` | Build & run on Android device/emulator    |
+| `npm run ios`     | Build & run on iOS simulator (macOS only) |
 
 ---
 
