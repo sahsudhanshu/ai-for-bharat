@@ -33,6 +33,9 @@ const runLambda = async (req, res, lambdaHandler) => {
 // Health check endpoint
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'oceanai-backend' }));
 
+// Auth token verification endpoint
+app.get('/auth/verify', (req, res) => runLambda(req, res, require('./src/functions/verifyAuth.js').handler));
+
 // Route Definitions mapping to Lambda functions
 app.get("/",(req,res)=>res.send("Hello How are you?"));
 app.post('/images/presigned-url', (req, res) => runLambda(req, res, require('./src/functions/getPresignedUrl.js').handler));

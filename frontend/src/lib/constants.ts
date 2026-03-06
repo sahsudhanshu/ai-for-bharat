@@ -16,6 +16,7 @@ export const IS_AGENT_CONFIGURED = true;
 
 /** API endpoint paths */
 export const ENDPOINTS = {
+  verifyToken: "/auth/verify",
   presignedUrl: "/images/presigned-url",
   analyzeImage: (imageId: string) => `/images/${imageId}/analyze`,
   getImages: "/images",

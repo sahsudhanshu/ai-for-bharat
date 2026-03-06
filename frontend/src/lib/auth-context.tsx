@@ -1,11 +1,26 @@
-"use client"
+"use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AuthenticationDetails, CognitoUser, CognitoUserAttribute, CognitoUserPool, CognitoUserSession } from 'amazon-cognito-identity-js';
-import { getUserProfile } from './api-client';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  ReactNode,
+} from "react";
+import { useRouter } from "next/navigation";
+import {
+  AuthenticationDetails,
+  CognitoUser,
+  CognitoUserAttribute,
+  CognitoUserPool,
+  CognitoUserSession,
+} from "amazon-cognito-identity-js";
+import { toast } from "sonner";
+import { getUserProfile } from "./api-client";
 
-const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || '';
-const clientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || '';
+const userPoolId = process.env.NEXT_PUBLIC_COGNITO_USER_POOL_ID || "";
+const clientId = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID || "";
 
 const poolData = {
   UserPoolId: userPoolId,
@@ -29,7 +44,12 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password?: string) => Promise<void>;
-  register: (name: string, email: string, password: string, phone: string) => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    phone: string,
+  ) => Promise<void>;
   logout: () => void;
   /** Returns current JWT token for API calls */
   getToken: () => string;
@@ -43,23 +63,26 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const isCognitoConfigured = Boolean(userPoolId && clientId);
 
-function toUserFromSession(session: CognitoUserSession, fallbackEmail: string): User {
+function toUserFromSession(
+  session: CognitoUserSession,
+  fallbackEmail: string,
+): User {
   const payload = session.getIdToken().payload;
   return {
     id: (payload.sub as string) || fallbackEmail,
-    name: (payload.name as string) || 'User',
+    name: (payload.name as string) || "User",
     email: (payload.email as string) || fallbackEmail,
-    role: 'fisherman',
-    avatar: '',
-    port: '',
-    phone: '',
-    region: '',
+    role: "fisherman",
+    avatar: "",
+    port: "",
+    phone: "",
+    region: "",
   };
 }
 
 function persistUserSession(nextUser: User, token: string): void {
-  localStorage.setItem('ocean_ai_user', JSON.stringify(nextUser));
-  localStorage.setItem('ocean_ai_token', token);
+  localStorage.setItem("ocean_ai_user", JSON.stringify(nextUser));
+  localStorage.setItem("ocean_ai_token", token);
 }
 
 /** Hydrate user with profile data from DynamoDB (best-effort) */
@@ -69,10 +92,10 @@ async function hydrateProfile(baseUser: User): Promise<User> {
     return {
       ...baseUser,
       name: profile.name || baseUser.name,
-      avatar: profile.avatar || baseUser.avatar || '',
-      port: profile.port || baseUser.port || '',
-      phone: profile.phone || baseUser.phone || '',
-      region: profile.region || baseUser.region || '',
+      avatar: profile.avatar || baseUser.avatar || "",
+      port: profile.port || baseUser.port || "",
+      phone: profile.phone || baseUser.phone || "",
+      region: profile.region || baseUser.region || "",
       role: profile.role || baseUser.role,
     };
   } catch {
@@ -85,40 +108,56 @@ function mapCognitoError(err: unknown): Error {
   const maybeError = err as { code?: string; message?: string };
   const code = maybeError?.code;
 
-  if (code === 'NotAuthorizedException') {
-    return new Error('Incorrect email or password.');
+  if (code === "NotAuthorizedException") {
+    return new Error("Incorrect email or password.");
   }
-  if (code === 'UserNotFoundException') {
-    return new Error('No account found for this email.');
+  if (code === "UserNotFoundException") {
+    return new Error("No account found for this email.");
   }
-  if (code === 'UsernameExistsException') {
-    return new Error('An account with this email already exists. Please sign in.');
+  if (code === "UsernameExistsException") {
+    return new Error(
+      "An account with this email already exists. Please sign in.",
+    );
   }
-  if (code === 'InvalidPasswordException') {
-    return new Error('Password does not meet Cognito policy requirements.');
+  if (code === "InvalidPasswordException") {
+    return new Error("Password does not meet Cognito policy requirements.");
   }
-  if (code === 'UserNotConfirmedException') {
-    return new Error('Account is not confirmed yet.');
+  if (code === "UserNotConfirmedException") {
+    return new Error("Account is not confirmed yet.");
   }
-  if (code === 'PasswordResetRequiredException') {
-    return new Error('Password reset required. Please reset your password and try again.');
+  if (code === "PasswordResetRequiredException") {
+    return new Error(
+      "Password reset required. Please reset your password and try again.",
+    );
   }
-  if (code === 'InvalidParameterException' && maybeError?.message?.includes('SECRET_HASH')) {
-    return new Error('Cognito app client is misconfigured: use a public client with no client secret.');
+  if (
+    code === "InvalidParameterException" &&
+    maybeError?.message?.includes("SECRET_HASH")
+  ) {
+    return new Error(
+      "Cognito app client is misconfigured: use a public client with no client secret.",
+    );
   }
 
-  return new Error(maybeError?.message || 'Authentication failed. Please try again.');
+  return new Error(
+    maybeError?.message || "Authentication failed. Please try again.",
+  );
 }
 
 function assertCognitoConfigured(): void {
   if (!isCognitoConfigured) {
-    throw new Error('Cognito env is missing. Set NEXT_PUBLIC_COGNITO_USER_POOL_ID and NEXT_PUBLIC_COGNITO_CLIENT_ID in frontend/.env.local.');
+    throw new Error(
+      "Cognito env is missing. Set NEXT_PUBLIC_COGNITO_USER_POOL_ID and NEXT_PUBLIC_COGNITO_CLIENT_ID in frontend/.env.local.",
+    );
   }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const router = useRouter();
+  // Keep a stable ref to logout so the event listener always calls the latest version
+  const logoutRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!isCognitoConfigured) {
@@ -129,23 +168,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if there is an active session
     const cognitoUser = userPool.getCurrentUser();
     if (cognitoUser) {
-      cognitoUser.getSession(async (err: Error | null, session: CognitoUserSession | null) => {
-        if (err || !session || !session.isValid()) {
-          logout();
+      cognitoUser.getSession(
+        async (err: Error | null, session: CognitoUserSession | null) => {
+          if (err || !session || !session.isValid()) {
+            logout();
+            setIsLoading(false);
+            return;
+          }
+
+          const baseUser = toUserFromSession(
+            session,
+            cognitoUser.getUsername(),
+          );
+          const token = session.getAccessToken().getJwtToken();
+          persistUserSession(baseUser, token);
+
+          // Hydrate with DynamoDB profile data
+          const fullUser = await hydrateProfile(baseUser);
+          setUser(fullUser);
+          persistUserSession(fullUser, token);
           setIsLoading(false);
-          return;
-        }
-
-        const baseUser = toUserFromSession(session, cognitoUser.getUsername());
-        const token = session.getAccessToken().getJwtToken();
-        persistUserSession(baseUser, token);
-
-        // Hydrate with DynamoDB profile data
-        const fullUser = await hydrateProfile(baseUser);
-        setUser(fullUser);
-        persistUserSession(fullUser, token);
-        setIsLoading(false);
-      });
+        },
+      );
     } else {
       setIsLoading(false);
     }
@@ -200,7 +244,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const register = async (name: string, email: string, password: string, phone: string) => {
+  const register = async (
+    name: string,
+    email: string,
+    password: string,
+    phone: string,
+  ) => {
     return new Promise<void>((resolve, reject) => {
       try {
         assertCognitoConfigured();
@@ -210,8 +259,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const attributeList = [
-        new CognitoUserAttribute({ Name: 'name', Value: name }),
-        ...(phone && phone.trim() !== '' ? [new CognitoUserAttribute({ Name: 'phone_number', Value: phone })] : [])
+        new CognitoUserAttribute({ Name: "name", Value: name }),
+        ...(phone && phone.trim() !== ""
+          ? [new CognitoUserAttribute({ Name: "phone_number", Value: phone })]
+          : []),
       ];
 
       userPool.signUp(email, password, attributeList, [], (err) => {
@@ -230,13 +281,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cognitoUser.signOut();
     }
     setUser(null);
-    localStorage.removeItem('ocean_ai_user');
-    localStorage.removeItem('ocean_ai_token');
+    localStorage.removeItem("ocean_ai_user");
+    localStorage.removeItem("ocean_ai_token");
   };
 
+  // Keep ref up-to-date so the event listener always calls the latest logout
+  logoutRef.current = logout;
+
+  // Handle token expiry from API calls (401 responses dispatch this event)
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      logoutRef.current();
+      toast.error("Your session has expired. Please sign in again.");
+      router.replace("/login");
+    };
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () =>
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const getToken = (): string => {
-    if (typeof window === 'undefined') return '';
-    return localStorage.getItem('ocean_ai_token') || '';
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("ocean_ai_token") || "";
   };
 
   const updateUser = (partial: Partial<User>) => {
@@ -244,42 +311,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const updated = { ...prev, ...partial };
       // Keep localStorage in sync
-      const token = localStorage.getItem('ocean_ai_token') || '';
+      const token = localStorage.getItem("ocean_ai_token") || "";
       persistUserSession(updated, token);
       return updated;
     });
   };
 
-  const changePassword = async (oldPassword: string, newPassword: string): Promise<void> => {
+  const changePassword = async (
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> => {
     assertCognitoConfigured();
 
     return new Promise<void>((resolve, reject) => {
       const cognitoUser = userPool.getCurrentUser();
       if (!cognitoUser) {
-        reject(new Error('No active session. Please log in again.'));
+        reject(new Error("No active session. Please log in again."));
         return;
       }
 
-      cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
-        if (err || !session || !session.isValid()) {
-          reject(new Error('Session expired. Please log in again.'));
-          return;
-        }
-
-        cognitoUser.changePassword(oldPassword, newPassword, (changeErr) => {
-          if (changeErr) {
-            reject(mapCognitoError(changeErr));
+      cognitoUser.getSession(
+        (err: Error | null, session: CognitoUserSession | null) => {
+          if (err || !session || !session.isValid()) {
+            reject(new Error("Session expired. Please log in again."));
             return;
           }
-          resolve();
-        });
-      });
+
+          cognitoUser.changePassword(oldPassword, newPassword, (changeErr) => {
+            if (changeErr) {
+              reject(mapCognitoError(changeErr));
+              return;
+            }
+            resolve();
+          });
+        },
+      );
     });
   };
 
   return (
     <AuthContext.Provider
-      value={{ user, isAuthenticated: !!user, isLoading, login, register, logout, getToken, updateUser, changePassword }}
+      value={{
+        user,
+        isAuthenticated: !!user,
+        isLoading,
+        login,
+        register,
+        logout,
+        getToken,
+        updateUser,
+        changePassword,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -289,7 +371,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 };
