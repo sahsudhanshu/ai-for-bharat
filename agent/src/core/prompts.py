@@ -12,6 +12,7 @@ def build_system_prompt(
     region_context: str | None = None,
     catch_context: str | None = None,
     location_context: str | None = None,
+    rag_context: str | None = None,
 ) -> str:
     """
     Compose a full system prompt with injected context blocks.
@@ -80,6 +81,14 @@ You are friendly, practical, and deeply knowledgeable about:
 {catch_context}
 """)
 
+    # ── RAG Knowledge Base Context ────────────────────────────────────────
+    if rag_context:
+        sections.append(f"""## Fish Knowledge Base
+Use this information from the knowledge base to answer questions about fish species, fishing regulations, government schemes, and best practices:
+
+{rag_context}
+""")
+
     # ── User location context ─────────────────────────────────────────────
     if location_context:
         sections.append(f"""## User Location
@@ -97,8 +106,10 @@ You have access to the following tools. Use them proactively when the user's que
 - **get_group_details** — detailed analysis of a specific group catch (total fish, weight, value). Use this when the user references a specific Group ID.
 - **get_map_data** — ocean zones, fishing markers, restricted areas
 - **get_market_prices** — current fish market prices at nearby ports
+- **web_search** — search the internet for real-time or recent information: latest news, current fish prices, new government schemes, recent fishing regulations, any topic you don't have enough information about. **Use this tool whenever the user asks about something current, recent, or that you are uncertain about.**
 
 When calling a tool, wait for the result before responding. Incorporate the result naturally into your reply.
+If the user explicitly asks you to "search the web", "search online", "look it up", or uses phrases like "latest", "current", "today", "recent" — you MUST call the **web_search** tool.
 
 ## Memory Extraction
 After answering, determine if the conversation reveals any **new permanent facts** about the user (e.g. home port, preferred fish species, boat type, family size, years of experience). If yes, you will be asked to extract them.

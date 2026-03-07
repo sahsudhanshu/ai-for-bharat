@@ -12,6 +12,8 @@ import json
 import time
 import boto3
 import logging
+from opensearchpy import OpenSearch, RequestsHttpConnection
+from requests_aws4auth import AWS4Auth
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ class BedrockKnowledgeBaseSetup:
     
     def __init__(
         self,
-        region: str = "ap-south-1",
+        region: str = "us-east-1",
         s3_bucket: str = "fish-detection-project-2026",
         s3_prefix: str = "rag",
         kb_name: str = "fish-knowledge-base",
@@ -41,6 +43,139 @@ class BedrockKnowledgeBaseSetup:
         self.knowledge_base_id = None
         self.collection_arn = None
         
+    def create_encryption_policy(self, collection_name: str) -> bool:
+        """
+        Create encryption policy for OpenSearch Serverless collection
+        
+        Args:
+            collection_name: Name of the collection
+            
+        Returns:
+            True if successful
+        """
+        policy_name = f"fish-kb-encryption-{int(time.time())}"
+        
+        policy = {
+            "Rules": [
+                {
+                    "ResourceType": "collection",
+                    "Resource": [f"collection/{collection_name}"]
+                }
+            ],
+            "AWSOwnedKey": True
+        }
+        
+        logger.info(f"Creating encryption policy: {policy_name}")
+        
+        try:
+            self.opensearch.create_security_policy(
+                name=policy_name,
+                type="encryption",
+                policy=json.dumps(policy)
+            )
+            logger.info(f"✓ Encryption policy created: {policy_name}")
+            return True
+        except Exception as e:
+            # Policy might already exist, try to continue
+            logger.warning(f"Encryption policy creation warning (may be OK): {e}")
+            return False
+    
+    def create_network_policy(self, collection_name: str) -> bool:
+        """
+        Create network policy for OpenSearch Serverless collection.
+        Network policy must be a JSON array.
+        """
+        policy_name = f"fish-kb-network-{int(time.time())}"
+        
+        # Network policy MUST be a JSON array
+        policy = [
+            {
+                "Rules": [
+                    {
+                        "ResourceType": "collection",
+                        "Resource": [f"collection/{collection_name}"]
+                    },
+                    {
+                        "ResourceType": "dashboard",
+                        "Resource": [f"collection/{collection_name}"]
+                    }
+                ],
+                "AllowFromPublic": True
+            }
+        ]
+        
+        logger.info(f"Creating network policy: {policy_name}")
+        
+        try:
+            self.opensearch.create_security_policy(
+                name=policy_name,
+                type="network",
+                policy=json.dumps(policy)
+            )
+            logger.info(f"✓ Network policy created: {policy_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Network policy creation warning (may be OK): {e}")
+            return False
+    
+    def create_data_access_policy(self, collection_name: str, role_arn: str) -> bool:
+        """
+        Create data access policy so Bedrock IAM role can read/write the OpenSearch index.
+        Required for ingestion and retrieval.
+        Also includes the current caller's identity for index creation.
+        """
+        policy_name = f"fish-kb-access-{int(time.time())}"
+        
+        # Get current caller identity (needed to create index via API)
+        sts = boto3.client("sts")
+        caller_arn = sts.get_caller_identity()["Arn"]
+        
+        # Data access policy MUST be a JSON array
+        policy = [
+            {
+                "Rules": [
+                    {
+                        "ResourceType": "index",
+                        "Resource": [f"index/{collection_name}/*"],
+                        "Permission": [
+                            "aoss:CreateIndex",
+                            "aoss:UpdateIndex",
+                            "aoss:DescribeIndex",
+                            "aoss:ReadDocument",
+                            "aoss:WriteDocument"
+                        ]
+                    },
+                    {
+                        "ResourceType": "collection",
+                        "Resource": [f"collection/{collection_name}"],
+                        "Permission": [
+                            "aoss:CreateCollectionItems",
+                            "aoss:UpdateCollectionItems",
+                            "aoss:DescribeCollectionItems"
+                        ]
+                    }
+                ],
+                "Principal": [
+                    role_arn,
+                    caller_arn
+                ]
+            }
+        ]
+        
+        logger.info(f"Creating data access policy: {policy_name}")
+        
+        try:
+            self.opensearch.create_access_policy(
+                name=policy_name,
+                type="data",
+                policy=json.dumps(policy)
+            )
+            logger.info(f"✓ Data access policy created: {policy_name}")
+            return True
+        except Exception as e:
+            logger.warning(f"Data access policy creation warning: {e}")
+            return False
+        
     def create_opensearch_collection(self) -> str:
         """
         Create OpenSearch Serverless collection for vector storage
@@ -50,9 +185,19 @@ class BedrockKnowledgeBaseSetup:
         """
         collection_name = f"fish-kb-{int(time.time())}"
         
-        logger.info(f"Creating OpenSearch Serverless collection: {collection_name}")
+        logger.info(f"Setting up OpenSearch Serverless collection: {collection_name}")
         
         try:
+            # Create required policies first
+            self.create_encryption_policy(collection_name)
+            self.create_network_policy(collection_name)
+            
+            # Give time for policies to be registered
+            logger.info("Waiting for security policies to be registered...")
+            time.sleep(3)
+            
+            # Now create the collection
+            logger.info(f"Creating OpenSearch Serverless collection: {collection_name}")
             response = self.opensearch.create_collection(
                 name=collection_name,
                 type="VECTORSEARCH",
@@ -60,16 +205,110 @@ class BedrockKnowledgeBaseSetup:
             )
             
             collection_arn = response["createCollectionDetail"]["arn"]
+            collection_id = response["createCollectionDetail"]["id"]
             logger.info(f"✓ Collection created: {collection_arn}")
             
-            # Wait for collection to be active
-            time.sleep(5)
+            # Store collection name/id/endpoint for later use
+            self._collection_name = collection_name
+            self._collection_id = collection_id
             
-            return collection_arn
+            # Wait for collection to become ACTIVE (poll up to 10 minutes)
+            logger.info("Waiting for collection to become active (this may take 2-5 minutes)...")
+            endpoint = None
+            for i in range(60):  # up to 10 minutes
+                try:
+                    status_resp = self.opensearch.batch_get_collection(ids=[collection_id])
+                    details = status_resp.get("collectionDetails", [])
+                    if details:
+                        status = details[0].get("status")
+                        if status == "ACTIVE":
+                            endpoint = details[0].get("collectionEndpoint")
+                            self._collection_endpoint = endpoint
+                            logger.info(f"✓ Collection is ACTIVE")
+                            logger.info(f"  Endpoint: {endpoint}")
+                            return collection_arn
+                        elif status == "FAILED":
+                            raise Exception(f"Collection creation FAILED")
+                        else:
+                            if i % 6 == 0:
+                                logger.info(f"  Status: {status} (waiting...)")
+                except Exception as ex:
+                    if "FAILED" in str(ex):
+                        raise
+                time.sleep(10)
+            
+            raise Exception("Collection did not become ACTIVE within 10 minutes")
             
         except Exception as e:
             logger.error(f"Error creating OpenSearch collection: {e}")
             raise
+    
+    def create_vector_index(self):
+        """
+        Create the vector index in the OpenSearch Serverless collection.
+        Bedrock requires the index to exist before creating the Knowledge Base.
+        Uses opensearch-py with AWS4Auth (raw requests+SigV4 returns 403 on AOSS).
+        """
+        endpoint = getattr(self, '_collection_endpoint', None)
+        if not endpoint:
+            raise Exception("Collection endpoint not available. Collection must be ACTIVE first.")
+        
+        index_name = "fish-kb-index"
+        # Strip https:// from endpoint for opensearch-py host
+        host = endpoint.replace("https://", "").replace("http://", "")
+        
+        # Index body with KNN vector field (1024 dims for Titan Embed v2)
+        body = {
+            "settings": {
+                "index.knn": True
+            },
+            "mappings": {
+                "properties": {
+                    "embedding": {
+                        "type": "knn_vector",
+                        "dimension": 1024,
+                        "method": {
+                            "engine": "faiss",
+                            "space_type": "l2",
+                            "name": "hnsw",
+                            "parameters": {
+                                "ef_construction": 512,
+                                "m": 16
+                            }
+                        }
+                    },
+                    "text": {
+                        "type": "text"
+                    },
+                    "metadata": {
+                        "type": "text"
+                    }
+                }
+            }
+        }
+        
+        logger.info(f"Creating vector index '{index_name}' at {endpoint}")
+        
+        # Use opensearch-py with AWS4Auth (raw urllib/requests fails AOSS auth)
+        creds = boto3.Session().get_credentials().get_frozen_credentials()
+        awsauth = AWS4Auth(
+            creds.access_key, creds.secret_key, self.region, "aoss",
+            session_token=creds.token
+        )
+        client = OpenSearch(
+            hosts=[{"host": host, "port": 443}],
+            http_auth=awsauth,
+            use_ssl=True,
+            verify_certs=True,
+            connection_class=RequestsHttpConnection,
+            timeout=60
+        )
+        
+        resp = client.indices.create(index=index_name, body=body)
+        if resp.get("acknowledged"):
+            logger.info(f"✓ Vector index '{index_name}' created successfully")
+        else:
+            raise Exception(f"Failed to create vector index: {resp}")
     
     def create_iam_role_for_kb(self) -> str:
         """
@@ -79,6 +318,7 @@ class BedrockKnowledgeBaseSetup:
             Role ARN
         """
         role_name = f"bedrock-kb-role-{int(time.time())}"
+        self._role_name = role_name
         
         assume_role_policy = {
             "Version": "2012-10-17",
@@ -173,7 +413,7 @@ class BedrockKnowledgeBaseSetup:
                         "bedrock:InvokeModel"
                     ],
                     "Resource": [
-                        f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v1"
+                        f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0"
                     ]
                 }
             ]
@@ -201,6 +441,9 @@ class BedrockKnowledgeBaseSetup:
         logger.info(f"Creating Bedrock Knowledge Base: {self.kb_name}")
         
         try:
+            # Use Amazon Titan Text Embeddings V2 (1024 dims, available in us-east-1)
+            embedding_model_arn = f"arn:aws:bedrock:{self.region}::foundation-model/amazon.titan-embed-text-v2:0"
+            
             response = self.bedrock_agent.create_knowledge_base(
                 name=self.kb_name,
                 description="Fish species knowledge base for Indian fishermen",
@@ -208,27 +451,24 @@ class BedrockKnowledgeBaseSetup:
                 knowledgeBaseConfiguration={
                     "type": "VECTOR",
                     "vectorKnowledgeBaseConfiguration": {
-                        "embeddingModel": {
-                            "provider": "BEDROCK",
-                            "model": "amazon.titan-embed-text-v1"
-                        },
-                        "storageConfiguration": {
-                            "type": "OPENSEARCH_SERVERLESS",
-                            "opensearchServerlessConfiguration": {
-                                "collectionArn": collection_arn,
-                                "vectorIndexName": "fish-kb-index",
-                                "fieldMappings": {
-                                    "vectorField": "embedding",
-                                    "textField": "text",
-                                    "metadataField": "metadata"
-                                }
-                            }
+                        "embeddingModelArn": embedding_model_arn
+                    }
+                },
+                storageConfiguration={
+                    "type": "OPENSEARCH_SERVERLESS",
+                    "opensearchServerlessConfiguration": {
+                        "collectionArn": collection_arn,
+                        "vectorIndexName": "fish-kb-index",
+                        "fieldMapping": {
+                            "vectorField": "embedding",
+                            "textField": "text",
+                            "metadataField": "metadata"
                         }
                     }
                 }
             )
             
-            kb_id = response["knowledgeBaseId"]
+            kb_id = response["knowledgeBase"]["knowledgeBaseId"]
             self.knowledge_base_id = kb_id
             logger.info(f"✓ Knowledge Base created: {kb_id}")
             
@@ -260,8 +500,7 @@ class BedrockKnowledgeBaseSetup:
                     "type": "S3",
                     "s3Configuration": {
                         "bucketArn": f"arn:aws:s3:::{self.s3_bucket}",
-                        "inclusionPrefixes": [self.s3_prefix],
-                        "exclusionPatterns": [".git/*", ".gitignore"]
+                        "inclusionPrefixes": [self.s3_prefix]
                     }
                 }
             )
@@ -388,6 +627,18 @@ class BedrockKnowledgeBaseSetup:
             logger.info("\n[2/6] Creating IAM role...")
             role_arn = self.create_iam_role_for_kb()
             
+            # Step 2.5: Create data access policy (required for Bedrock to index)
+            logger.info("\n[2.5/6] Creating data access policy...")
+            collection_name = getattr(self, '_collection_name', 'fish-kb')
+            self.create_data_access_policy(collection_name, role_arn)
+            logger.info("Waiting 30s for data access policy to propagate...")
+            time.sleep(30)  # OpenSearch policies can take up to 30s to propagate
+            
+            # Step 2.75: Create vector index in the OpenSearch collection
+            logger.info("\n[2.75/6] Creating vector index in OpenSearch...")
+            self.create_vector_index()
+            time.sleep(5)
+            
             # Step 3: Create knowledge base
             logger.info("\n[3/6] Creating knowledge base...")
             kb_id = self.create_knowledge_base(role_arn, collection_arn)
@@ -456,7 +707,7 @@ if __name__ == "__main__":
     
     # Initialize setup
     setup = BedrockKnowledgeBaseSetup(
-        region="ap-south-1",
+        region="us-east-1",
         s3_bucket="fish-detection-project-2026",
         s3_prefix="rag",
         kb_name="fish-knowledge-base"
@@ -464,6 +715,11 @@ if __name__ == "__main__":
     
     # Run setup
     config = setup.setup_complete()
+    
+    # Save configuration
+    save_kb_config(config)
+    print(f"\nKnowledge Base ID: {config['knowledge_base_id']}")
+    print(f"Saved to kb_config.json")
     
     # Save config for later use
     save_kb_config(config, "kb_config.json")

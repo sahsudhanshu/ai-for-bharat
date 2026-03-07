@@ -33,6 +33,14 @@ class AgentState(TypedDict, total=False):
     long_term_memory: Optional[str]        # persisted facts / preferences
     region_context: Optional[str]          # nearby ocean zones, markers
     catch_context: Optional[str]           # recent catch history snippet
+    
+    # ── RAG Knowledge Base Context ───────────────────────────────────────────
+    rag_context: Optional[str]             # Retrieved knowledge from Bedrock KB
+    rag_query: Optional[str]               # The query used for RAG retrieval
+    rag_documents_count: int               # Number of documents retrieved
+    rag_query_type: Optional[str]          # Type of query: 'species', 'policy', 'general'
+    detected_species: Optional[str]        # Fish species detected in user message
+    rag_error: Optional[str]               # Error message if RAG retrieval failed
 
     # ── Tool outputs ─────────────────────────────────────────────────────────
     tool_outputs: List[Dict[str, Any]]     # aggregated tool results

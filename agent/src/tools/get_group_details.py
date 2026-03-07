@@ -21,6 +21,7 @@ async def get_group_details(group_id: str, user_id: str = "") -> str:
         group_id: The unique identifier of the group catch to look up.
         user_id: Auto-injected by the system. Do not provide.
     """
+    print(f"📦  [TOOL] get_group_details called → group_id={group_id!r}, user_id={user_id!r}")
     table = dynamodb.Table(GROUPS_TABLE)
 
     try:

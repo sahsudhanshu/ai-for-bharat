@@ -80,6 +80,7 @@ async def get_market_prices(
         port_name: Name of the port/city (e.g. 'Mumbai', 'Kochi')
         fish_species: Name of a fish species to look up across all ports
     """
+    print(f"💰  [TOOL] get_market_prices called → port={port_name!r}, species={fish_species!r}")
     lines: list[str] = []
 
     if port_name:

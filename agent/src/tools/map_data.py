@@ -1,15 +1,20 @@
 """
 Map / ocean data tool — provides region context for the agent.
 
-Uses the same map-data logic as the backend's getMapData handler.
-Provides ocean zones, depth data, and fishing markers in a text-friendly format.
+Queries the real ai-bharat-images DynamoDB table for geo-tagged catch records
+(matching the backend getMapData Lambda), and combines with static zone/harbor data.
 """
 from __future__ import annotations
+import math
 from typing import Optional
+from boto3.dynamodb.conditions import Key, Attr
 from langchain_core.tools import tool
 
+from src.config.settings import IMAGES_TABLE, AWS_REGION
+from src.utils.dynamodb import dynamodb
 
-# ── Static data matching the backend (could later be pulled from DynamoDB) ───
+
+# ── Static reference data ────────────────────────────────────────────────────
 
 OCEAN_ZONES = [
     {
@@ -53,67 +58,166 @@ RESTRICTED_AREAS = [
 ]
 
 
-def _haversine_approx(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Very rough km distance for nearby ranking."""
-    import math
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance in km."""
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
+def _fetch_catch_markers(species_filter: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> list[dict]:
+    """
+    Query ai-bharat-images via status-createdAt-index (mirrors getMapData Lambda).
+    Returns list of {lat, lon, species, qualityGrade, weight_g, createdAt}.
+    """
+    table = dynamodb.Table(IMAGES_TABLE)
+
+    key_cond = Key("status").eq("completed")
+    if date_from and date_to:
+        key_cond = key_cond & Key("createdAt").between(date_from, date_to + "T23:59:59Z")
+
+    filter_expr = Attr("latitude").exists() & Attr("longitude").exists()
+    if species_filter:
+        filter_expr = filter_expr & Attr("analysisResult.species").eq(species_filter)
+
+    try:
+        response = table.query(
+            IndexName="status-createdAt-index",
+            KeyConditionExpression=key_cond,
+            FilterExpression=filter_expr,
+            ProjectionExpression="imageId, latitude, longitude, createdAt, analysisResult",
+            ScanIndexForward=False,
+            Limit=200,
+        )
+    except Exception as e:
+        return []
+
+    markers = []
+    for item in response.get("Items", []):
+        try:
+            lat = float(item.get("latitude", 0))
+            lon = float(item.get("longitude", 0))
+        except (TypeError, ValueError):
+            continue
+        if not (math.isfinite(lat) and math.isfinite(lon)):
+            continue
+        ar = item.get("analysisResult") or {}
+        markers.append({
+            "lat": lat,
+            "lon": lon,
+            "species": ar.get("species", "Unknown"),
+            "qualityGrade": ar.get("qualityGrade", ""),
+            "weight_g": (ar.get("measurements") or {}).get("weight_g"),
+            "createdAt": item.get("createdAt", "")[:10],
+        })
+    return markers
+
+
 @tool
 async def get_map_data(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
+    radius_km: Optional[float] = 300,
+    species: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     query: Optional[str] = None,
 ) -> str:
     """
-    Get ocean zone data, nearby harbors/markets, and restricted fishing areas.
-    Provide latitude/longitude to get nearby data, or a text query.
+    Get real geo-tagged catch records from the database, nearby harbors/markets,
+    restricted zones, and ocean zone info. Mirrors the backend map API.
 
     Args:
-        latitude: User's latitude (optional)
-        longitude: User's longitude (optional)
-        query: Free text query like 'harbors near Mumbai' (optional)
+        latitude: Center latitude to search around (optional)
+        longitude: Center longitude to search around (optional)
+        radius_km: Search radius in km for catch records (default 300)
+        species: Filter catches by fish species name e.g. 'Pomfret' (optional)
+        date_from: ISO date string start filter e.g. '2026-01-01' (optional)
+        date_to: ISO date string end filter e.g. '2026-03-07' (optional)
+        query: Free text search for a harbor/location name (optional)
     """
+    print(f"[TOOL] get_map_data called -> lat={latitude}, lon={longitude}, radius={radius_km}km, species={species!r}, query={query!r}", flush=True)
     lines: list[str] = []
 
-    # ── Nearby markers ───────────────────────────────────────────────────
+    # ── Real catch records from DynamoDB ─────────────────────────────────
+    catch_markers = _fetch_catch_markers(species_filter=species, date_from=date_from, date_to=date_to)
+
     if latitude is not None and longitude is not None:
-        ranked = sorted(
+        # Filter to radius and rank by distance
+        nearby_catches = sorted(
+            [m for m in catch_markers if _haversine(latitude, longitude, m["lat"], m["lon"]) <= (radius_km or 300)],
+            key=lambda m: _haversine(latitude, longitude, m["lat"], m["lon"]),
+        )
+
+        if nearby_catches:
+            lines.append(f"🐟 **Recent Catches Near This Location** ({len(nearby_catches)} records within {radius_km:.0f} km):")
+            # Group by species for a summary
+            from collections import Counter
+            species_counts: Counter = Counter(m["species"] for m in nearby_catches)
+            for sp, count in species_counts.most_common(8):
+                catches_for_sp = [m for m in nearby_catches if m["species"] == sp]
+                grades = [m["qualityGrade"] for m in catches_for_sp if m["qualityGrade"]]
+                weights = [m["weight_g"] for m in catches_for_sp if m["weight_g"]]
+                closest = catches_for_sp[0]
+                dist = _haversine(latitude, longitude, closest["lat"], closest["lon"])
+                detail = f"~{dist:.0f} km away"
+                if grades:
+                    detail += f", grade: {grades[0]}"
+                if weights:
+                    avg_w = sum(float(w) for w in weights) / len(weights)
+                    detail += f", avg weight: {avg_w:.0f}g"
+                lines.append(f"  • {sp}: {count} catch(es) — {detail}")
+        else:
+            lines.append(f"  No catch records found within {radius_km:.0f} km.")
+
+        # ── Nearest harbors/markets ───────────────────────────────────────
+        ranked_harbors = sorted(
             FISHING_MARKERS,
-            key=lambda m: _haversine_approx(latitude, longitude, m["lat"], m["lon"]),
+            key=lambda m: _haversine(latitude, longitude, m["lat"], m["lon"]),
         )[:5]
+        lines.append("\n📍 **Nearest Harbors & Markets:**")
+        for m in ranked_harbors:
+            dist = _haversine(latitude, longitude, m["lat"], m["lon"])
+            lines.append(f"  • {m['name']} ({m['type']}) — ~{dist:.0f} km")
 
-        lines.append("📍 **Nearest Fishing Locations:**")
-        for m in ranked:
-            dist = _haversine_approx(latitude, longitude, m["lat"], m["lon"])
-            lines.append(f"  • {m['name']} ({m['type']}) — ~{dist:.0f} km away")
-
-        # Restricted areas
-        lines.append("\n⚠️ **Restricted/Ban Zones Nearby:**")
-        for area in RESTRICTED_AREAS:
-            dist = _haversine_approx(latitude, longitude, area["lat"], area["lon"])
-            if dist < area["radius_km"] + 100:
+        # ── Nearby restricted areas ───────────────────────────────────────
+        nearby_restricted = [
+            (area, _haversine(latitude, longitude, area["lat"], area["lon"]))
+            for area in RESTRICTED_AREAS
+            if _haversine(latitude, longitude, area["lat"], area["lon"]) < area["radius_km"] + 100
+        ]
+        if nearby_restricted:
+            lines.append("\n⚠️ **Restricted/Ban Zones Nearby:**")
+            for area, dist in nearby_restricted:
                 lines.append(f"  • {area['name']}: {area['description']} (~{dist:.0f} km)")
 
     elif query:
-        # Simple keyword search
+        # Keyword search in harbor names
         q = query.lower()
         matches = [m for m in FISHING_MARKERS if q in m["name"].lower()]
         if matches:
             lines.append(f"🔍 **Search results for '{query}':**")
             for m in matches:
-                lines.append(f"  • {m['name']} ({m['type']}) — {m['lat']:.4f}°N, {m['lon']:.4f}°E")
+                lines.append(f"  • {m['name']} ({m['type']}) — {m['lat']:.4f}N, {m['lon']:.4f}E")
         else:
-            lines.append(f"No markers found matching '{query}'. Try with a broader term.")
+            lines.append(f"No harbors/markets found matching '{query}'.")
+
+        # Also show any species-filtered catches if species param given
+        if catch_markers:
+            lines.append(f"\n🐟 **Catch records** (species={species or 'all'}): {len(catch_markers)} total in database")
+
     else:
-        # Return overview
+        # Overview
         lines.append("🗺️ **Indian Ocean Fishing Zones:**")
         for z in OCEAN_ZONES:
             lines.append(f"  • {z['name']}: {z['description']}")
-        lines.append(f"\n  Total harbors/markets: {len(FISHING_MARKERS)}")
+        lines.append(f"\n  Tracked harbors/markets: {len(FISHING_MARKERS)}")
         lines.append(f"  Known restricted areas: {len(RESTRICTED_AREAS)}")
+        lines.append(f"  Total geo-tagged catches in database: {len(catch_markers)}")
+        if catch_markers:
+            from collections import Counter
+            top = Counter(m["species"] for m in catch_markers).most_common(5)
+            lines.append("  Top species on map: " + ", ".join(f"{sp}({n})" for sp, n in top))
 
     return "\n".join(lines) if lines else "No map data available."

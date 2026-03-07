@@ -28,6 +28,7 @@ COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "")
 
 # ── External APIs ───────────────────────────────────────────────────────────
 OPENWEATHERMAP_API_KEY = os.getenv("OPENWEATHERMAP_API_KEY", "")
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
 
 # ── Memory tuning ───────────────────────────────────────────────────────────
 SHORT_TERM_MESSAGE_LIMIT = int(os.getenv("SHORT_TERM_MESSAGE_LIMIT", "10"))

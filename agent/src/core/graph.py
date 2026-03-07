@@ -45,9 +45,20 @@ from src.tools.map_data import get_map_data
 from src.tools.market_prices import get_market_prices
 from src.tools.group_history import get_group_history
 from src.tools.get_group_details import get_group_details
+from src.tools.web_search import web_search
+
+# Import RAG integration
+try:
+    from rag_agent_integration import create_rag_tool, retrieve_rag_context_async
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    print("⚠ RAG not available - Bedrock KB integration skipped")
 
 # ── All tools the agent can invoke ───────────────────────────────────────────
-TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details]
+TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details, web_search]
+if RAG_AVAILABLE:
+    TOOLS.append(create_rag_tool())
 
 # ── LLM with tools bound ────────────────────────────────────────────────────
 def _get_llm():
@@ -134,6 +145,27 @@ async def load_context(state: AgentState) -> Dict[str, Any]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Node: rag_retrieval
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def rag_retrieval(state: AgentState) -> Dict[str, Any]:
+    """Retrieve knowledge from Bedrock Knowledge Base and inject into context."""
+    if not RAG_AVAILABLE:
+        return {}
+    
+    try:
+        return await retrieve_rag_context_async(state)
+    except Exception as e:
+        import logging
+        logging.warning(f"RAG retrieval failed: {e}")
+        return {
+            "rag_context": None,
+            "rag_error": str(e),
+            "rag_documents_count": 0,
+        }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Mock LLM fallback (when Bedrock is unavailable)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -181,9 +213,29 @@ async def agent(state: AgentState) -> Dict[str, Any]:
     import logging
     import traceback
     lang = state.get("selected_language", "en")
+    
     try:
+        # Rebuild system prompt with RAG context if available
+        messages = list(state["messages"])
+        
+        if state.get("rag_context"):
+            # Rebuild system prompt with RAG context
+            system_prompt = build_system_prompt(
+                selected_language=lang,
+                summary=state.get("summary"),
+                long_term_memory=state.get("long_term_memory"),
+                region_context=state.get("region_context"),
+                catch_context=state.get("catch_context"),
+                location_context=None,  # Already in initial system prompt
+                rag_context=state.get("rag_context"),
+            )
+            
+            # Replace the first system message
+            if messages and isinstance(messages[0], SystemMessage):
+                messages[0] = SystemMessage(content=system_prompt)
+        
         llm = _get_llm()
-        response = await llm.ainvoke(state["messages"])
+        response = await llm.ainvoke(messages)
         logging.debug(f"Gemini response content length: {len(response.content) if response.content else 0}, tool_calls: {len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0}")
     except Exception as e:
         logging.error(f"Gemini LLM call FAILED ({type(e).__name__}: {e})\n{traceback.format_exc()}")
@@ -300,6 +352,8 @@ def build_graph() -> StateGraph:
     # Add nodes
     workflow.add_node("language_guard", language_guard)
     workflow.add_node("load_context", load_context)
+    if RAG_AVAILABLE:
+        workflow.add_node("rag_retrieval", rag_retrieval)
     workflow.add_node("agent", agent)
     workflow.add_node("tool_executor", tool_executor)
     workflow.add_node("memory_update", memory_update)
@@ -312,7 +366,15 @@ def build_graph() -> StateGraph:
         "load_context": "load_context",
         "end": END,
     })
-    workflow.add_edge("load_context", "agent")
+    
+    if RAG_AVAILABLE:
+        # With RAG: load_context -> rag_retrieval -> agent
+        workflow.add_edge("load_context", "rag_retrieval")
+        workflow.add_edge("rag_retrieval", "agent")
+    else:
+        # Without RAG: load_context -> agent
+        workflow.add_edge("load_context", "agent")
+    
     workflow.add_conditional_edges("agent", route_agent, {
         "tool_executor": "tool_executor",
         "memory_update": "memory_update",

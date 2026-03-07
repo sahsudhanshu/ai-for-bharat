@@ -28,6 +28,7 @@ async def get_catch_details(image_id: str, user_id: str = "") -> str:
         image_id: The unique identifier of the catch/image to look up.
         user_id: Auto-injected by the system. Do not provide.
     """
+    print(f"🔬  [TOOL] get_catch_details called → image_id={image_id!r}, user_id={user_id!r}")
     table = dynamodb.Table(IMAGES_TABLE)
 
     try:

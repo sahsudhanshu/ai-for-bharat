@@ -38,6 +38,7 @@ async def get_group_history(
         limit: Max results per page. Default from settings.
         user_id: Auto-injected by the system. Do not provide.
     """
+    print(f"📋  [TOOL] get_group_history called → user_id={user_id!r}, page={page}")
     page_size = limit or CATCH_HISTORY_PAGE_SIZE
 
     table = dynamodb.Table(GROUPS_TABLE)

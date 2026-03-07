@@ -44,10 +44,12 @@ async def get_weather(latitude: float, longitude: float, location_name: Optional
         longitude: Longitude of the location (e.g. 73.8278 for Goa)
         location_name: Optional human-readable place name
     """
+    print(f"🌤️  [TOOL] get_weather called → lat={latitude}, lon={longitude}, location={location_name}")
     if not OPENWEATHERMAP_API_KEY:
         return "⚠️ Weather API not configured. Please set OPENWEATHERMAP_API_KEY."
 
     label = location_name or f"{latitude:.2f}°N, {longitude:.2f}°E"
+    print("weather is being called",  flush=True)
 
     try:
         async with httpx.AsyncClient(timeout=10) as client:

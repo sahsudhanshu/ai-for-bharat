@@ -37,6 +37,7 @@ async def get_catch_history(
         limit: Max results per page. Default from settings.
         user_id: Auto-injected by the system. Do not provide.
     """
+    print(f"🐟  [TOOL] get_catch_history called → user_id={user_id!r}, page={page}")
     page_size = limit or CATCH_HISTORY_PAGE_SIZE
     table = dynamodb.Table(IMAGES_TABLE)
 

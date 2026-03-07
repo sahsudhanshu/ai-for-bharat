@@ -165,6 +165,17 @@ def retrieve_rag_context(
         }
 
 
+async def retrieve_rag_context_async(
+    state: Dict[str, Any],
+    force_query: Optional[str] = None,
+    top_k: int = 3
+) -> Dict[str, Any]:
+    """
+    Async wrapper for retrieve_rag_context (for LangGraph)
+    """
+    return retrieve_rag_context(state, force_query, top_k)
+
+
 def inject_rag_context_into_prompt(system_prompt: str, rag_context: str) -> str:
     """
     Inject retrieved RAG context into system prompt
