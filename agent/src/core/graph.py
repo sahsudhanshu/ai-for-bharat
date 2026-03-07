@@ -46,6 +46,7 @@ from src.tools.market_prices import get_market_prices
 from src.tools.group_history import get_group_history
 from src.tools.get_group_details import get_group_details
 from src.tools.web_search import web_search
+from src.tools.fishing_spots import get_nearby_fishing_spots
 
 # Import RAG integration
 try:
@@ -56,7 +57,7 @@ except ImportError:
     print("⚠ RAG not available - Bedrock KB integration skipped")
 
 # ── All tools the agent can invoke ───────────────────────────────────────────
-TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details, web_search]
+TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details, web_search, get_nearby_fishing_spots]
 if RAG_AVAILABLE:
     TOOLS.append(create_rag_tool())
 

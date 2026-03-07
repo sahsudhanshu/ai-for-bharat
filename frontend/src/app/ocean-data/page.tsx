@@ -7,7 +7,7 @@ import {
   TrendingUp, Calendar, Droplets, Maximize2, Navigation,
   Crosshair, Loader2, MapPin, Wind, X, AlertTriangle,
   Anchor, ArrowUpRight, ArrowDownRight, Minus, Heart,
-  Sun, Moon, CloudRain, Clock, Compass
+  Sun, Moon, CloudRain, Clock, Compass, Zap, BarChart3
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,101 @@ interface ClickedWeather {
   humidity?: number; description?: string; icon?: string; loading: boolean;
 }
 
+interface FishingSpot {
+  name: string;
+  lat: number;
+  lon: number;
+  type: string;
+  distanceKm: number;
+  weatherScore: number;
+  fishDensityScore: number;
+  transportScore: number;
+  confidence: number;
+  color: string;
+}
+
+// ── Scoring helpers (mirrors agent/src/tools/fishing_spots.py) ────────────────
+function _haversineJS(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function calcWeatherScore(windSpeed: number, rain1h: number, clouds: number): number {
+  const windS = windSpeed < 3 ? 100 : windSpeed < 6 ? 85 : windSpeed < 10 ? 65 : windSpeed < 14 ? 40 : 15;
+  const rainPen = rain1h === 0 ? 0 : rain1h < 1 ? 10 : rain1h < 5 ? 25 : 40;
+  const cloudS = clouds < 20 ? 70 : clouds < 60 ? 90 : 60;
+  return Math.max(0, Math.min(100, windS * 0.55 + cloudS * 0.25 - rainPen));
+}
+
+function calcFishDensityScore(spotLat: number, spotLon: number, markers: MapMarker[]): number {
+  const nearby = markers.filter(
+    m => _haversineJS(spotLat, spotLon, Number(m.latitude), Number(m.longitude)) <= 30
+  ).length;
+  return nearby === 0 ? 20 : nearby <= 2 ? 40 : nearby <= 7 ? 60 : nearby <= 20 ? 80 : 95;
+}
+
+function calcTransportScore(distKm: number): number {
+  return distKm < 5 ? 100 : distKm < 15 ? 90 : distKm < 25 ? 78 : distKm < 40 ? 62 : 45;
+}
+
+function confidenceColor(score: number): string {
+  return score >= 68 ? '#10b981' : score >= 45 ? '#f59e0b' : '#ef4444';
+}
+
+/* ── Fishing Spot Popup ───────────────────────────────────────────────────── */
+function FishingSpotPopup({ spot }: { spot: FishingSpot }) {
+  const scoreBar = (label: string, value: number, color: string) => (
+    <div className="space-y-0.5">
+      <div className="flex justify-between text-[10px]">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-bold" style={{ color }}>{value}/100</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+        <div className="h-full rounded-full transition-all" style={{ width: `${value}%`, backgroundColor: color }} />
+      </div>
+    </div>
+  );
+
+  const confColor = spot.confidence >= 68 ? '#10b981' : spot.confidence >= 45 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className="p-3 space-y-3 min-w-[230px]">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h3 className="font-bold text-sm text-foreground leading-tight">{spot.name}</h3>
+          <p className="text-[10px] text-muted-foreground capitalize mt-0.5">{spot.type} · {spot.distanceKm.toFixed(1)} km away</p>
+        </div>
+        <div
+          className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-xs font-black text-white"
+          style={{ backgroundColor: confColor }}
+        >
+          {spot.confidence}
+        </div>
+      </div>
+
+      <div className="space-y-2 pt-1 border-t border-border/50">
+        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Score Breakdown</p>
+        {scoreBar('🌤 Weather', spot.weatherScore, '#60a5fa')}
+        {scoreBar('🐟 Fish Density', spot.fishDensityScore, '#34d399')}
+        {scoreBar('🚗 Transport Cost', spot.transportScore, '#f59e0b')}
+      </div>
+
+      <div
+        className="flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-bold text-white"
+        style={{ backgroundColor: confColor + 'cc' }}
+      >
+        <span>Confidence Score</span>
+        <span>{spot.confidence} / 100</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── Per-marker weather popup ─────────────────────────────────────────────── */
 function CatchWeatherPopup({ marker }: { marker: MapMarker }) {
   const [weather, setWeather] = useState<any>(null);
@@ -187,6 +282,9 @@ export default function OceanDataPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [clickedWeather, setClickedWeather] = useState<ClickedWeather | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fishingSpots, setFishingSpots] = useState<FishingSpot[]>([]);
+  const [loadingSpots, setLoadingSpots] = useState(false);
+  const [showFishingSpots, setShowFishingSpots] = useState(true);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const openWeatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHERMAP_API_KEY || "";
@@ -305,6 +403,127 @@ export default function OceanDataPage() {
     setUserLocation({ lat, lng });
   }, []);
 
+  const handleFindFishingSpots = useCallback(async () => {
+    let userLat = userLocation?.lat;
+    let userLon = userLocation?.lng;
+
+    if (!userLat || !userLon) {
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000 })
+        );
+        userLat = pos.coords.latitude;
+        userLon = pos.coords.longitude;
+        setUserLocation({ lat: userLat, lng: userLon });
+      } catch {
+        alert('Could not get your location. Please enable location access.');
+        return;
+      }
+    }
+
+    setLoadingSpots(true);
+    setFishingSpots([]);
+    setShowFishingSpots(true);
+
+    try {
+      const radiusM = 50000;
+      const query =
+        `[out:json][timeout:25];\n` +
+        `(\n` +
+        `  way["natural"="water"](around:${radiusM},${userLat},${userLon});\n` +
+        `  way["waterway"~"river|canal"](around:${radiusM},${userLat},${userLon});\n` +
+        `  relation["natural"="water"](around:${radiusM},${userLat},${userLon});\n` +
+        `  node["natural"~"bay|beach|cape"](around:${radiusM},${userLat},${userLon});\n` +
+        `  way["natural"~"beach|coastline"](around:${radiusM},${userLat},${userLon});\n` +
+        `);\nout center 30;`;
+
+      const overpassResp = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        body: new URLSearchParams({ data: query }),
+      });
+      const overpassData = await overpassResp.json();
+
+      const rawSpots: { name: string; lat: number; lon: number; type: string }[] = [];
+      const seenNames = new Set<string>();
+
+      for (const elem of overpassData.elements || []) {
+        const tags = elem.tags || {};
+        const name =
+          tags.name || tags['name:en'] || tags['name:hi'] ||
+          tags.waterway || tags.natural || 'Water Body';
+
+        let lat: number, lon: number;
+        if (elem.type === 'node') {
+          lat = elem.lat;
+          lon = elem.lon;
+        } else {
+          lat = elem.center?.lat;
+          lon = elem.center?.lon;
+        }
+        if (!lat || !lon) continue;
+
+        const type = tags.natural || tags.waterway || 'water';
+        const key = `${name.toLowerCase().trim()}_${type}`;
+        if (seenNames.has(key)) continue;
+        seenNames.add(key);
+        rawSpots.push({ name, lat, lon, type });
+      }
+
+      // Keep the 12 closest spots
+      const closest = rawSpots
+        .map(s => ({ ...s, distanceKm: _haversineJS(userLat!, userLon!, s.lat, s.lon) }))
+        .sort((a, b) => a.distanceKm - b.distanceKm)
+        .slice(0, 12);
+
+      // Fetch weather for each spot in parallel
+      const weatherResults = await Promise.all(
+        closest.map(async (spot) => {
+          if (!openWeatherApiKey) return null;
+          try {
+            const r = await fetch(
+              `https://api.openweathermap.org/data/2.5/weather?lat=${spot.lat}&lon=${spot.lon}&appid=${openWeatherApiKey}&units=metric`
+            );
+            if (!r.ok) return null;
+            return r.json();
+          } catch { return null; }
+        })
+      );
+
+      const scored: FishingSpot[] = closest.map((spot, i) => {
+        const wd = weatherResults[i];
+        const wScore = wd?.main
+          ? calcWeatherScore(wd.wind?.speed ?? 5, wd.rain?.['1h'] ?? 0, wd.clouds?.all ?? 50)
+          : 50;
+        const fScore = calcFishDensityScore(spot.lat, spot.lon, validMarkers);
+        const tScore = calcTransportScore(spot.distanceKm);
+        const confidence = Math.round(wScore * 0.40 + fScore * 0.35 + tScore * 0.25);
+        return {
+          name: spot.name,
+          lat: spot.lat,
+          lon: spot.lon,
+          type: spot.type,
+          distanceKm: Math.round(spot.distanceKm * 10) / 10,
+          weatherScore: Math.round(wScore),
+          fishDensityScore: Math.round(fScore),
+          transportScore: Math.round(tScore),
+          confidence,
+          color: confidenceColor(confidence),
+        };
+      });
+
+      scored.sort((a, b) => b.confidence - a.confidence);
+      setFishingSpots(scored);
+
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.flyTo([userLat, userLon], 9, { duration: 1.2 });
+      }
+    } catch (err) {
+      console.error('Failed to find fishing spots:', err);
+    } finally {
+      setLoadingSpots(false);
+    }
+  }, [userLocation, openWeatherApiKey, validMarkers]);
+
   useEffect(() => {
     const fetchMarkers = async () => {
       setIsLoading(true);
@@ -389,6 +608,22 @@ export default function OceanDataPage() {
                     )}>{activeAlerts.length}</span>
                   )}
                 </Button>
+                {fishingSpots.length > 0 && (
+                  <Button
+                    variant={showFishingSpots ? "secondary" : "ghost"}
+                    className={cn(
+                      "w-full justify-start gap-2 rounded-xl h-9 transition-all text-xs",
+                      showFishingSpots ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "text-muted-foreground"
+                    )}
+                    onClick={() => setShowFishingSpots(!showFishingSpots)}
+                  >
+                    <Zap className="w-4 h-4" />
+                    <span className="font-semibold">Fishing Spots</span>
+                    <span className={cn("ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full",
+                      showFishingSpots ? "bg-emerald-500/20 text-emerald-400" : "bg-muted text-muted-foreground"
+                    )}>{fishingSpots.length}</span>
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -409,6 +644,53 @@ export default function OceanDataPage() {
 
 
           </Card>
+
+          {/* ── Find Fishing Spots ───────────────────────────────────── */}
+          <Button
+            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 font-bold shadow-lg shadow-emerald-900/30 text-xs h-9 gap-2"
+            onClick={handleFindFishingSpots}
+            disabled={loadingSpots}
+          >
+            {loadingSpots ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Finding Spots...</>
+            ) : (
+              <><Zap className="w-4 h-4" />Find Fishing Spots Near Me</>
+            )}
+          </Button>
+
+          {/* Fishing spots summary list */}
+          {fishingSpots.length > 0 && (
+            <Card className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm p-3 space-y-2">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                <BarChart3 className="w-3.5 h-3.5" /> Spot Rankings
+              </h3>
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {fishingSpots.map((spot, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors cursor-pointer"
+                    onClick={() => mapInstanceRef.current?.flyTo([spot.lat, spot.lon], 12, { duration: 1.2 })}
+                  >
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-black text-white shrink-0"
+                      style={{ backgroundColor: spot.color }}
+                    >
+                      {spot.confidence}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold text-foreground truncate">{spot.name}</p>
+                      <p className="text-[9px] text-muted-foreground capitalize">{spot.type} · {spot.distanceKm} km</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-3 pt-1 border-t border-border/50 text-[9px] text-muted-foreground">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />High ≥68</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Mid 45–67</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Low &lt;45</span>
+              </div>
+            </Card>
+          )}
 
           {/* ── Fisherman Tools ─────────────────────────────────────── */}
           <Card className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm p-3 sm:p-4 space-y-3">
@@ -585,6 +867,26 @@ export default function OceanDataPage() {
               </Circle>
             ))}
 
+            {/* ── Fishing Spot Circles ─────────────────────────────── */}
+            {showFishingSpots && fishingSpots.map((spot, i) => (
+              <Circle
+                key={`fspot-${i}`}
+                center={[spot.lat, spot.lon]}
+                radius={12000}
+                pathOptions={{
+                  fillColor: spot.color,
+                  fillOpacity: 0.55,
+                  color: spot.color,
+                  weight: 2.5,
+                  opacity: 0.9,
+                }}
+              >
+                <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
+                  <FishingSpotPopup spot={spot} />
+                </Popup>
+              </Circle>
+            ))}
+
             {/* Clicked Weather Pin */}
             {clickedWeather && (
               <Marker position={[clickedWeather.lat, clickedWeather.lng]}>
@@ -672,6 +974,19 @@ export default function OceanDataPage() {
                     <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Low</span>
                   </div>
                 </div>
+                {showFishingSpots && fishingSpots.length > 0 && (
+                  <>
+                    <div className="h-6 w-[1px] bg-white/20" />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Fishing Spots</span>
+                      <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />High</span>
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Med</span>
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Low</span>
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="hidden sm:block h-6 w-[1px] bg-white/20" />
                 <div className="hidden sm:flex flex-col gap-0.5">
                   <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Catches</span>
