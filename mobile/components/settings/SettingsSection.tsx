@@ -1,7 +1,7 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
-import { Card } from '../ui/Card';
+import React from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
+import { Card } from "../ui/Card";
 
 interface SettingsSectionProps {
   title: string;
@@ -26,13 +26,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSubtle,
-    fontWeight: FONTS.weights.bold,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: SPACING.sm,
+    fontWeight: FONTS.weights.medium,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: SPACING.xs,
     paddingHorizontal: SPACING.xs,
   },
   card: {
-    overflow: 'hidden',
+    overflow: "hidden",
   },
 });

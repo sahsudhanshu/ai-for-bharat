@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
+import { Card } from "../ui/Card";
 
 export interface FishDetection {
   cropUrl: string;
@@ -31,7 +32,7 @@ export function FishDetectionCard({
   const isDiseased = detection.diseaseStatus !== "Healthy";
 
   return (
-    <View style={styles.card}>
+    <Card variant="default" padding={0} style={styles.cardContainer}>
       <View style={styles.mainContent}>
         {/* Fish Crop Image */}
         <Image
@@ -133,27 +134,23 @@ export function FishDetectionCard({
           </View>
         </View>
       )}
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.lg,
+  cardContainer: {
     marginBottom: SPACING.md,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: COLORS.border,
   },
   mainContent: {
     flexDirection: "row",
-    padding: SPACING.md,
-    gap: SPACING.md,
+    padding: SPACING.sm,
+    gap: SPACING.sm,
   },
   cropImage: {
-    width: 80,
-    height: 80,
+    width: 68,
+    height: 68,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.bgSurface,
   },
@@ -161,7 +158,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   species: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
     marginBottom: 2,
@@ -202,14 +199,14 @@ const styles = StyleSheet.create({
   gradcamSection: {
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
-    padding: SPACING.md,
+    padding: SPACING.sm,
     backgroundColor: COLORS.bgSurface,
   },
   gradcamTitle: {
-    fontSize: FONTS.sizes.sm,
+    fontSize: FONTS.sizes.xs,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   gradcamGrid: {
     flexDirection: "row",

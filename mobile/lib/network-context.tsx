@@ -1,6 +1,6 @@
 /**
  * Network connectivity context for automatic online/offline mode switching
- * Includes connection quality detection - switches to offline mode if connection is too slow
+ * Includes connection quality detection and sync status tracking
  */
 import React, {
   createContext,
@@ -10,12 +10,18 @@ import React, {
   ReactNode,
 } from "react";
 import NetInfo, { NetInfoState } from "@react-native-community/netinfo";
+import { SyncService, SyncStatusType } from "./sync-service";
 
 interface NetworkContextType {
   isOnline: boolean;
   isChecking: boolean;
   connectionQuality: "excellent" | "good" | "poor" | "offline";
   effectiveMode: "online" | "offline"; // Actual mode considering speed
+  syncStatus: SyncStatusType;
+  pendingCount: number;
+  failedCount: number;
+  lastSyncTime: Date | null;
+  manualSync: () => Promise<void>;
 }
 
 const NetworkContext = createContext<NetworkContextType>({
@@ -23,6 +29,11 @@ const NetworkContext = createContext<NetworkContextType>({
   isChecking: true,
   connectionQuality: "good",
   effectiveMode: "online",
+  syncStatus: "idle",
+  pendingCount: 0,
+  failedCount: 0,
+  lastSyncTime: null,
+  manualSync: async () => {},
 });
 
 // Connection quality thresholds
@@ -87,8 +98,25 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
   const [effectiveMode, setEffectiveMode] = useState<"online" | "offline">(
     "online",
   );
+  const [syncStatus, setSyncStatus] = useState<SyncStatusType>("idle");
+  const [pendingCount, setPendingCount] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
   useEffect(() => {
+    // Initialize sync service
+    SyncService.initialize();
+
+    // Subscribe to sync status changes
+    const unsubscribeSync = SyncService.subscribe((status) => {
+      setSyncStatus(status.syncStatus);
+      setPendingCount(status.pending);
+      setFailedCount(status.failed);
+      if (status.lastSync) {
+        setLastSyncTime(new Date(status.lastSync));
+      }
+    });
+
     // Subscribe to network state updates
     const unsubscribe = NetInfo.addEventListener((state) => {
       const connected = state.isConnected ?? false;
@@ -133,12 +161,40 @@ export function NetworkProvider({ children }: { children: ReactNode }) {
       setIsChecking(false);
     });
 
-    return () => unsubscribe();
+    // Initial sync status
+    SyncService.getSyncStatus().then((status) => {
+      setSyncStatus(status.syncStatus);
+      setPendingCount(status.pending);
+      setFailedCount(status.failed);
+      if (status.lastSync) {
+        setLastSyncTime(new Date(status.lastSync));
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeSync();
+      SyncService.cleanup();
+    };
   }, []);
+
+  const manualSync = async () => {
+    await SyncService.manualSync();
+  };
 
   return (
     <NetworkContext.Provider
-      value={{ isOnline, isChecking, connectionQuality, effectiveMode }}
+      value={{
+        isOnline,
+        isChecking,
+        connectionQuality,
+        effectiveMode,
+        syncStatus,
+        pendingCount,
+        failedCount,
+        lastSyncTime,
+        manualSync,
+      }}
     >
       {children}
     </NetworkContext.Provider>

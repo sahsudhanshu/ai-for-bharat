@@ -1,14 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
-import { Card } from '../ui/Card';
-import { SyncService, type SyncStatus } from '../../lib/sync-service';
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
+import { Card } from "../ui/Card";
+import { SyncService, type SyncStatus } from "../../lib/sync-service";
+import { toastService } from "../../lib/toast-service";
 
 export function SyncStatusCard() {
   const [status, setStatus] = useState<SyncStatus>({
     pending: 0,
     failed: 0,
     syncing: false,
+    syncStatus: "idle",
   });
 
   useEffect(() => {
@@ -27,15 +35,16 @@ export function SyncStatusCard() {
       await SyncService.syncPendingChanges();
       await loadStatus();
     } catch (error) {
-      console.error('Sync failed:', error);
+      console.error("Sync failed:", error);
+      toastService.error("Sync failed. Please try again.");
     }
   };
 
   const getStatusText = () => {
-    if (status.syncing) return 'Syncing...';
+    if (status.syncing) return "Syncing...";
     if (status.pending > 0) return `${status.pending} pending`;
     if (status.failed > 0) return `${status.failed} failed`;
-    return 'Synced';
+    return "Synced";
   };
 
   const getStatusColor = () => {
@@ -46,13 +55,13 @@ export function SyncStatusCard() {
   };
 
   const formatLastSync = () => {
-    if (!status.lastSync) return 'Never';
+    if (!status.lastSync) return "Never";
     const date = new Date(status.lastSync);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
 
-    if (diffMins < 1) return 'Just now';
+    if (diffMins < 1) return "Just now";
     if (diffMins < 60) return `${diffMins}m ago`;
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours}h ago`;
@@ -64,7 +73,9 @@ export function SyncStatusCard() {
       <View style={styles.row}>
         <View style={styles.left}>
           <View style={styles.statusRow}>
-            <View style={[styles.indicator, { backgroundColor: getStatusColor() }]} />
+            <View
+              style={[styles.indicator, { backgroundColor: getStatusColor() }]}
+            />
             <Text style={styles.statusText}>{getStatusText()}</Text>
           </View>
           <Text style={styles.lastSync}>Last sync: {formatLastSync()}</Text>
@@ -88,19 +99,19 @@ export function SyncStatusCard() {
 
 const styles = StyleSheet.create({
   card: {
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   left: {
     flex: 1,
   },
   statusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
     marginBottom: SPACING.xs,
   },
@@ -110,7 +121,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   statusText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
     fontWeight: FONTS.weights.medium,
   },
@@ -119,17 +130,17 @@ const styles = StyleSheet.create({
     color: COLORS.textSubtle,
   },
   button: {
-    backgroundColor: COLORS.primary + '15',
+    backgroundColor: COLORS.primary + "15",
     borderWidth: 1,
-    borderColor: COLORS.primary + '40',
+    borderColor: COLORS.primary + "40",
     borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 5,
   },
   buttonText: {
-    fontSize: FONTS.sizes.sm,
+    fontSize: FONTS.sizes.xs,
     color: COLORS.primary,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
   },
   buttonDisabled: {
     opacity: 0.5,

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
-import { Button, Input } from '../ui';
-import type { UserProfile } from '../../lib/types';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
+import React, { useState } from "react";
+import { View, Text, StyleSheet, Alert } from "react-native";
+import { Button, Input } from "../ui";
+import type { UserProfile } from "../../lib/types";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 
 interface ProfileFormProps {
   initialValues: UserProfile;
@@ -11,42 +11,48 @@ interface ProfileFormProps {
 }
 
 const ROLE_OPTIONS = [
-  'Fisherman',
-  'Boat Owner',
-  'Fish Trader',
-  'Cooperative Member',
-  'Researcher',
+  "Fisherman",
+  "Boat Owner",
+  "Fish Trader",
+  "Cooperative Member",
+  "Researcher",
 ] as const;
 
 const PORT_OPTIONS = [
-  'Mumbai',
-  'Chennai',
-  'Kochi',
-  'Visakhapatnam',
-  'Mangalore',
-  'Goa',
-  'Kolkata',
-  'Other (Enter Manually)',
-  'Not Available',
+  "Mumbai",
+  "Chennai",
+  "Kochi",
+  "Visakhapatnam",
+  "Mangalore",
+  "Goa",
+  "Kolkata",
+  "Other (Enter Manually)",
+  "Not Available",
 ];
 
 const BOAT_TYPE_OPTIONS = [
-  'Trawler',
-  'Gill Netter',
-  'Purse Seiner',
-  'Catamaran',
-  'Country Craft',
-  'Motorized',
-  'Non-Motorized',
+  "Trawler",
+  "Gill Netter",
+  "Purse Seiner",
+  "Catamaran",
+  "Country Craft",
+  "Motorized",
+  "Non-Motorized",
 ];
 
-export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProps) {
-  const [name, setName] = useState(initialValues.name || '');
-  const [phone, setPhone] = useState(initialValues.phone || '');
-  const [port, setPort] = useState(initialValues.port || '');
-  const [customPort, setCustomPort] = useState(initialValues.customPort || '');
-  const [region, setRegion] = useState(initialValues.region || '');
-  const [role, setRole] = useState<typeof ROLE_OPTIONS[number] | undefined>(initialValues.role);
+export function ProfileForm({
+  initialValues,
+  onSave,
+  onCancel,
+}: ProfileFormProps) {
+  const [name, setName] = useState(initialValues.name || "");
+  const [phone, setPhone] = useState(initialValues.phone || "");
+  const [port, setPort] = useState(initialValues.port || "");
+  const [customPort, setCustomPort] = useState(initialValues.customPort || "");
+  const [region, setRegion] = useState(initialValues.region || "");
+  const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number] | undefined>(
+    initialValues.role,
+  );
   const [boatType, setBoatType] = useState(initialValues.boatType);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -59,15 +65,15 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
     const newErrors: Record<string, string> = {};
 
     if (!name.trim()) {
-      newErrors.name = 'Name is required';
+      newErrors.name = "Name is required";
     }
 
-    if (phone && !/^\+?[1-9]\d{1,14}$/.test(phone.replace(/[\s\-()]/g, ''))) {
-      newErrors.phone = 'Invalid phone number format (E.164 format expected)';
+    if (phone && !/^\+?[1-9]\d{1,14}$/.test(phone.replace(/[\s\-()]/g, ""))) {
+      newErrors.phone = "Invalid phone number format (E.164 format expected)";
     }
 
-    if (port === 'Other (Enter Manually)' && !customPort.trim()) {
-      newErrors.customPort = 'Please enter your port name';
+    if (port === "Other (Enter Manually)" && !customPort.trim()) {
+      newErrors.customPort = "Please enter your port name";
     }
 
     setErrors(newErrors);
@@ -84,8 +90,9 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
       const updates: Partial<UserProfile> = {
         name: name.trim(),
         phone: phone.trim() || undefined,
-        port: port === 'Other (Enter Manually)' ? customPort.trim() : port,
-        customPort: port === 'Other (Enter Manually)' ? customPort.trim() : undefined,
+        port: port === "Other (Enter Manually)" ? customPort.trim() : port,
+        customPort:
+          port === "Other (Enter Manually)" ? customPort.trim() : undefined,
         region: region.trim() || undefined,
         role,
         boatType,
@@ -93,7 +100,10 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
 
       await onSave(updates);
     } catch (error) {
-      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to update profile');
+      Alert.alert(
+        "Error",
+        error instanceof Error ? error.message : "Failed to update profile",
+      );
     } finally {
       setLoading(false);
     }
@@ -144,7 +154,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
           <View style={styles.field}>
             <Text style={styles.label}>Role</Text>
             <Button
-              label={role || 'Select role'}
+              label={role || "Select role"}
               variant="outline"
               onPress={() => setShowRolePicker(!showRolePicker)}
               style={styles.pickerButton}
@@ -155,7 +165,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
                   <Button
                     key={option}
                     label={option}
-                    variant={role === option ? 'primary' : 'ghost'}
+                    variant={role === option ? "primary" : "ghost"}
                     onPress={() => {
                       setRole(option);
                       setShowRolePicker(false);
@@ -170,7 +180,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
           <View style={styles.field}>
             <Text style={styles.label}>Primary Fishing Port</Text>
             <Button
-              label={port || 'Select port'}
+              label={port || "Select port"}
               variant="outline"
               onPress={() => setShowPortPicker(!showPortPicker)}
               style={styles.pickerButton}
@@ -181,7 +191,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
                   <Button
                     key={option}
                     label={option}
-                    variant={port === option ? 'primary' : 'ghost'}
+                    variant={port === option ? "primary" : "ghost"}
                     onPress={() => {
                       setPort(option);
                       setShowPortPicker(false);
@@ -193,7 +203,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
             )}
           </View>
 
-          {port === 'Other (Enter Manually)' && (
+          {port === "Other (Enter Manually)" && (
             <View style={styles.field}>
               <Text style={styles.label}>Custom Port Name *</Text>
               <Input
@@ -217,7 +227,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
           <View style={styles.field}>
             <Text style={styles.label}>Boat Type</Text>
             <Button
-              label={boatType || 'Select boat type'}
+              label={boatType || "Select boat type"}
               variant="outline"
               onPress={() => setShowBoatTypePicker(!showBoatTypePicker)}
               style={styles.pickerButton}
@@ -228,7 +238,7 @@ export function ProfileForm({ initialValues, onSave, onCancel }: ProfileFormProp
                   <Button
                     key={option}
                     label={option}
-                    variant={boatType === option ? 'primary' : 'ghost'}
+                    variant={boatType === option ? "primary" : "ghost"}
                     onPress={() => {
                       setBoatType(option as typeof boatType);
                       setShowBoatTypePicker(false);
@@ -268,17 +278,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: SPACING.lg,
+    padding: SPACING.md,
     paddingBottom: SPACING.xl * 2,
   },
   section: {
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.lg,
   },
   sectionTitle: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold as any,
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold as any,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   field: {
     marginBottom: SPACING.lg,
@@ -299,7 +309,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   pickerButton: {
-    justifyContent: 'flex-start',
+    justifyContent: "flex-start",
   },
   pickerOptions: {
     marginTop: SPACING.xs,
@@ -308,7 +318,7 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.bgSurface,
     maxHeight: 250,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   pickerOption: {
     borderRadius: 0,
@@ -316,7 +326,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   actions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: SPACING.md,
     marginTop: SPACING.xl,
     paddingTop: SPACING.lg,

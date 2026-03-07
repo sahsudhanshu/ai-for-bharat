@@ -73,7 +73,9 @@ export async function withErrorHandling<T>(
       (error.status === 401 || error.status === 403)
     ) {
       if (!silent && showErrorToast) {
-        toastService.error("Session expired. Please log in again.");
+        toastService.error(
+          errorMessage || "Session expired. Please log in again.",
+        );
       }
       throw error;
     }

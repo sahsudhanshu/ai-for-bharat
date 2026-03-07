@@ -3,92 +3,92 @@
  */
 
 export interface FishAnalysisResult {
-    species: string;
-    scientificName: string;
-    confidence: number;
-    qualityGrade: 'Premium' | 'Standard' | 'Low';
-    isSustainable: boolean;
-    measurements: {
-        length_mm: number;
-        weight_g: number;
-        width_mm: number;
-    };
-    compliance: {
-        is_legal_size: boolean;
-        min_legal_size_mm: number;
-    };
-    marketEstimate: {
-        price_per_kg: number;
-        estimated_value: number;
-    };
-    weightEstimate: number;
-    weightConfidence: number;
-    marketPriceEstimate: number;
-    timestamp: string;
-    debugUrls?: {
-        yoloImageUrl: string | null;
-        cropImageUrl: string | null;
-        gradcamUrl: string | null;
-    };
+  species: string;
+  scientificName: string;
+  confidence: number;
+  qualityGrade: "Premium" | "Standard" | "Low";
+  isSustainable: boolean;
+  measurements: {
+    length_mm: number;
+    weight_g: number;
+    width_mm: number;
+  };
+  compliance: {
+    is_legal_size: boolean;
+    min_legal_size_mm: number;
+  };
+  marketEstimate: {
+    price_per_kg: number;
+    estimated_value: number;
+  };
+  weightEstimate: number;
+  weightConfidence: number;
+  marketPriceEstimate: number;
+  timestamp: string;
+  debugUrls?: {
+    yoloImageUrl: string | null;
+    cropImageUrl: string | null;
+    gradcamUrl: string | null;
+  };
 }
 
 export interface ChatMessage {
-    chatId: string;
-    userId: string;
-    message: string;
-    response: string;
-    timestamp: string;
+  chatId: string;
+  userId: string;
+  message: string;
+  response: string;
+  timestamp: string;
 }
 
 // ── ML API Response Types ─────────────────────────────────────────────────────
 
 export interface MLPrediction {
-    label: string;
-    confidence: number;
-    gradcam_url: string;
+  label: string;
+  confidence: number;
+  gradcam_url: string;
 }
 
 export interface MLCropResult {
-    bbox: number[];
-    crop_url: string;
-    species: MLPrediction;
-    disease: MLPrediction;
-    yolo_confidence: number;
+  bbox: number[];
+  crop_url: string;
+  species: MLPrediction;
+  disease: MLPrediction;
+  yolo_confidence: number;
 }
 
 // ── Group Analysis Types ──────────────────────────────────────────────────────
 
 export interface GroupAnalysis {
-    images: Array<{
-        imageIndex: number;
-        s3Key: string;
-        crops: Record<string, MLCropResult>;
-        yolo_image_url: string;
-        error?: string;
-    }>;
-    aggregateStats: {
-        totalFishCount: number;
-        speciesDistribution: Record<string, number>;
-        averageConfidence: number;
-        diseaseDetected: boolean;
-        totalEstimatedWeight: number;
-        totalEstimatedValue: number;
+  images: Array<{
+    imageIndex: number;
+    s3Key: string;
+    crops: Record<string, MLCropResult>;
+    yolo_image_url: string;
+    error?: string;
+  }>;
+  aggregateStats: {
+    totalFishCount: number;
+    speciesDistribution: Record<string, number>;
+    averageConfidence: number;
+    diseaseDetected: boolean;
+    totalEstimatedWeight: number;
+    totalEstimatedValue: number;
+  };
+  detections?: Array<{
+    cropUrl: string;
+    species: string;
+    confidence: number;
+    diseaseStatus: string;
+    diseaseConfidence: number;
+    weight: number;
+    value: number;
+    gradcamUrls: {
+      species: string;
+      disease: string;
     };
-    detections?: Array<{
-        cropUrl: string;
-        species: string;
-        confidence: number;
-        diseaseStatus: string;
-        diseaseConfidence: number;
-        weight: number;
-        value: number;
-        gradcamUrls: {
-            species: string;
-            disease: string;
-        };
-    }>;
-    yoloVisualizationUrls?: string[];
-    processedAt: string;
+  }>;
+  yoloVisualizationUrls?: string[];
+  processedAt: string;
 }
 
 // ── User Profile Types ────────────────────────────────────────────────────────
@@ -99,6 +99,23 @@ export interface UserPreferences {
   offlineSync: boolean;
   units: string;
   boatType?: string;
+  // Extended preferences for PreferencesManager
+  unitsExtended?: {
+    weight: "kg" | "lb";
+    temperature: "celsius" | "fahrenheit";
+    distance: "km" | "mi";
+  };
+  notificationsExtended?: {
+    pushEnabled: boolean;
+    disasterAlerts: boolean;
+    analysisComplete: boolean;
+    chatMessages: boolean;
+  };
+  offlineSyncExtended?: {
+    autoSync: boolean;
+    syncOnWifiOnly: boolean;
+    cacheSize: "small" | "medium" | "large";
+  };
 }
 
 export interface UserProfile {
@@ -110,7 +127,13 @@ export interface UserProfile {
   port?: string;
   customPort?: string;
   region?: string;
-  role?: 'Fisherman' | 'Boat Owner' | 'Fish Trader' | 'Cooperative Member' | 'Researcher';
+  boatType?: string;
+  role?:
+    | "Fisherman"
+    | "Boat Owner"
+    | "Fish Trader"
+    | "Cooperative Member"
+    | "Researcher";
   publicProfileEnabled: boolean;
   publicProfileSlug?: string;
   preferences: UserPreferences; // Embedded preferences
@@ -144,7 +167,7 @@ export interface AvatarUpload {
   imageUri: string;
   uploadUrl: string;
   s3Key: string;
-  status: 'pending' | 'uploading' | 'completed' | 'failed';
+  status: "pending" | "uploading" | "completed" | "failed";
   progress: number;
   error?: string;
 }
@@ -153,11 +176,15 @@ export interface AvatarUpload {
 
 export interface SyncQueueItem {
   id: string;
-  type: 'profile_update' | 'preferences_update' | 'avatar_upload';
+  type:
+    | "profile_update"
+    | "preferences_update"
+    | "avatar_upload"
+    | "weight_estimate";
   payload: any;
   timestamp: string;
   retryCount: number;
-  status: 'pending' | 'syncing' | 'completed' | 'failed';
+  status: "pending" | "syncing" | "completed" | "failed";
   error?: string;
 }
 
@@ -171,11 +198,11 @@ export interface PDFExportOptions {
   };
   includeCharts: boolean;
   includeImages: boolean;
-  format: 'A4' | 'Letter';
+  format: "A4" | "Letter";
 }
 
 export interface DataExportOptions {
-  format: 'csv' | 'json';
+  format: "csv" | "json";
   includeAnalysis: boolean;
   includeChat: boolean;
   dateRange?: {
@@ -201,7 +228,7 @@ export interface FishingZone {
   zoneId: string;
   name: string;
   coordinates: { latitude: number; longitude: number };
-  health: 'excellent' | 'good' | 'fair' | 'poor';
+  health: "excellent" | "good" | "fair" | "poor";
   topSpecies: string[];
   avgTemperature: number;
   catchCount: number;
@@ -211,8 +238,8 @@ export interface FishingZone {
 
 export interface DisasterAlert {
   alertId: string;
-  type: 'cyclone' | 'tsunami' | 'storm' | 'advisory';
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  type: "cyclone" | "tsunami" | "storm" | "advisory";
+  severity: "low" | "medium" | "high" | "critical";
   location: { latitude: number; longitude: number };
   radius: number;
   message: string;
@@ -228,9 +255,10 @@ export interface GroupRecord {
   imageCount: number;
   s3Keys: string[];
   presignedViewUrls?: string[]; // Only available from getGroupDetails, not from list
-  status: 'pending' | 'processing' | 'completed' | 'partial' | 'failed';
+  status: "pending" | "processing" | "completed" | "partial" | "failed";
   createdAt: string;
   updatedAt?: string;
+  completedAt?: string;
   latitude?: number;
   longitude?: number;
   locationMapped?: boolean;

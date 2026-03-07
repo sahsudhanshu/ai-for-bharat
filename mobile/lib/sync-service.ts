@@ -1,15 +1,25 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
-import { updateUserProfile, updateUserPreferences, updateAvatarUrl } from './api-client';
-import type { SyncQueueItem } from './types';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import NetInfo from "@react-native-community/netinfo";
+import {
+  updateUserProfile,
+  updateUserPreferences,
+  updateAvatarUrl,
+  saveWeightEstimate,
+} from "./api-client";
+import type { SyncQueueItem } from "./types";
+import { offlineQueue } from "./offline-queue";
 
-const SYNC_QUEUE_KEY = 'ocean_ai_sync_queue';
+const SYNC_QUEUE_KEY = "ocean_ai_sync_queue";
 const MAX_RETRY_COUNT = 3;
+
+export type SyncStatusType = "idle" | "syncing" | "synced" | "failed";
 
 export class SyncService {
   private static isSyncing = false;
+  private static syncStatus: SyncStatusType = "idle";
   private static listeners: Array<(status: SyncStatus) => void> = [];
   private static netInfoUnsubscribe: (() => void) | null = null;
+  private static lastSyncTime: Date | null = null;
 
   /**
    * Initialize sync service and start listening for connectivity
@@ -19,6 +29,9 @@ export class SyncService {
     if (this.netInfoUnsubscribe) {
       this.netInfoUnsubscribe();
     }
+
+    // Initialize offline queue
+    await offlineQueue.initialize();
 
     // Listen for connectivity changes
     this.netInfoUnsubscribe = NetInfo.addEventListener((state) => {
@@ -49,8 +62,8 @@ export class SyncService {
    * Queue a change for syncing
    */
   static async queueChange(
-    type: SyncQueueItem['type'],
-    payload: any
+    type: SyncQueueItem["type"],
+    payload: any,
   ): Promise<void> {
     const item: SyncQueueItem = {
       id: `${type}-${Date.now()}`,
@@ -58,7 +71,7 @@ export class SyncService {
       payload,
       timestamp: new Date().toISOString(),
       retryCount: 0,
-      status: 'pending',
+      status: "pending",
     };
 
     const queue = await this.getQueue();
@@ -75,33 +88,53 @@ export class SyncService {
   }
 
   /**
-   * Sync all pending changes
+   * Sync all pending changes (both SyncService queue and OfflineQueue)
    */
   static async syncPendingChanges(): Promise<void> {
     if (this.isSyncing) return;
     this.isSyncing = true;
+    this.syncStatus = "syncing";
     this.notifyListeners();
 
     try {
       const queue = await this.getQueue();
-      const pending = queue.filter((item) => item.status === 'pending');
+      const pending = queue.filter((item) => item.status === "pending");
+
+      let hasErrors = false;
 
       for (const item of pending) {
         try {
           await this.syncItem(item);
-          item.status = 'completed';
+          item.status = "completed";
         } catch (error) {
+          hasErrors = true;
           item.retryCount++;
           if (item.retryCount >= MAX_RETRY_COUNT) {
-            item.status = 'failed';
-            item.error = error instanceof Error ? error.message : 'Unknown error';
+            item.status = "failed";
+            item.error =
+              error instanceof Error ? error.message : "Unknown error";
           }
         }
       }
 
       // Remove completed items, keep failed for manual retry
-      const updatedQueue = queue.filter((item) => item.status !== 'completed');
+      const updatedQueue = queue.filter((item) => item.status !== "completed");
       await this.saveQueue(updatedQueue);
+
+      // Process OfflineQueue
+      const state = await NetInfo.fetch();
+      await offlineQueue.processQueue(state.isConnected ?? false);
+
+      // Sync any locally-stored offline analysis records
+      const { syncLocalHistory } = await import("./local-history");
+      await syncLocalHistory();
+
+      // Update sync status
+      this.lastSyncTime = new Date();
+      this.syncStatus = hasErrors ? "failed" : "synced";
+    } catch (error) {
+      console.error("[SyncService] Sync failed:", error);
+      this.syncStatus = "failed";
     } finally {
       this.isSyncing = false;
       this.notifyListeners();
@@ -109,21 +142,35 @@ export class SyncService {
   }
 
   /**
+   * Manually trigger sync
+   */
+  static async manualSync(): Promise<void> {
+    const state = await NetInfo.fetch();
+    if (!state.isConnected) {
+      throw new Error("No internet connection");
+    }
+    await this.syncPendingChanges();
+  }
+
+  /**
    * Sync a single item
    */
   private static async syncItem(item: SyncQueueItem): Promise<void> {
     switch (item.type) {
-      case 'profile_update':
+      case "profile_update":
         await updateUserProfile(item.payload);
         break;
-      case 'preferences_update':
+      case "preferences_update":
         await updateUserPreferences(item.payload);
         break;
-      case 'avatar_upload':
+      case "avatar_upload":
         await updateAvatarUrl(item.payload.avatarUrl);
         break;
+      case "weight_estimate":
+        await saveWeightEstimate(item.payload);
+        break;
       default:
-        throw new Error(`Unknown sync type: ${item.type}`);
+        throw new Error(`Unknown sync type: ${(item as SyncQueueItem).type}`);
     }
   }
 
@@ -151,19 +198,19 @@ export class SyncService {
    */
   static async getSyncStatus(): Promise<SyncStatus> {
     const queue = await this.getQueue();
-    const pending = queue.filter((item) => item.status === 'pending').length;
-    const failed = queue.filter((item) => item.status === 'failed').length;
+    const pending = queue.filter((item) => item.status === "pending").length;
+    const failed = queue.filter((item) => item.status === "failed").length;
 
-    const completedItems = queue.filter((item) => item.status === 'completed');
-    const lastSyncItem = completedItems.length > 0
-      ? completedItems.sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]
-      : null;
+    // Include offline queue counts
+    const offlinePending = offlineQueue.getCount();
+    const offlineFailed = offlineQueue.getFailedCount();
 
     return {
-      pending,
-      failed,
+      pending: pending + offlinePending,
+      failed: failed + offlineFailed,
       syncing: this.isSyncing,
-      lastSync: lastSyncItem?.timestamp || undefined,
+      syncStatus: this.syncStatus,
+      lastSync: this.lastSyncTime?.toISOString(),
     };
   }
 
@@ -199,5 +246,6 @@ export interface SyncStatus {
   pending: number;
   failed: number;
   syncing: boolean;
+  syncStatus: SyncStatusType;
   lastSync?: string;
 }

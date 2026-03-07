@@ -13,14 +13,14 @@
 import { loadTensorflowModel, TensorflowModel } from "react-native-fast-tflite";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as jpeg from "jpeg-js";
-import { Asset } from "expo-asset";
+import * as FileSystem from "expo-file-system/legacy";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const MODEL_INPUT_SIZE = 256;
 const NUM_CLASSES = 4;
 const NUM_DETECTIONS = 1344;
-const CONFIDENCE_THRESHOLD = 0.3;
+const CONFIDENCE_THRESHOLD = 0.30;
 const IOU_THRESHOLD = 0.45;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -51,31 +51,15 @@ const MODEL_FILENAME = "detection_float32.tflite";
 const MAX_RUN_RETRIES = 1;
 
 /**
- * Resolve the bundled asset path for a model file.
- * Models are now bundled directly in the app's assets.
+ * Resolve the on-device path for a model file.
+ * Models are deployed via ADB into the app's internal files/models/ directory.
+ * Run `npm run deploy-models` (or `scripts/deploy-models.sh`) to push them.
  */
-export async function getModelDevicePath(filename: string): Promise<string> {
-  // Map filenames to their require() modules
-  const modelAssets: Record<string, any> = {
-    "detection_float32.tflite": require("../assets/models/detection_float32.tflite"),
-    "Fish.tflite": require("../assets/models/Fish.tflite"),
-    "Fish_disease.tflite": require("../assets/models/Fish_disease.tflite"),
-  };
-
-  const assetModule = modelAssets[filename];
-  if (!assetModule) {
-    throw new Error(`Model file ${filename} not found in bundled assets`);
-  }
-
-  // Use Expo Asset to get the local URI
-  const asset = Asset.fromModule(assetModule);
-  await asset.downloadAsync();
-
-  if (!asset.localUri) {
-    throw new Error(`Failed to load asset ${filename}`);
-  }
-
-  return asset.localUri;
+export function getModelDevicePath(filename: string): string {
+  const base =
+    FileSystem.documentDirectory ??
+    "file:///data/user/0/com.aiforbharat.oceanai/files/";
+  return `${base}models/${filename}`;
 }
 
 export async function loadModel(): Promise<void> {
@@ -84,8 +68,15 @@ export async function loadModel(): Promise<void> {
   if (_loadingPromise) return _loadingPromise;
   _loadingPromise = (async () => {
     try {
-      const modelUri = await getModelDevicePath(MODEL_FILENAME);
-      console.log(`[Detection] Loading bundled model from ${modelUri}`);
+      const modelUri = getModelDevicePath(MODEL_FILENAME);
+      const info = await FileSystem.getInfoAsync(modelUri);
+      if (!info.exists) {
+        throw new Error(
+          `Detection model not found at ${modelUri}.\n` +
+            `Deploy models to device first:\n  npm run deploy-models`,
+        );
+      }
+      console.log(`[Detection] Loading model from ${modelUri}`);
       _model = await loadTensorflowModel({ url: modelUri });
       _loadedModelUri = modelUri;
       console.log(`[Detection] TFLite model loaded successfully`);
@@ -126,7 +117,7 @@ export function getModelDebugInfo(): ModelDebugInfo {
     modelName: MODEL_FILENAME,
     isLoaded: _model !== null,
     loadedUri: _loadedModelUri,
-    searchLocations: ["bundled:detection_float32.tflite"],
+    searchLocations: [getModelDevicePath(MODEL_FILENAME)],
   };
 }
 

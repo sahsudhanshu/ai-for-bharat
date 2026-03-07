@@ -11,6 +11,7 @@ import {
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { Modal } from "../ui/Modal";
 import { changePassword } from "../../lib/api-client";
+import { toastService } from "../../lib/toast-service";
 
 interface ChangePasswordModalProps {
   visible: boolean;
@@ -58,8 +59,7 @@ export function ChangePasswordModal({
       handleClose();
     } catch (err) {
       console.error("Error changing password:", err);
-      Alert.alert(
-        "Error",
+      toastService.error(
         "Failed to change password. Please check your current password.",
       );
     } finally {
@@ -100,7 +100,7 @@ export function ChangePasswordModal({
             style={[styles.input, errors.newPassword && styles.inputError]}
             value={newPassword}
             onChangeText={setNewPassword}
-            placeholder="Enter new password (min 8 characters)"
+            placeholder="Enter new password"
             placeholderTextColor={COLORS.textSubtle}
             secureTextEntry
             autoCapitalize="none"
@@ -173,9 +173,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#475569", // Lighter border
     borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.base,
+    paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#f1f5f9", // Brighter text
   },
   inputError: {
@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: RADIUS.md,
     alignItems: "center",
     justifyContent: "center",
@@ -204,7 +204,7 @@ const styles = StyleSheet.create({
     borderColor: "#475569", // Lighter border
   },
   cancelButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#cbd5e1", // Brighter text
     fontWeight: FONTS.weights.medium,
   },
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   submitButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#fff",
     fontWeight: FONTS.weights.bold,
   },

@@ -1,11 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, ScrollView } from 'react-native';
-import { Stack, router } from 'expo-router';
-import { ProfileForm } from '../../components/profile/ProfileForm';
-import { AvatarUploader } from '../../components/profile/AvatarUploader';
-import { ProfileService } from '../../lib/profile-service';
-import type { UserProfile } from '../../lib/types';
-import { COLORS, FONTS, SPACING } from '../../lib/constants';
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+} from "react-native";
+import { Stack, router } from "expo-router";
+import { ProfileForm } from "../../components/profile/ProfileForm";
+import { AvatarUploader } from "../../components/profile/AvatarUploader";
+import { ProfileService } from "../../lib/profile-service";
+import { SkeletonProfile } from "../../components/ui/Skeleton";
+import type { UserProfile } from "../../lib/types";
+import { COLORS, FONTS, SPACING } from "../../lib/constants";
 
 export default function EditProfileScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -24,13 +32,15 @@ export default function EditProfileScreen() {
           if (data) {
             setProfile(data);
           } else {
-            setError('Failed to load profile');
+            setError("Failed to load profile");
           }
         }
       } catch (err) {
-        console.error('Error loading profile:', err);
+        console.error("Error loading profile:", err);
         if (isMounted) {
-          setError(err instanceof Error ? err.message : 'Failed to load profile');
+          setError(
+            err instanceof Error ? err.message : "Failed to load profile",
+          );
         }
       } finally {
         if (isMounted) {
@@ -50,8 +60,8 @@ export default function EditProfileScreen() {
     try {
       const updatedProfile = await ProfileService.updateProfile(updates);
       setProfile(updatedProfile);
-      Alert.alert('Success', 'Profile updated successfully', [
-        { text: 'OK', onPress: () => router.back() },
+      Alert.alert("Success", "Profile updated successfully", [
+        { text: "OK", onPress: () => router.back() },
       ]);
     } catch (err) {
       throw err; // Let ProfileForm handle the error
@@ -68,8 +78,14 @@ export default function EditProfileScreen() {
     }
   };
 
+  const handleAvatarRemove = () => {
+    if (profile) {
+      setProfile({ ...profile, avatar: undefined });
+    }
+  };
+
   const handleAvatarUploadError = (error: Error) => {
-    Alert.alert('Upload Error', error.message);
+    Alert.alert("Upload Error", error.message);
   };
 
   if (loading) {
@@ -77,14 +93,13 @@ export default function EditProfileScreen() {
       <View style={styles.container}>
         <Stack.Screen
           options={{
-            title: 'Edit Profile',
-            headerBackTitle: 'Back',
+            title: "Edit Profile",
+            headerBackTitle: "Back",
           }}
         />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading profile...</Text>
-        </View>
+        <ScrollView style={styles.scroll}>
+          <SkeletonProfile />
+        </ScrollView>
       </View>
     );
   }
@@ -93,18 +108,20 @@ export default function EditProfileScreen() {
     const handleRetry = () => {
       setLoading(true);
       setError(null);
-      
+
       ProfileService.getProfile(true)
-        .then(data => {
+        .then((data) => {
           if (data) {
             setProfile(data);
           } else {
-            setError('Failed to load profile');
+            setError("Failed to load profile");
           }
         })
-        .catch(err => {
-          console.error('Error loading profile:', err);
-          setError(err instanceof Error ? err.message : 'Failed to load profile');
+        .catch((err) => {
+          console.error("Error loading profile:", err);
+          setError(
+            err instanceof Error ? err.message : "Failed to load profile",
+          );
         })
         .finally(() => {
           setLoading(false);
@@ -115,12 +132,12 @@ export default function EditProfileScreen() {
       <View style={styles.container}>
         <Stack.Screen
           options={{
-            title: 'Edit Profile',
-            headerBackTitle: 'Back',
+            title: "Edit Profile",
+            headerBackTitle: "Back",
           }}
         />
         <View style={styles.centered}>
-          <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
+          <Text style={styles.errorText}>{error || "Profile not found"}</Text>
           <Text style={styles.retryButton} onPress={handleRetry}>
             Retry
           </Text>
@@ -133,12 +150,12 @@ export default function EditProfileScreen() {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          title: 'Edit Profile',
-          headerBackTitle: 'Back',
+          title: "Edit Profile",
+          headerBackTitle: "Back",
         }}
       />
-      
-      <ScrollView 
+
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -146,8 +163,9 @@ export default function EditProfileScreen() {
         <View style={styles.avatarSection}>
           <AvatarUploader
             currentUri={profile.avatar}
-            userName={profile.name || 'User'}
+            userName={profile.name || "User"}
             onUploadComplete={handleAvatarUploadComplete}
+            onRemove={handleAvatarRemove}
             onUploadError={handleAvatarUploadError}
           />
         </View>
@@ -167,6 +185,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.bgDark,
   },
+  scroll: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
@@ -175,29 +196,29 @@ const styles = StyleSheet.create({
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: SPACING.xl,
   },
   loadingText: {
     marginTop: SPACING.md,
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
   },
   errorText: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.error,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: SPACING.md,
   },
   retryButton: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.primary,
     fontWeight: FONTS.weights.semibold as any,
   },
   avatarSection: {
-    alignItems: 'center',
-    paddingVertical: SPACING.xl,
+    alignItems: "center",
+    paddingVertical: SPACING.lg,
     paddingHorizontal: SPACING.lg,
     backgroundColor: COLORS.bgCard,
     borderBottomWidth: 1,

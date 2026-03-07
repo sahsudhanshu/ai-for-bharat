@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Image,
   Linking,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -16,10 +17,61 @@ import { getGroupDetails } from "../../lib/api-client";
 import { GroupStats } from "../../components/history/GroupStats";
 import { SpeciesDistribution } from "../../components/history/SpeciesDistribution";
 import { FishDetectionCard } from "../../components/history/FishDetectionCard";
+import { SkeletonList } from "../../components/ui/Skeleton";
 import type { FishDetection } from "../../components/history/FishDetectionCard";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import type { GroupAnalysis, GroupRecord } from "../../lib/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
+
+/**
+ * Normalise the raw ML analysis result so that:
+ * - analysisResult.detections[] is populated from images[].crops if missing
+ * - analysisResult.yoloVisualizationUrls[] is populated from images[].yolo_image_url if missing
+ */
+function normalizeAnalysisResult(
+  result: GroupAnalysis | undefined,
+): GroupAnalysis | undefined {
+  if (!result) return result;
+
+  // Build detections from images[].crops if not already present
+  if (!result.detections || result.detections.length === 0) {
+    const detections: NonNullable<GroupAnalysis["detections"]> = [];
+    for (const image of result.images || []) {
+      if (image.error) continue;
+      for (const crop of Object.values(image.crops || {})) {
+        detections.push({
+          cropUrl: (crop as any).crop_url || "",
+          species: (crop as any).species?.label || "Unknown",
+          confidence: (crop as any).species?.confidence || 0,
+          diseaseStatus: (crop as any).disease?.label || "Healthy",
+          diseaseConfidence: (crop as any).disease?.confidence || 0,
+          weight: (crop as any).weight_kg ?? 0,
+          value: (crop as any).estimatedValue ?? 0,
+          gradcamUrls: {
+            species: (crop as any).species?.gradcam_url || "",
+            disease: (crop as any).disease?.gradcam_url || "",
+          },
+        });
+      }
+    }
+    result = { ...result, detections };
+  }
+
+  // Build yoloVisualizationUrls from images[].yolo_image_url if not already present
+  if (
+    !result.yoloVisualizationUrls ||
+    result.yoloVisualizationUrls.length === 0
+  ) {
+    const yoloUrls = (result.images || [])
+      .map((img: any) => img.yolo_image_url)
+      .filter(Boolean) as string[];
+    result = { ...result, yoloVisualizationUrls: yoloUrls };
+  }
+
+  return result;
+}
 
 export default function HistoryDetailScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
@@ -48,6 +100,9 @@ export default function HistoryDetailScreen() {
       if (cached) {
         try {
           const parsedData = JSON.parse(cached);
+          parsedData.analysisResult = normalizeAnalysisResult(
+            parsedData.analysisResult,
+          );
           setGroup(parsedData);
           setLoading(false);
         } catch (parseError) {
@@ -58,6 +113,7 @@ export default function HistoryDetailScreen() {
 
       // Fetch fresh data
       const data = await getGroupDetails(groupId);
+      data.analysisResult = normalizeAnalysisResult(data.analysisResult);
       setGroup(data);
 
       // Cache the data
@@ -104,10 +160,18 @@ export default function HistoryDetailScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading details...</Text>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Loading...</Text>
         </View>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+        >
+          <SkeletonList itemCount={3} />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -240,22 +304,48 @@ export default function HistoryDetailScreen() {
           <SpeciesDistribution distribution={stats.speciesDistribution} />
         )}
 
-        {/* YOLO Detection Visualizations */}
-        {group.analysisResult?.yoloVisualizationUrls && (
+        {/* Original Images Gallery */}
+        {group.presignedViewUrls && group.presignedViewUrls.length > 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Detection Visualizations</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              {group.analysisResult.yoloVisualizationUrls.map((url, index) => (
+            <Text style={styles.sectionTitle}>
+              Original Images ({group.presignedViewUrls.length})
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={{ marginTop: SPACING.sm }}
+            >
+              {group.presignedViewUrls.map((url, index) => (
                 <Image
                   key={index}
                   source={{ uri: url }}
-                  style={styles.yoloImage}
+                  style={styles.originalImage}
                   resizeMode="cover"
                 />
               ))}
             </ScrollView>
           </View>
         )}
+
+        {/* YOLO Detection Visualizations */}
+        {group.analysisResult?.yoloVisualizationUrls &&
+          group.analysisResult.yoloVisualizationUrls.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Detection Visualizations</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {group.analysisResult.yoloVisualizationUrls.map(
+                  (url, index) => (
+                    <Image
+                      key={index}
+                      source={{ uri: url }}
+                      style={styles.yoloImage}
+                      resizeMode="cover"
+                    />
+                  ),
+                )}
+              </ScrollView>
+            </View>
+          )}
 
         {/* Individual Fish Detections */}
         <View style={styles.section}>
@@ -316,11 +406,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
+  headerTitle: {
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+    flex: 1,
+  },
+  scroll: {
+    flex: 1,
+  },
   backBtn: {
     padding: SPACING.xs,
   },
   title: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
@@ -335,7 +434,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   contentContainer: {
-    padding: SPACING.xl,
+    padding: SPACING.lg,
   },
   loadingContainer: {
     flex: 1,
@@ -354,11 +453,11 @@ const styles = StyleSheet.create({
     padding: SPACING.xl,
   },
   errorIcon: {
-    fontSize: 48,
+    fontSize: 34,
     marginBottom: SPACING.md,
   },
   errorTitle: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.xs,
@@ -373,11 +472,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.lg,
     paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
   },
   retryText: {
     color: COLORS.textPrimary,
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.bold,
   },
   metadataCard: {
@@ -462,7 +561,14 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   yoloImage: {
-    width: 200,
+    width: 160,
+    height: 160,
+    borderRadius: RADIUS.lg,
+    marginRight: SPACING.sm,
+    backgroundColor: COLORS.bgSurface,
+  },
+  originalImage: {
+    width: SCREEN_WIDTH * 0.65,
     height: 200,
     borderRadius: RADIUS.lg,
     marginRight: SPACING.sm,
@@ -470,10 +576,10 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: "center",
-    padding: SPACING.xl,
+    padding: SPACING.lg,
   },
   emptyIcon: {
-    fontSize: 40,
+    fontSize: 28,
     marginBottom: SPACING.md,
   },
   emptyText: {

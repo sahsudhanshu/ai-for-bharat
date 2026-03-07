@@ -127,10 +127,20 @@ async function getImageDimensions(
   };
 }
 
+export interface OfflineInferenceProgress {
+  /** 0–100 */
+  percent: number;
+  /** Human-readable step label */
+  step: string;
+}
+
 /**
  * Run offline inference: TFLite detection + TFLite classification + GradCAM
  */
-export async function runOfflineInference(imageUri: string): Promise<{
+export async function runOfflineInference(
+  imageUri: string,
+  onProgress?: (p: OfflineInferenceProgress) => void,
+): Promise<{
   detections: OfflineDetectionResult[];
   processingTime: number;
   errors?: string[];
@@ -142,8 +152,11 @@ export async function runOfflineInference(imageUri: string): Promise<{
     // Step 1: Ensure TFLite models are loaded
     if (!areTFLiteModelsLoaded()) {
       console.log("[Offline Inference] Loading TFLite models...");
+      onProgress?.({ percent: 2, step: "Loading on-device models…" });
       await loadAllTFLiteModels();
     }
+
+    onProgress?.({ percent: 5, step: "Detecting fish…" });
 
     // Step 2: Run on-device YOLO detection
     let boxes: BoundingBox[] = [];
@@ -156,7 +169,13 @@ export async function runOfflineInference(imageUri: string): Promise<{
       throw e;
     }
 
+    onProgress?.({
+      percent: 30,
+      step: `${boxes.length} fish detected — preparing…`,
+    });
+
     if (boxes.length === 0) {
+      onProgress?.({ percent: 100, step: "Done — no fish found" });
       return { detections: [], processingTime: Date.now() - t0, errors };
     }
 
@@ -172,18 +191,33 @@ export async function runOfflineInference(imageUri: string): Promise<{
     }
 
     // Step 4: Process each detection
+    // Progress range: 30 → 95 spread across all fish × 4 sub-steps each
+    const totalFish = boxes.length;
+    const progressPerFish = totalFish > 0 ? 65 / totalFish : 65;
+
     const detections: OfflineDetectionResult[] = [];
 
     for (let i = 0; i < boxes.length; i++) {
       const box = boxes[i];
       let detection: OfflineDetectionResult;
+      const fishBase = 30 + i * progressPerFish;
 
       try {
+        onProgress?.({
+          percent: Math.round(fishBase),
+          step: `Fish ${i + 1}/${totalFish}: cropping…`,
+        });
+
         // Crop the fish from original image
         const cropUri = await cropFishImage(imageUri, box, imgWidth, imgHeight);
         console.log(
           `[Offline Inference] Processing fish ${i + 1}/${boxes.length}`,
         );
+
+        onProgress?.({
+          percent: Math.round(fishBase + progressPerFish * 0.25),
+          step: `Fish ${i + 1}/${totalFish}: classifying species…`,
+        });
 
         // Run species classification
         let speciesResult: ClassificationResult;
@@ -199,6 +233,11 @@ export async function runOfflineInference(imageUri: string): Promise<{
           throw err;
         }
 
+        onProgress?.({
+          percent: Math.round(fishBase + progressPerFish * 0.5),
+          step: `Fish ${i + 1}/${totalFish}: checking for disease…`,
+        });
+
         // Run disease classification
         let diseaseResult: ClassificationResult;
         try {
@@ -212,6 +251,11 @@ export async function runOfflineInference(imageUri: string): Promise<{
           errors.push(errorMsg);
           throw err;
         }
+
+        onProgress?.({
+          percent: Math.round(fishBase + progressPerFish * 0.75),
+          step: `Fish ${i + 1}/${totalFish}: generating GradCAM…`,
+        });
 
         // Generate GradCAM visualization
         let gradcamUri: string | undefined;
@@ -267,28 +311,40 @@ export async function runOfflineInference(imageUri: string): Promise<{
         };
 
         // ── Per-fish summary ──────────────────────────────────────
-        console.log('\n╔════════════════════════════════════════════════════╗');
-        console.log(`║  🐟 FISH ${i + 1}/${boxes.length} ANALYSIS                           ║`);
-        console.log('╚════════════════════════════════════════════════════╝');
+        console.log("\n╔════════════════════════════════════════════════════╗");
+        console.log(
+          `║  🐟 FISH ${i + 1}/${boxes.length} ANALYSIS                           ║`,
+        );
+        console.log("╚════════════════════════════════════════════════════╝");
         console.log(`  • Species     : ${speciesResult.label}`);
-        console.log(`    └ Confidence: ${(speciesResult.confidence * 100).toFixed(1)}%`);
+        console.log(
+          `    └ Confidence: ${(speciesResult.confidence * 100).toFixed(1)}%`,
+        );
         console.log(`    └ Scientific: ${speciesInfo.scientific}`);
         console.log(`  • Disease     : ${diseaseResult.label}`);
-        console.log(`    └ Confidence: ${(diseaseResult.confidence * 100).toFixed(1)}%`);
+        console.log(
+          `    └ Confidence: ${(diseaseResult.confidence * 100).toFixed(1)}%`,
+        );
         console.log(`  • Quality     : ${qualityGrade}`);
-        console.log('  ────────────────────────────────────────────────────');
+        console.log("  ────────────────────────────────────────────────────");
         console.log(`  • Measurements:`);
-        console.log(`    └ Weight    : ${weightG}g (${(weightG / 1000).toFixed(2)}kg)`);
+        console.log(
+          `    └ Weight    : ${weightG}g (${(weightG / 1000).toFixed(2)}kg)`,
+        );
         console.log(`    └ Length    : ${lengthMm}mm`);
-        console.log(`    └ Legal     : ${lengthMm >= speciesInfo.minSize ? "✅ Yes" : "❌ No"} (min ${speciesInfo.minSize}mm)`);
+        console.log(
+          `    └ Legal     : ${lengthMm >= speciesInfo.minSize ? "✅ Yes" : "❌ No"} (min ${speciesInfo.minSize}mm)`,
+        );
         console.log(`  • Economics   :`);
         console.log(`    └ Price/kg  : ₹${speciesInfo.avgPrice}`);
         console.log(`    └ Value     : ₹${estimatedValue}`);
-        console.log('  ────────────────────────────────────────────────────');
+        console.log("  ────────────────────────────────────────────────────");
         console.log(`  • Tech Info   :`);
         console.log(`    └ Bbox      : [${detection.bbox.join(", ")}]`);
-        console.log(`    └ GradCAM   : ${gradcamUri ? "✅ Generated" : "⚠️ Skipped"}`);
-        console.log('\n');
+        console.log(
+          `    └ GradCAM   : ${gradcamUri ? "✅ Generated" : "⚠️ Skipped"}`,
+        );
+        console.log("\n");
       } catch (err) {
         // If classification fails for this detection, create a partial result
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -324,34 +380,45 @@ export async function runOfflineInference(imageUri: string): Promise<{
 
     const processingTime = Date.now() - t0;
 
+    onProgress?.({
+      percent: 100,
+      step: `Done — ${detections.length} fish analysed`,
+    });
+
     // ── Final summary ─────────────────────────────────────────
-    console.log('\n╔════════════════════════════════════════════════════╗');
-    console.log('║  🏁 OFFLINE INFERENCE COMPLETE                     ║');
-    console.log('╚════════════════════════════════════════════════════╝');
+    console.log("\n╔════════════════════════════════════════════════════╗");
+    console.log("║  🏁 OFFLINE INFERENCE COMPLETE                     ║");
+    console.log("╚════════════════════════════════════════════════════╝");
     console.log(`  • Total Fish    : ${detections.length}`);
-    console.log(`  • Pipeline Time : ${processingTime}ms (${(processingTime / 1000).toFixed(1)}s)`);
-    
+    console.log(
+      `  • Pipeline Time : ${processingTime}ms (${(processingTime / 1000).toFixed(1)}s)`,
+    );
+
     if (detections.length > 0) {
       const successful = detections.filter((d) => !d.error);
       const failed = detections.filter((d) => d.error);
-      
-      console.log(`  • Status        : ${successful.length} Success, ${failed.length} Failed`);
-      console.log('  ────────────────────────────────────────────────────');
-      
+
+      console.log(
+        `  • Status        : ${successful.length} Success, ${failed.length} Failed`,
+      );
+      console.log("  ────────────────────────────────────────────────────");
+
       if (successful.length > 0) {
-        console.log('  Results Summary:');
+        console.log("  Results Summary:");
         successful.forEach((d, idx) => {
-          console.log(`  Fish #${idx + 1}: ${d.species.padEnd(15)} | ${d.disease.padEnd(15)} | ${d.qualityGrade.padEnd(8)} | ₹${d.estimatedValue}`);
+          console.log(
+            `  Fish #${idx + 1}: ${d.species.padEnd(15)} | ${d.disease.padEnd(15)} | ${d.qualityGrade.padEnd(8)} | ₹${d.estimatedValue}`,
+          );
         });
       }
     }
-    
+
     if (errors.length > 0) {
-      console.log('  ────────────────────────────────────────────────────');
+      console.log("  ────────────────────────────────────────────────────");
       console.log(`  ⚠️ ERRORS (${errors.length}):`);
       errors.forEach((e) => console.log(`    • ${e}`));
     }
-    console.log('\n');
+    console.log("\n");
 
     return {
       detections,

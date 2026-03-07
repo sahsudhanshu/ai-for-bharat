@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useAuth } from "../../lib/auth-context";
 import { useLanguage } from "../../lib/i18n";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
 import {
   COLORS,
   FONTS,
@@ -211,6 +212,7 @@ export default function SettingsScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>{t("nav.settings")}</Text>
+          <ProfileMenu size={36} />
         </View>
 
         {/* Profile Card */}
@@ -276,14 +278,23 @@ export default function SettingsScreen() {
             <Text style={styles.loadingText}>Loading profile settings...</Text>
           </Card>
         ) : publicProfile ? (
-          <PublicProfileCard
-            profile={publicProfile}
-            onTogglePublic={handleTogglePublic}
-            onToggleStats={handleToggleStats}
-            onShare={handleShareProfile}
-            onPreview={handlePreviewProfile}
-            loading={updatingProfile}
-          />
+          <>
+            <PublicProfileCard
+              profile={publicProfile}
+              onTogglePublic={handleTogglePublic}
+              onToggleStats={handleToggleStats}
+              onShare={handleShareProfile}
+              onPreview={handlePreviewProfile}
+              loading={updatingProfile}
+            />
+            <Card padding={0} style={styles.menuCard}>
+              <PreferenceRow
+                label="Configure Public Profile"
+                type="action"
+                onPress={() => router.push("/profile/public-profile" as any)}
+              />
+            </Card>
+          </>
         ) : null}
 
         {/* Preferences */}
@@ -380,14 +391,14 @@ export default function SettingsScreen() {
         <Text style={styles.sectionLabel}>{t("settings.help")}</Text>
         <Card padding={0} style={styles.menuCard}>
           <PreferenceRow
-            label={t("settings.faq")}
+            label="Documentation"
             type="action"
-            onPress={() => {}}
+            onPress={() => router.push("/settings/documentation" as any)}
           />
           <PreferenceRow
-            label={t("settings.contactSupport")}
+            label="Help & Support"
             type="action"
-            onPress={() => {}}
+            onPress={() => router.push("/settings/help" as any)}
           />
           <PreferenceRow
             label={t("settings.appVersion")}
@@ -599,74 +610,74 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
   scroll: { flex: 1 },
-  content: { padding: SPACING.xl, paddingBottom: SPACING["4xl"] },
+  content: { padding: SPACING.lg, paddingBottom: SPACING["3xl"] },
 
-  header: { marginBottom: SPACING.xl },
+  header: {
+    marginBottom: SPACING.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   title: {
-    fontSize: FONTS.sizes["3xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
   },
 
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS["2xl"],
+    borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.xl,
-    marginBottom: SPACING.xl,
-    gap: SPACING.base,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+    gap: SPACING.sm,
   },
   profileAvatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
   profileAvatarText: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.lg,
     color: "#fff",
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
   },
   profileInfo: { flex: 1 },
   profileName: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold,
     color: COLORS.textPrimary,
   },
   profileEmail: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
-    marginTop: SPACING.xs,
+    marginTop: 2,
   },
   profileLocation: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSubtle,
-    marginTop: SPACING.xs,
+    marginTop: 2,
   },
 
   sectionLabel: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSubtle,
-    fontWeight: FONTS.weights.bold,
-    letterSpacing: 1.2,
+    fontWeight: FONTS.weights.semibold,
+    letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginBottom: SPACING.sm,
-    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+    marginTop: SPACING.sm,
     paddingHorizontal: SPACING.xs,
   },
 
   menuCard: {
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
     overflow: "hidden",
   },
 
@@ -674,23 +685,23 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.error + "15",
     borderWidth: 1,
     borderColor: COLORS.error + "40",
-    borderRadius: RADIUS.xl,
-    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.sm,
     alignItems: "center",
-    marginTop: SPACING.xl,
-    marginBottom: SPACING.md,
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.sm,
   },
   logoutText: {
     color: COLORS.error,
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.semibold,
   },
 
   appInfo: {
     textAlign: "center",
     color: COLORS.textSubtle,
     fontSize: FONTS.sizes.xs,
-    marginBottom: SPACING.base,
+    marginBottom: SPACING.sm,
   },
 
   loadingCard: {
@@ -708,27 +719,29 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "flex-end",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: SPACING.xl,
   },
   modalSheet: {
     backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: RADIUS["2xl"],
-    borderTopRightRadius: RADIUS["2xl"],
-    padding: SPACING.xl,
-    paddingBottom: SPACING["3xl"],
-    maxHeight: "70%",
+    borderRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    paddingBottom: SPACING["2xl"],
+    maxHeight: "80%",
+    width: "100%",
   },
   modalTitle: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.base,
+    marginBottom: SPACING.sm,
   },
   langOption: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },

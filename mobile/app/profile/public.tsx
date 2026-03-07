@@ -11,6 +11,7 @@ import { Stack, router } from "expo-router";
 import { Avatar } from "../../components/ui/Avatar";
 import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
+import { SkeletonProfile } from "../../components/ui/Skeleton";
 import { getPublicProfile } from "../../lib/api-client";
 import { Ionicons } from "@expo/vector-icons";
 import type { PublicProfile } from "../../lib/types";
@@ -49,10 +50,9 @@ export default function PublicProfilePreviewScreen() {
             headerBackTitle: "Back",
           }}
         />
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading preview...</Text>
-        </View>
+        <ScrollView style={styles.scroll}>
+          <SkeletonProfile />
+        </ScrollView>
       </View>
     );
   }
@@ -231,22 +231,22 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: SPACING.md,
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
   },
   errorText: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.error,
     textAlign: "center",
     marginBottom: SPACING.md,
   },
   retryButton: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.primary,
     fontWeight: FONTS.weights.semibold as any,
   },
   infoText: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.base,
     color: COLORS.textPrimary,
     textAlign: "center",
     marginBottom: SPACING.sm,
@@ -269,14 +269,14 @@ const styles = StyleSheet.create({
   },
   headerCard: {
     alignItems: "center",
-    padding: SPACING.xl,
+    padding: SPACING.lg,
     marginBottom: SPACING.md,
   },
   avatarContainer: {
     marginBottom: SPACING.md,
   },
   name: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     fontWeight: FONTS.weights.bold as any,
     color: COLORS.textPrimary,
     marginBottom: SPACING.xs,
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.sm,
   },
   location: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
     marginTop: SPACING.xs,
   },
@@ -299,10 +299,10 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.md,
   },
   sectionTitle: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.base,
     fontWeight: FONTS.weights.bold as any,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
   statsGrid: {
     flexDirection: "row",
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statValue: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     fontWeight: FONTS.weights.bold as any,
     color: COLORS.primary,
   },
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.border,
   },
   speciesName: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
   },
   speciesCount: {
@@ -361,7 +361,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   infoValue: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
     fontWeight: FONTS.weights.semibold as any,
   },

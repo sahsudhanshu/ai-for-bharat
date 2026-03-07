@@ -173,18 +173,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       const attributeList = [
         new CognitoUserAttribute({ Name: "name", Value: name }),
-        ...(phone && phone.trim() !== ""
-          ? [new CognitoUserAttribute({ Name: "phone_number", Value: phone })]
-          : []),
+        new CognitoUserAttribute({ Name: "email", Value: email }),
       ];
 
-      userPool.signUp(email, password, attributeList, [], async (err) => {
-        if (err) {
-          reject(mapCognitoError(err));
+      // Only add phone number if provided and valid
+      if (phone && phone.trim() !== "") {
+        const trimmedPhone = phone.trim();
+        // Validate E.164 format (starts with +)
+        if (!trimmedPhone.startsWith("+")) {
+          reject(
+            new Error(
+              "Phone number must include country code (e.g., +91 for India)",
+            ),
+          );
           return;
         }
-        resolve();
-      });
+        attributeList.push(
+          new CognitoUserAttribute({
+            Name: "phone_number",
+            Value: trimmedPhone,
+          }),
+        );
+      }
+
+      userPool.signUp(
+        email,
+        password,
+        attributeList,
+        [],
+        async (err, result) => {
+          if (err) {
+            console.error("Cognito signup error:", err);
+            reject(mapCognitoError(err));
+            return;
+          }
+          console.log("Signup successful:", result);
+          resolve();
+        },
+      );
     });
   };
 

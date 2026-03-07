@@ -55,7 +55,7 @@ export default function LoginScreen() {
           {/* Hero */}
           <View style={styles.hero}>
             <View style={styles.logoContainer}>
-              <Ionicons name="fish" size={40} color={COLORS.primaryLight} />
+              <Ionicons name="fish" size={30} color={COLORS.primaryLight} />
             </View>
             <Text style={styles.appName}>OceanAI</Text>
             <Text style={styles.tagline}>AI for Bharat Fishermen</Text>
@@ -122,7 +122,7 @@ export default function LoginScreen() {
               { icon: "bar-chart-outline" as const, label: "Analytics" },
             ].map((f) => (
               <View key={f.label} style={styles.featureItem}>
-                <Ionicons name={f.icon} size={22} color={COLORS.primaryLight} />
+                <Ionicons name={f.icon} size={18} color={COLORS.primaryLight} />
                 <Text style={styles.featureLabel}>{f.label}</Text>
               </View>
             ))}
@@ -144,59 +144,59 @@ const styles = StyleSheet.create({
 
   hero: {
     alignItems: "center",
-    paddingTop: SPACING["3xl"],
-    paddingBottom: SPACING["2xl"],
+    paddingTop: SPACING["2xl"],
+    paddingBottom: SPACING.xl,
   },
   logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 16,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: SPACING.base,
+    marginBottom: SPACING.sm,
     shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 6,
   },
 
   appName: {
-    fontSize: FONTS.sizes["4xl"],
+    fontSize: FONTS.sizes["3xl"],
     fontWeight: FONTS.weights.extrabold,
     color: COLORS.textPrimary,
-    letterSpacing: -1,
+    letterSpacing: -0.5,
   },
   tagline: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
     marginTop: SPACING.xs,
     fontWeight: FONTS.weights.medium,
   },
   heroBadge: {
-    marginTop: SPACING.base,
+    marginTop: SPACING.sm,
     backgroundColor: COLORS.accent + "20",
     borderRadius: RADIUS.full,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
   },
   heroBadgeText: {
     color: COLORS.accentLight,
     fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
   },
 
   card: {
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS["2xl"],
+    borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.xl,
-    marginBottom: SPACING.xl,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
   },
   cardTitle: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.xs,
@@ -204,22 +204,22 @@ const styles = StyleSheet.create({
   cardSubtitle: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.lg,
   },
-  formGroup: { marginBottom: SPACING.base },
+  formGroup: { marginBottom: SPACING.sm },
 
-  loginBtn: { marginTop: SPACING.md },
+  loginBtn: { marginTop: SPACING.sm },
 
   footer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
   footerText: { color: COLORS.textMuted, fontSize: FONTS.sizes.sm },
   footerLink: {
     color: COLORS.primaryLight,
     fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
   },
 
   features: {
@@ -231,6 +231,6 @@ const styles = StyleSheet.create({
   featureLabel: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textSubtle,
-    fontWeight: FONTS.weights.semibold,
+    fontWeight: FONTS.weights.medium,
   },
 });

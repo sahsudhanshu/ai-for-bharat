@@ -37,6 +37,10 @@ import {
   IS_DEMO_MODE,
 } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
+import {
+  translateFishName,
+  translateDiseaseName,
+} from "../../lib/i18n/species-i18n";
 import { useNetwork } from "../../lib/network-context";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -62,6 +66,10 @@ import {
 import { BoundingBoxOverlay } from "../../components/BoundingBoxOverlay";
 import { generateMockSupplement } from "../../lib/species-data";
 import { setAnalysisData } from "../../lib/analysis-store";
+import { toastService } from "../../lib/toast-service";
+import { saveLocalAnalysis } from "../../lib/local-history";
+import { WeightEstimateModal } from "../../components/WeightEstimateModal";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
 const YOLO_CONFIDENCE_THRESHOLD = 0.3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -69,7 +77,7 @@ const SCREEN_WIDTH = Dimensions.get("window").width;
 type Step = "idle" | "uploading" | "processing" | "done" | "error";
 
 export default function UploadScreen() {
-  const { t, isLoaded } = useLanguage();
+  const { t, locale, isLoaded } = useLanguage();
   const { effectiveMode, connectionQuality } = useNetwork();
 
   // Multi-image state
@@ -115,6 +123,10 @@ export default function UploadScreen() {
   const [analysisMode, setAnalysisMode] = useState<"online" | "offline" | null>(
     null,
   );
+  // ── User-requested offline mode ──
+  const [forceOffline, setForceOffline] = useState(false);
+  // Step label shown during offline inference
+  const [offlineStep, setOfflineStep] = useState<string>("");
 
   // ── TFLite classification model state ──
   const [tfliteInfo, setTfliteInfo] = useState<TFLiteModelDebugInfo | null>(
@@ -122,6 +134,11 @@ export default function UploadScreen() {
   );
   const [tfliteLoading, setTfliteLoading] = useState(false);
   const [tfliteError, setTfliteError] = useState<string | null>(null);
+
+  // ── Weight estimation state ──
+  const [weightModalVisible, setWeightModalVisible] = useState(false);
+  const [weightSpecies, setWeightSpecies] = useState("Tilapia");
+  const [uploadGroupId, setUploadGroupId] = useState<string | null>(null);
 
   const refreshModelStatus = () => {
     const info = getModelDebugInfo();
@@ -142,6 +159,9 @@ export default function UploadScreen() {
       .catch(() => {
         setModelError(true);
         setModelSource("missing");
+        toastService.error(
+          "Detection model unavailable — run: npm run deploy-models",
+        );
       });
 
     // TFLite species + disease models
@@ -153,10 +173,30 @@ export default function UploadScreen() {
       })
       .catch((err) => {
         refreshTfliteStatus();
-        setTfliteError(err instanceof Error ? err.message : String(err));
+        const msg = err instanceof Error ? err.message : String(err);
+        setTfliteError(msg);
+        toastService.error(
+          "Species/disease models unavailable — run: npm run deploy-models",
+        );
       })
       .finally(() => setTfliteLoading(false));
   }, []);
+
+  // Trigger weight modal after species detection
+  useEffect(() => {
+    if (step === "done" && groupAnalysis) {
+      // Check if we have species detected
+      const firstDetection = groupAnalysis.detections?.[0];
+
+      if (firstDetection?.species) {
+        setWeightSpecies(firstDetection.species);
+        // Small delay to let the UI settle
+        setTimeout(() => {
+          setWeightModalVisible(true);
+        }, 500);
+      }
+    }
+  }, [step, groupAnalysis]);
 
   const handleReloadModel = async () => {
     setIsReloadingModel(true);
@@ -268,12 +308,14 @@ export default function UploadScreen() {
     setOfflineProcessingTime(null);
     setResult(null);
     setGroupAnalysis(null);
+    setUploadGroupId(null);
     setUploadProgress({});
     setCurrentImageIndex(0);
 
     console.log("\n╔════════════════════════════════════════════════════╗");
     console.log("  🚀  ANALYSIS STARTED");
-    const isOffline = IS_DEMO_MODE || effectiveMode === "offline";
+    const isOffline =
+      IS_DEMO_MODE || effectiveMode === "offline" || forceOffline;
     console.log(
       `  Mode          : ${isOffline ? `OFFLINE (${IS_DEMO_MODE ? "demo" : "network unavailable"})` : "ONLINE (cloud) → offline fallback"}`,
     );
@@ -297,29 +339,21 @@ export default function UploadScreen() {
         setIsDetecting(true);
         setStep("processing");
         animateProgress(0);
+        setOfflineStep("Starting on-device pipeline…");
         console.log("[Upload] 🔍 Starting offline inference pipeline…");
 
-        // Simulate progress while running
-        const interval = setInterval(() => {
-          setProgress((prev) => {
-            const next = Math.min(prev + 5, 85);
-            Animated.timing(progressAnim, {
-              toValue: next,
-              duration: 250,
-              useNativeDriver: false,
-            }).start();
-            return next;
-          });
-        }, 500);
-
-        // Step 2: Run the full offline inference pipeline
+        // Step 2: Run the full offline inference pipeline with real progress
         const pipelineStart = Date.now();
         const {
           detections: offlineDets,
           processingTime,
           errors,
-        } = await runOfflineInference(targetUri);
-        clearInterval(interval);
+        } = await runOfflineInference(targetUri, ({ percent, step }) => {
+          animateProgress(percent);
+          setOfflineStep(step);
+        });
+
+        setOfflineStep("");
 
         console.log(
           `[Upload] ✅ Offline inference complete: ${offlineDets.length} fish in ${processingTime}ms`,
@@ -341,6 +375,15 @@ export default function UploadScreen() {
           imageUri: targetUri,
           location,
         });
+
+        // Persist locally for offline history (queued for backend sync)
+        saveLocalAnalysis({
+          mode: "offline",
+          offlineResults: offlineDets,
+          processingTime,
+          imageUri: targetUri,
+          location,
+        }).catch((e) => console.warn("[Upload] Local history save failed:", e));
 
         // Extract detection boxes for the BoundingBoxOverlay
         if (offlineDets.length > 0) {
@@ -481,6 +524,7 @@ export default function UploadScreen() {
           location,
         });
         setGroupAnalysis(normalizedAnalysis);
+        setUploadGroupId(groupId);
         setStep("done");
       } catch (e: any) {
         console.error(`[Upload] ☁️ Group analysis failed: ${e.message}`);
@@ -572,6 +616,7 @@ export default function UploadScreen() {
           location,
         });
         setGroupAnalysis(normalizedAnalysis);
+        setUploadGroupId(groupId);
         setStep("done");
       } catch (e: any) {
         // ── Cloud failed → fallback to offline ──
@@ -582,25 +627,18 @@ export default function UploadScreen() {
           setStep("processing");
           setAnalysisMode("offline");
           animateProgress(0);
-
-          const interval = setInterval(() => {
-            setProgress((prev) => {
-              const next = Math.min(prev + 5, 85);
-              Animated.timing(progressAnim, {
-                toValue: next,
-                duration: 250,
-                useNativeDriver: false,
-              }).start();
-              return next;
-            });
-          }, 500);
+          setOfflineStep("Starting on-device fallback…");
 
           const {
             detections: offlineDets,
             processingTime,
             errors,
-          } = await runOfflineInference(targetUri);
-          clearInterval(interval);
+          } = await runOfflineInference(targetUri, ({ percent, step }) => {
+            animateProgress(percent);
+            setOfflineStep(step);
+          });
+
+          setOfflineStep("");
 
           console.log(
             `[Upload] ✅ Offline fallback: ${offlineDets.length} fish in ${processingTime}ms`,
@@ -667,6 +705,7 @@ export default function UploadScreen() {
     setImageUris([]);
     setResult(null);
     setGroupAnalysis(null);
+    setUploadGroupId(null);
     setStep("idle");
     setProgress(0);
     setUploadProgress({});
@@ -680,6 +719,8 @@ export default function UploadScreen() {
     setOfflineProcessingTime(null);
     setAnalysisMode(null);
     setCurrentImageIndex(0);
+    setForceOffline(false);
+    setOfflineStep("");
   };
 
   const removeImage = (index: number) => {
@@ -712,6 +753,46 @@ export default function UploadScreen() {
         ? COLORS.warning
         : COLORS.error;
 
+  // Weight modal handlers
+  const handleWeightComplete = (weightG: number) => {
+    setWeightModalVisible(false);
+
+    // Navigate to chat with analysis context
+    const firstImage = groupAnalysis?.images?.[0];
+    const firstDetection = groupAnalysis?.detections?.[0];
+    const imageUrl =
+      firstImage?.yolo_image_url || imageUris[0] || imageUri || "";
+
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        analysisId: uploadGroupId || "unknown",
+        species: firstDetection?.species || weightSpecies,
+        imageUrl,
+        weight: weightG.toString(),
+      },
+    });
+  };
+
+  const handleWeightCancel = () => {
+    setWeightModalVisible(false);
+
+    // Navigate to chat without weight
+    const firstImage = groupAnalysis?.images?.[0];
+    const firstDetection = groupAnalysis?.detections?.[0];
+    const imageUrl =
+      firstImage?.yolo_image_url || imageUris[0] || imageUri || "";
+
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        analysisId: uploadGroupId || "unknown",
+        species: firstDetection?.species || weightSpecies,
+        imageUrl,
+      },
+    });
+  };
+
   if (!isLoaded) return null;
 
   return (
@@ -723,14 +804,22 @@ export default function UploadScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>{t("upload.title")}</Text>
-          <Text style={styles.subtitle}>{t("upload.subtitle")}</Text>
+          <View style={styles.headerLeft}>
+            <Text style={styles.title}>{t("upload.title")}</Text>
+            <Text style={styles.subtitle}>{t("upload.subtitle")}</Text>
+          </View>
+          <ProfileMenu size={36} />
         </View>
 
         {/* Upload Zone */}
         {imageUris.length === 0 && !imageUri ? (
           <View style={styles.uploadZone}>
-            <Ionicons name="camera-outline" size={48} color={COLORS.textMuted} style={{ marginBottom: SPACING.md }} />
+            <Ionicons
+              name="camera-outline"
+              size={36}
+              color={COLORS.textMuted}
+              style={{ marginBottom: SPACING.sm }}
+            />
             <Text style={styles.uploadTitle}>{t("upload.cta")}</Text>
             <Text style={styles.uploadHint}>{t("upload.hint")}</Text>
             <View style={styles.uploadBtns}>
@@ -746,7 +835,13 @@ export default function UploadScreen() {
                 label={t("upload.btnGallery")}
                 onPress={pickFromGallery}
                 variant="outline"
-                icon={<Ionicons name="images" size={16} color={COLORS.primaryLight} />}
+                icon={
+                  <Ionicons
+                    name="images"
+                    size={16}
+                    color={COLORS.primaryLight}
+                  />
+                }
                 iconPosition="left"
                 style={styles.uploadBtn}
               />
@@ -766,9 +861,15 @@ export default function UploadScreen() {
           <>
             {/* Multi-Image Preview Grid */}
             {imageUris.length > 1 && (
-              <Card style={styles.multiImageCard} padding={SPACING.base}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Ionicons name="images-outline" size={16} color={COLORS.primaryLight} />
+              <Card style={styles.multiImageCard} padding={SPACING.md}>
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+                >
+                  <Ionicons
+                    name="images-outline"
+                    size={16}
+                    color={COLORS.primaryLight}
+                  />
                   <Text style={styles.multiImageTitle}>
                     {imageUris.length} Images Selected
                   </Text>
@@ -819,10 +920,20 @@ export default function UploadScreen() {
                   style={styles.previewImage}
                   resizeMode="cover"
                 />
-                        {location && (
+                {location && (
                   <View style={styles.locationBadge}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                      <Ionicons name="location-outline" size={12} color={COLORS.textMuted} />
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="location-outline"
+                        size={12}
+                        color={COLORS.textMuted}
+                      />
                       <Text style={styles.locationText}>
                         {location.lat.toFixed(3)}°N, {location.lng.toFixed(3)}
                         °E
@@ -835,7 +946,7 @@ export default function UploadScreen() {
 
             {/* Progress */}
             {isAnalyzing && (
-              <Card style={styles.progressCard} padding={SPACING.base}>
+              <Card style={styles.progressCard} padding={SPACING.md}>
                 <Text style={styles.progressLabel}>
                   {step === "uploading"
                     ? `${t("upload.uploading")}...`
@@ -854,31 +965,74 @@ export default function UploadScreen() {
                     ]}
                   />
                 </View>
-                {step === "processing" && (
-                  <Text style={styles.progressHint}>
-                    {analysisMode === "offline"
-                      ? "Offline: YOLOv8 → Species → Disease → GradCAM"
-                      : "YOLOv11 → Species Classification → Weight Estimation"}
-                  </Text>
-                )}
+                {step === "processing" &&
+                  (analysisMode === "offline" && offlineStep ? (
+                    <View style={styles.offlineStepRow}>
+                      <ActivityIndicator
+                        size="small"
+                        color={COLORS.primaryLight}
+                        style={{ transform: [{ scale: 0.7 }] }}
+                      />
+                      <Text style={styles.progressHint}>{offlineStep}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.progressHint}>
+                      {analysisMode === "offline"
+                        ? "On-device: YOLOv8 → Species → Disease → GradCAM"
+                        : "YOLOv11 → Species Classification → Weight Estimation"}
+                    </Text>
+                  ))}
               </Card>
             )}
 
             {/* Controls */}
             {step === "idle" && (
-              <View style={styles.controlRow}>
+              <View>
                 <Button
                   label={t("upload.btnStartAnalysis")}
                   onPress={startAnalysis}
                   size="lg"
-                  style={styles.analyzeBtn}
+                  fullWidth
                 />
-                <Button
-                  label={t("common.cancel")}
-                  onPress={reset}
-                  variant="ghost"
-                  style={styles.removeBtn}
-                />
+                <View style={styles.offlineToggleRow}>
+                  <TouchableOpacity
+                    style={styles.offlineToggle}
+                    onPress={() => setForceOffline((v) => !v)}
+                    activeOpacity={0.7}
+                  >
+                    <View
+                      style={[
+                        styles.offlineToggleBox,
+                        forceOffline && styles.offlineToggleBoxOn,
+                      ]}
+                    >
+                      {forceOffline && (
+                        <Ionicons name="checkmark" size={10} color="#fff" />
+                      )}
+                    </View>
+                    <Ionicons
+                      name="phone-portrait-outline"
+                      size={13}
+                      color={
+                        forceOffline ? COLORS.primaryLight : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.offlineToggleText,
+                        forceOffline && { color: COLORS.primaryLight },
+                      ]}
+                    >
+                      Use on-device inference
+                    </Text>
+                  </TouchableOpacity>
+                  <Button
+                    label={t("common.cancel")}
+                    onPress={reset}
+                    variant="ghost"
+                    size="sm"
+                  />
+                </View>
               </View>
             )}
             {step === "error" && (
@@ -908,39 +1062,8 @@ export default function UploadScreen() {
           </>
         )}
 
-        {/* On-device Model Status — compact */}
-        {(() => {
-          const allLoaded = !modelError && !tfliteLoading && tfliteInfo?.speciesModel.isLoaded && tfliteInfo?.diseaseModel.isLoaded;
-          const statusColor = allLoaded ? COLORS.success : COLORS.error;
-          const statusLabel = allLoaded ? 'All 3 models loaded' : modelError || tfliteError ? 'One or more models missing' : 'Loading models…';
-          return (
-            <Card style={styles.modelStatusCard} padding={SPACING.md}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: SPACING.sm }}>
-                  <Ionicons name="hardware-chip-outline" size={18} color={statusColor} />
-                  <Text style={[styles.modelStatusTitle, { color: statusColor, marginBottom: 0 }]}>
-                    {tfliteLoading ? 'Loading models…' : statusLabel}
-                  </Text>
-                </View>
-                <Button
-                  label="Reload"
-                  onPress={handleReloadModel}
-                  variant="outline"
-                  size="sm"
-                  loading={isReloadingModel}
-                />
-              </View>
-              {(modelError || tfliteError) && (
-                <Text style={[styles.modelStatusError, { marginTop: SPACING.xs }]}>
-                  Run: npm run deploy-models
-                </Text>
-              )}
-            </Card>
-          );
-        })()}
-
         {isDetecting && (
-          <Card style={styles.detectionCard} padding={SPACING.base}>
+          <Card style={styles.detectionCard} padding={SPACING.md}>
             <View style={styles.detectingRow}>
               <ActivityIndicator size="small" color={COLORS.primaryLight} />
               <Text style={styles.detectingText}>
@@ -952,9 +1075,22 @@ export default function UploadScreen() {
 
         {detections.length > 0 && imageUri && (
           <View style={styles.detectionSection}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
-              <Ionicons name="scan-outline" size={16} color={COLORS.primaryLight} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Detection Results</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: SPACING.md,
+              }}
+            >
+              <Ionicons
+                name="scan-outline"
+                size={16}
+                color={COLORS.primaryLight}
+              />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                Detection Results
+              </Text>
             </View>
             <Card style={styles.detectionCard} padding={0}>
               <BoundingBoxOverlay
@@ -998,9 +1134,22 @@ export default function UploadScreen() {
         {groupAnalysis && (
           <View style={styles.groupSection}>
             {/* Aggregate Statistics Card */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
-              <Ionicons name="bar-chart" size={16} color={COLORS.primaryLight} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Group Analysis Summary</Text>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: SPACING.md,
+              }}
+            >
+              <Ionicons
+                name="bar-chart"
+                size={16}
+                color={COLORS.primaryLight}
+              />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                Group Analysis Summary
+              </Text>
             </View>
             <Card style={styles.aggregateCard} padding={SPACING.xl}>
               <View style={styles.aggregateHeader}>
@@ -1014,9 +1163,7 @@ export default function UploadScreen() {
 
               {/* Total Fish Count */}
               <View style={styles.aggregateRow}>
-                <Text style={styles.aggregateLabel}>
-                  Total Fish Detected
-                </Text>
+                <Text style={styles.aggregateLabel}>Total Fish Detected</Text>
                 <Text style={styles.aggregateValue}>
                   {groupAnalysis.aggregateStats.totalFishCount}
                 </Text>
@@ -1095,7 +1242,9 @@ export default function UploadScreen() {
                     .sort(([, a], [, b]) => b - a)
                     .map(([species, count]) => (
                       <View key={species} style={styles.speciesDistRow}>
-                        <Text style={styles.speciesDistName}>{species}</Text>
+                        <Text style={styles.speciesDistName}>
+                          {translateFishName(species, locale)}
+                        </Text>
                         <View style={styles.speciesDistRight}>
                           <Text style={styles.speciesDistCount}>{count}</Text>
                           <View style={styles.speciesDistBar}>
@@ -1129,14 +1278,21 @@ export default function UploadScreen() {
                 label="Export PDF"
                 onPress={async () => {
                   try {
-                    const { exportAnalysisToPDF } = await import("../../lib/pdf-export");
+                    const { exportAnalysisToPDF } =
+                      await import("../../lib/pdf-export");
                     await exportAnalysisToPDF();
                   } catch (error) {
                     Alert.alert("Export Failed", "Could not export PDF");
                   }
                 }}
                 variant="outline"
-                icon={<Ionicons name="download" size={16} color={COLORS.primaryLight} />}
+                icon={
+                  <Ionicons
+                    name="download"
+                    size={16}
+                    color={COLORS.primaryLight}
+                  />
+                }
                 iconPosition="left"
                 style={styles.actionButton}
               />
@@ -1147,7 +1303,7 @@ export default function UploadScreen() {
                 const prompt = `I just analyzed a group of ${groupAnalysis.aggregateStats.totalFishCount} fish. Total weight: ${groupAnalysis.aggregateStats.totalEstimatedWeight.toFixed(2)} kg, Total value: ₹${groupAnalysis.aggregateStats.totalEstimatedValue}. Species: ${Object.keys(groupAnalysis.aggregateStats.speciesDistribution).join(", ")}. What are the current market prices and any recommendations?`;
                 router.push({
                   pathname: "/(tabs)/chat",
-                  params: { initialMessage: prompt }
+                  params: { initialMessage: prompt },
                 });
               }}
               variant="secondary"
@@ -1174,7 +1330,7 @@ export default function UploadScreen() {
               <View style={styles.currentImageSection}>
                 {/* Error Message */}
                 {groupAnalysis.images[currentImageIndex].error && (
-                  <Card style={styles.errorCard} padding={SPACING.base}>
+                  <Card style={styles.errorCard} padding={SPACING.md}>
                     <Text style={styles.errorText}>
                       ⚠️ {groupAnalysis.images[currentImageIndex].error}
                     </Text>
@@ -1197,9 +1353,22 @@ export default function UploadScreen() {
                         allCrops.length - visibleCrops.length;
                       return (
                         <>
-                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
-                            <Ionicons name="fish-outline" size={16} color={COLORS.primaryLight} />
-                            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 8,
+                              marginBottom: SPACING.md,
+                            }}
+                          >
+                            <Ionicons
+                              name="fish-outline"
+                              size={16}
+                              color={COLORS.primaryLight}
+                            />
+                            <Text
+                              style={[styles.sectionTitle, { marginBottom: 0 }]}
+                            >
                               Detected Fish ({visibleCrops.length})
                             </Text>
                             {filteredCount > 0 && (
@@ -1223,6 +1392,14 @@ export default function UploadScreen() {
                               crop.disease.label === "Healthy Fish"
                                 ? COLORS.success
                                 : COLORS.warning;
+                            const translatedSpecies = translateFishName(
+                              crop.species.label,
+                              locale,
+                            );
+                            const translatedDisease = translateDiseaseName(
+                              crop.disease.label,
+                              locale,
+                            );
                             const qualColor =
                               supplement.qualityGrade === "Premium"
                                 ? COLORS.success
@@ -1234,7 +1411,7 @@ export default function UploadScreen() {
                               <Card
                                 key={cropKey}
                                 style={styles.cropCard}
-                                padding={SPACING.base}
+                                padding={SPACING.md}
                               >
                                 {/* Header */}
                                 <View style={styles.cropCardHeader}>
@@ -1264,7 +1441,7 @@ export default function UploadScreen() {
 
                                 {/* Species */}
                                 <Text style={styles.cropSpecies}>
-                                  {crop.species.label}
+                                  {translatedSpecies}
                                 </Text>
                                 <Text style={styles.cropScientific}>
                                   {supplement.scientificName}
@@ -1279,7 +1456,7 @@ export default function UploadScreen() {
                                       { color: diseaseColor },
                                     ]}
                                   >
-                                    {crop.disease.label}
+                                    {translatedDisease}
                                   </Text>
                                 </View>
 
@@ -1406,11 +1583,22 @@ export default function UploadScreen() {
             );
             return (
               <View style={styles.groupSection}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
-                  <Ionicons name="bar-chart" size={16} color={COLORS.primaryLight} />
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: SPACING.md,
+                  }}
+                >
+                  <Ionicons
+                    name="bar-chart"
+                    size={16}
+                    color={COLORS.primaryLight}
+                  />
                   <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
-                  Offline Analysis Summary
-                </Text>
+                    Offline Analysis Summary
+                  </Text>
                 </View>
                 <Card style={styles.aggregateCard} padding={SPACING.xl}>
                   <View style={styles.aggregateHeader}>
@@ -1485,7 +1673,7 @@ export default function UploadScreen() {
                         .map(([species, count]) => (
                           <View key={species} style={styles.speciesDistRow}>
                             <Text style={styles.speciesDistName}>
-                              {species}
+                              {translateFishName(species, locale)}
                             </Text>
                             <View style={styles.speciesDistRight}>
                               <Text style={styles.speciesDistCount}>
@@ -1512,7 +1700,9 @@ export default function UploadScreen() {
                     label="View Detailed Report"
                     onPress={() => router.push("/analysis/detail")}
                     variant="primary"
-                    icon={<Ionicons name="document-text" size={16} color="#fff" />}
+                    icon={
+                      <Ionicons name="document-text" size={16} color="#fff" />
+                    }
                     iconPosition="left"
                     style={styles.actionButton}
                   />
@@ -1520,14 +1710,21 @@ export default function UploadScreen() {
                     label="Export PDF"
                     onPress={async () => {
                       try {
-                        const { exportAnalysisToPDF } = await import("../../lib/pdf-export");
+                        const { exportAnalysisToPDF } =
+                          await import("../../lib/pdf-export");
                         await exportAnalysisToPDF();
                       } catch (error) {
                         Alert.alert("Export Failed", "Could not export PDF");
                       }
                     }}
                     variant="outline"
-                    icon={<Ionicons name="download" size={16} color={COLORS.primaryLight} />}
+                    icon={
+                      <Ionicons
+                        name="download"
+                        size={16}
+                        color={COLORS.primaryLight}
+                      />
+                    }
                     iconPosition="left"
                     style={styles.actionButton}
                   />
@@ -1539,7 +1736,7 @@ export default function UploadScreen() {
                     const prompt = `I just analyzed ${totalFish} fish using offline detection. Total weight: ${totalWeightKg.toFixed(2)} kg, Total value: ₹${totalValue}. Species: ${speciesList}. What are the current market prices and any recommendations?`;
                     router.push({
                       pathname: "/(tabs)/chat",
-                      params: { initialMessage: prompt }
+                      params: { initialMessage: prompt },
                     });
                   }}
                   variant="secondary"
@@ -1551,130 +1748,16 @@ export default function UploadScreen() {
               </View>
             );
           })()}
-
-        {/* ═══ Per-Fish Offline Results ═══ */}
-        {offlineResults.length > 0 && (
-          <View style={styles.offlineSection}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: SPACING.md }}>
-              <Ionicons name="fish-outline" size={16} color={COLORS.primaryLight} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>
-                Detected Fish ({offlineResults.length})
-              </Text>
-            </View>
-            {offlineResults.map((det, idx) => {
-              const diseaseColor =
-                det.disease === "Healthy Fish"
-                  ? COLORS.success
-                  : COLORS.warning;
-              const qualColor =
-                det.qualityGrade === "Premium"
-                  ? COLORS.success
-                  : det.qualityGrade === "Standard"
-                    ? COLORS.warning
-                    : COLORS.error;
-
-              return (
-                <Card key={idx} style={styles.fishCard} padding={SPACING.base}>
-                  {/* Header */}
-                  <View style={styles.fishCardHeader}>
-                    <Text style={styles.fishCardTitle}>Fish #{idx + 1}</Text>
-                    <View
-                      style={[
-                        styles.fishConfBadge,
-                        { backgroundColor: COLORS.primaryLight + "20" },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.fishConfText,
-                          { color: COLORS.primaryLight },
-                        ]}
-                      >
-                        {(det.speciesConfidence * 100).toFixed(1)}%
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Species */}
-                  <Text style={styles.fishSpecies}>{det.species}</Text>
-
-                  {/* Disease */}
-                  <View style={styles.fishRow}>
-                    <Text style={styles.fishLabel}>Disease:</Text>
-                    <Text style={[styles.fishValue, { color: diseaseColor }]}>
-                      {det.disease} ({(det.diseaseConfidence * 100).toFixed(1)}
-                      %)
-                    </Text>
-                  </View>
-
-                  {/* Quality */}
-                  <View style={styles.fishRow}>
-                    <Text style={styles.fishLabel}>Quality:</Text>
-                    <Text style={[styles.fishValue, { color: qualColor }]}>
-                      {det.qualityGrade}
-                    </Text>
-                  </View>
-
-                  {/* Measurements */}
-                  <View style={styles.fishMetrics}>
-                    <View style={styles.fishMetricItem}>
-                      <Text style={styles.fishMetricVal}>
-                        {(det.weightG / 1000).toFixed(2)} kg
-                      </Text>
-                      <Text style={styles.fishMetricLabel}>Weight</Text>
-                    </View>
-                    <View style={styles.fishMetricItem}>
-                      <Text style={styles.fishMetricVal}>
-                        {det.lengthMm} mm
-                      </Text>
-                      <Text style={styles.fishMetricLabel}>Length</Text>
-                    </View>
-                    <View style={styles.fishMetricItem}>
-                      <Text style={styles.fishMetricVal}>
-                        ₹{det.estimatedValue}
-                      </Text>
-                      <Text style={styles.fishMetricLabel}>Value</Text>
-                    </View>
-                  </View>
-
-                  {/* Legal size */}
-                  <View style={[styles.fishRow, { marginBottom: SPACING.sm }]}>
-                    <Text style={styles.fishLabel}>Legal Size:</Text>
-                    <Text
-                      style={[
-                        styles.fishValue,
-                        {
-                          color: det.isLegalSize
-                            ? COLORS.success
-                            : COLORS.error,
-                        },
-                      ]}
-                    >
-                      {det.isLegalSize
-                        ? `≥${det.minLegalSize}mm`
-                        : `Below ${det.minLegalSize}mm`}
-                    </Text>
-                  </View>
-
-                  {/* Error notice */}
-                  {det.error && (
-                    <Text style={styles.fishError}>{det.error}</Text>
-                  )}
-
-                  {/* Detailed Report Button */}
-                  <Button
-                    label="View Detailed Report →"
-                    onPress={() => router.push("/analysis/detail")}
-                    variant="outline"
-                    size="sm"
-                    fullWidth
-                  />
-                </Card>
-              );
-            })}
-          </View>
-        )}
       </ScrollView>
+
+      {/* Weight Estimation Modal */}
+      <WeightEstimateModal
+        visible={weightModalVisible}
+        onClose={handleWeightCancel}
+        onConfirm={handleWeightComplete}
+        species={weightSpecies}
+        fishIndex={0}
+      />
     </SafeAreaView>
   );
 }
@@ -1682,13 +1765,21 @@ export default function UploadScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
   scroll: { flex: 1 },
-  content: { padding: SPACING.xl, paddingBottom: SPACING["4xl"] },
+  content: { padding: SPACING.lg, paddingBottom: SPACING["3xl"] },
 
-  header: { marginBottom: SPACING.xl },
+  header: {
+    marginBottom: SPACING.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerLeft: {
+    flex: 1,
+  },
   title: {
-    fontSize: FONTS.sizes["3xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
   },
   subtitle: {
     fontSize: FONTS.sizes.sm,
@@ -1698,39 +1789,39 @@ const styles = StyleSheet.create({
 
   uploadZone: {
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS["2xl"],
-    borderWidth: 2,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1.5,
     borderColor: COLORS.border,
     borderStyle: "dashed",
-    padding: SPACING["2xl"],
+    padding: SPACING.xl,
     alignItems: "center",
-    marginBottom: SPACING.xl,
+    marginBottom: SPACING.lg,
   },
 
   uploadTitle: {
-    fontSize: FONTS.sizes.xl,
+    fontSize: FONTS.sizes.lg,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
-    marginBottom: SPACING.sm,
+    fontWeight: FONTS.weights.semibold,
+    marginBottom: SPACING.xs,
   },
   uploadHint: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
     textAlign: "center",
-    marginBottom: SPACING.xl,
-    paddingHorizontal: SPACING.xl,
+    marginBottom: SPACING.lg,
+    paddingHorizontal: SPACING.lg,
   },
   uploadBtns: {
     flexDirection: "row",
-    gap: SPACING.md,
-    marginBottom: SPACING.xl,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   uploadBtn: { minWidth: 130 },
 
   tipsBox: {
     backgroundColor: COLORS.bgDark,
     borderRadius: RADIUS.lg,
-    padding: SPACING.base,
+    padding: SPACING.md,
     width: "100%",
   },
   tipsTitle: {
@@ -1792,6 +1883,13 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     textAlign: "center",
   },
+  offlineStepRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    marginTop: SPACING.xs,
+  },
 
   controlRow: {
     flexDirection: "row",
@@ -1801,12 +1899,42 @@ const styles = StyleSheet.create({
   analyzeBtn: { flex: 1 },
   removeBtn: { minWidth: 90 },
 
+  offlineToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.sm,
+  },
+  offlineToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  offlineToggleBox: {
+    width: 14,
+    height: 14,
+    borderRadius: 3,
+    borderWidth: 1.5,
+    borderColor: COLORS.textMuted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offlineToggleBoxOn: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  offlineToggleText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+  },
+
   resultsSection: { marginTop: SPACING.sm },
   sectionTitle: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
   },
 
   resultCard: { marginBottom: SPACING.md },
@@ -1834,9 +1962,9 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   speciesName: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.primaryLight,
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
     marginBottom: SPACING.xs,
     flexShrink: 1,
     maxWidth: "100%",
@@ -1845,7 +1973,7 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
     fontStyle: "italic",
-    marginBottom: SPACING.base,
+    marginBottom: SPACING.md,
     flexShrink: 1,
     maxWidth: "100%",
   },
@@ -1905,7 +2033,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   marketValue: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
     fontWeight: FONTS.weights.extrabold,
     flexShrink: 1,
@@ -2174,7 +2302,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.7)",
     color: "#fff",
     fontSize: FONTS.sizes.xs,
-    paddingHorizontal: 6,
+    paddingHorizontal: SPACING.xs,
     paddingVertical: 2,
     borderRadius: RADIUS.sm,
     fontWeight: FONTS.weights.bold,

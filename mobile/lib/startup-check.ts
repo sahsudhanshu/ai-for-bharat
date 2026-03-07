@@ -5,7 +5,6 @@
  */
 
 import Constants from "expo-constants";
-import * as FileSystem from "expo-file-system/legacy";
 import { Platform } from "react-native";
 
 // ── ANSI color helpers (for console output) ────────────────────────────────

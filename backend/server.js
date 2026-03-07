@@ -61,6 +61,12 @@ app.get('/user/export', (req, res) => runLambda(req, res, require('./src/functio
 app.delete('/user/account', (req, res) => runLambda(req, res, require('./src/functions/deleteUserAccount.js').handler));
 app.get('/user/public/:slug', (req, res) => runLambda(req, res, require('./src/functions/getPublicProfile.js').handler));
 
+// Weight estimate sync
+app.post('/weight-estimates', (req, res) => runLambda(req, res, require('./src/functions/saveWeightEstimate.js').handler));
+
+// Offline analysis sync
+app.post('/offline-analyses', (req, res) => runLambda(req, res, require('./src/functions/saveOfflineAnalysis.js').handler));
+
 // ── Start server with diagnostics ───────────────────────────────────────────
 (async () => {
     const diagnostics = await runStartupChecks();

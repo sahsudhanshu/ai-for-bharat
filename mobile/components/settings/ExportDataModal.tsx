@@ -6,11 +6,13 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Switch,
 } from "react-native";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { Modal } from "../ui/Modal";
 import { ExportService } from "../../lib/export-service";
 import type { DataExportOptions } from "../../lib/types";
+import { toastService } from "../../lib/toast-service";
 
 interface ExportDataModalProps {
   visible: boolean;
@@ -19,6 +21,8 @@ interface ExportDataModalProps {
 
 export function ExportDataModal({ visible, onClose }: ExportDataModalProps) {
   const [format, setFormat] = useState<"csv" | "json">("csv");
+  const [includeAnalysis, setIncludeAnalysis] = useState(true);
+  const [includeChat, setIncludeChat] = useState(true);
   const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {
@@ -27,8 +31,8 @@ export function ExportDataModal({ visible, onClose }: ExportDataModalProps) {
 
       const options: DataExportOptions = {
         format,
-        includeAnalysis: true,
-        includeChat: true,
+        includeAnalysis,
+        includeChat,
       };
 
       await ExportService.exportData(options);
@@ -36,7 +40,7 @@ export function ExportDataModal({ visible, onClose }: ExportDataModalProps) {
       onClose();
     } catch (err) {
       console.error("Error exporting data:", err);
-      Alert.alert("Error", "Failed to export data. Please try again.");
+      toastService.error("Failed to export data. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -46,9 +50,41 @@ export function ExportDataModal({ visible, onClose }: ExportDataModalProps) {
     <Modal visible={visible} onClose={onClose} title="Export Data">
       <View style={styles.content}>
         <Text style={styles.description}>
-          Export all your catch history, analysis results, and chat
-          conversations.
+          Export your catch history, analysis results, and chat conversations.
         </Text>
+
+        {/* Export Options */}
+        <View style={styles.optionsSection}>
+          <Text style={styles.label}>What to Export</Text>
+          <View style={styles.optionRow}>
+            <View style={styles.optionLeft}>
+              <Text style={styles.optionLabel}>Analyses</Text>
+              <Text style={styles.optionDesc}>
+                All catch analysis results and images
+              </Text>
+            </View>
+            <Switch
+              value={includeAnalysis}
+              onValueChange={setIncludeAnalysis}
+              trackColor={{ false: COLORS.border, true: COLORS.primary + "80" }}
+              thumbColor={includeAnalysis ? COLORS.primary : COLORS.textSubtle}
+            />
+          </View>
+          <View style={styles.optionRow}>
+            <View style={styles.optionLeft}>
+              <Text style={styles.optionLabel}>Chat History</Text>
+              <Text style={styles.optionDesc}>
+                All conversations with AI assistant
+              </Text>
+            </View>
+            <Switch
+              value={includeChat}
+              onValueChange={setIncludeChat}
+              trackColor={{ false: COLORS.border, true: COLORS.primary + "80" }}
+              thumbColor={includeChat ? COLORS.primary : COLORS.textSubtle}
+            />
+          </View>
+        </View>
 
         <View style={styles.formatSection}>
           <Text style={styles.label}>Select Format</Text>
@@ -137,6 +173,31 @@ const styles = StyleSheet.create({
     color: "#cbd5e1", // Brighter text
     lineHeight: 20,
   },
+  optionsSection: {
+    gap: SPACING.sm,
+  },
+  optionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  optionLeft: {
+    flex: 1,
+    marginRight: SPACING.md,
+  },
+  optionLabel: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+    fontWeight: FONTS.weights.medium,
+  },
+  optionDesc: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textSubtle,
+    marginTop: 2,
+  },
   formatSection: {
     gap: SPACING.sm,
   },
@@ -155,7 +216,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.border,
     borderRadius: RADIUS.md,
-    padding: SPACING.base,
+    padding: SPACING.sm,
     alignItems: "center",
   },
   formatButtonActive: {
@@ -163,7 +224,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary + "15",
   },
   formatButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#cbd5e1", // Brighter text
     fontWeight: FONTS.weights.bold,
     marginBottom: SPACING.xs,
@@ -180,7 +241,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: COLORS.primary,
     borderRadius: RADIUS.md,
-    padding: SPACING.base,
+    padding: SPACING.md,
   },
   infoText: {
     fontSize: FONTS.sizes.xs,
@@ -194,7 +255,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: RADIUS.md,
     alignItems: "center",
     justifyContent: "center",
@@ -205,7 +266,7 @@ const styles = StyleSheet.create({
     borderColor: "#475569", // Lighter border
   },
   cancelButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#cbd5e1", // Brighter text
     fontWeight: FONTS.weights.medium,
   },
@@ -213,7 +274,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
   exportButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#fff",
     fontWeight: FONTS.weights.bold,
   },

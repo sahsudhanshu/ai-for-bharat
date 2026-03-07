@@ -25,15 +25,63 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Password requirements state
+  const [passwordRequirements, setPasswordRequirements] = useState({
+    minLength: false,
+    hasUppercase: false,
+    hasLowercase: false,
+    hasNumber: false,
+    hasSpecial: false,
+  });
+
+  // Validate password requirements in real-time
+  const validatePassword = (pwd: string) => {
+    setPasswordRequirements({
+      minLength: pwd.length >= 8,
+      hasUppercase: /[A-Z]/.test(pwd),
+      hasLowercase: /[a-z]/.test(pwd),
+      hasNumber: /[0-9]/.test(pwd),
+      hasSpecial: /[^A-Za-z0-9]/.test(pwd),
+    });
+  };
+
+  const handlePasswordChange = (text: string) => {
+    setPassword(text);
+    validatePassword(text);
+  };
+
+  const isPasswordValid = () => {
+    return Object.values(passwordRequirements).every((req) => req === true);
+  };
+
   const handleRegister = async () => {
     if (!name.trim() || !email.trim() || !password.trim()) {
       Alert.alert("Missing Fields", "Please fill in all required fields.");
       return;
     }
+
+    if (!isPasswordValid()) {
+      Alert.alert(
+        "Invalid Password",
+        "Please ensure your password meets all requirements.",
+      );
+      return;
+    }
+
+    // Validate phone number format if provided
+    if (phone.trim() && !phone.trim().startsWith("+")) {
+      Alert.alert(
+        "Invalid Phone Number",
+        "Phone number must include country code (e.g., +91 for India).\n\nExample: +91 9876543210",
+      );
+      return;
+    }
+
     const normalizedName = name.trim();
-    const normalizedEmail = email.trim();
+    const normalizedEmail = email.trim().toLowerCase();
     const normalizedPassword = password.trim();
     const normalizedPhone = phone.trim();
+
     setLoading(true);
     try {
       await register(
@@ -44,10 +92,16 @@ export default function RegisterScreen() {
       );
       Alert.alert(
         "Account Created",
-        "Your account has been created. Please sign in.",
+        "Your account has been created successfully. Please sign in.",
+        [
+          {
+            text: "OK",
+            onPress: () => router.replace("/auth/login"),
+          },
+        ],
       );
-      router.replace("/auth/login");
     } catch (e: any) {
+      console.error("Registration error:", e);
       Alert.alert("Registration Failed", e.message || "Please try again.");
     } finally {
       setLoading(false);
@@ -80,7 +134,7 @@ export default function RegisterScreen() {
             <View style={styles.logoContainer}>
               <Ionicons
                 name="water-outline"
-                size={40}
+                size={28}
                 color={COLORS.primaryLight}
               />
             </View>
@@ -114,22 +168,150 @@ export default function RegisterScreen() {
             </View>
             <View style={styles.formGroup}>
               <Input
-                label="Phone Number"
-                placeholder="+91 98765 43210"
+                label="Phone Number (optional)"
+                placeholder="+91 9876543210"
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
               />
+              <Text style={styles.helperText}>
+                Include country code (e.g., +91 for India)
+              </Text>
             </View>
             <View style={styles.formGroup}>
               <Input
                 label="Password *"
                 placeholder="Create a secure password"
                 value={password}
-                onChangeText={setPassword}
+                onChangeText={handlePasswordChange}
                 secureTextEntry
                 showPasswordToggle
               />
+              {password.length > 0 && (
+                <View style={styles.passwordRequirements}>
+                  <Text style={styles.requirementsTitle}>
+                    Password Requirements:
+                  </Text>
+                  <View style={styles.requirementItem}>
+                    <Ionicons
+                      name={
+                        passwordRequirements.minLength
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={
+                        passwordRequirements.minLength
+                          ? COLORS.success
+                          : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.requirementText,
+                        passwordRequirements.minLength && styles.requirementMet,
+                      ]}
+                    >
+                      At least 8 characters
+                    </Text>
+                  </View>
+                  <View style={styles.requirementItem}>
+                    <Ionicons
+                      name={
+                        passwordRequirements.hasUppercase
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={
+                        passwordRequirements.hasUppercase
+                          ? COLORS.success
+                          : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.requirementText,
+                        passwordRequirements.hasUppercase &&
+                          styles.requirementMet,
+                      ]}
+                    >
+                      One uppercase letter (A-Z)
+                    </Text>
+                  </View>
+                  <View style={styles.requirementItem}>
+                    <Ionicons
+                      name={
+                        passwordRequirements.hasLowercase
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={
+                        passwordRequirements.hasLowercase
+                          ? COLORS.success
+                          : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.requirementText,
+                        passwordRequirements.hasLowercase &&
+                          styles.requirementMet,
+                      ]}
+                    >
+                      One lowercase letter (a-z)
+                    </Text>
+                  </View>
+                  <View style={styles.requirementItem}>
+                    <Ionicons
+                      name={
+                        passwordRequirements.hasNumber
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={
+                        passwordRequirements.hasNumber
+                          ? COLORS.success
+                          : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.requirementText,
+                        passwordRequirements.hasNumber && styles.requirementMet,
+                      ]}
+                    >
+                      One number (0-9)
+                    </Text>
+                  </View>
+                  <View style={styles.requirementItem}>
+                    <Ionicons
+                      name={
+                        passwordRequirements.hasSpecial
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={
+                        passwordRequirements.hasSpecial
+                          ? COLORS.success
+                          : COLORS.textMuted
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.requirementText,
+                        passwordRequirements.hasSpecial &&
+                          styles.requirementMet,
+                      ]}
+                    >
+                      One special character (!@#$%^&*)
+                    </Text>
+                  </View>
+                </View>
+              )}
             </View>
 
             <Button
@@ -191,7 +373,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.xl,
     paddingBottom: SPACING["4xl"],
   },
-  header: { paddingTop: SPACING.base },
+  header: { paddingTop: SPACING.md },
   backBtn: { alignSelf: "flex-start", paddingVertical: SPACING.sm },
   backBtnText: {
     color: COLORS.primaryLight,
@@ -201,25 +383,25 @@ const styles = StyleSheet.create({
 
   hero: {
     alignItems: "center",
-    paddingVertical: SPACING.xl,
+    paddingVertical: SPACING.lg,
   },
   logoContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
+    width: 54,
+    height: 54,
+    borderRadius: 14,
     backgroundColor: COLORS.secondary,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.sm,
     shadowColor: COLORS.secondary,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 5,
   },
 
   title: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
     textAlign: "center",
@@ -229,18 +411,50 @@ const styles = StyleSheet.create({
     color: COLORS.textMuted,
     textAlign: "center",
     marginTop: SPACING.xs,
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.lg,
   },
 
   card: {
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS["2xl"],
+    borderRadius: RADIUS.xl,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.xl,
-    marginBottom: SPACING.xl,
+    padding: SPACING.lg,
+    marginBottom: SPACING.lg,
   },
-  formGroup: { marginBottom: SPACING.base },
+  formGroup: { marginBottom: SPACING.sm },
+  helperText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: SPACING.xs,
+    marginLeft: SPACING.xs,
+  },
+  passwordRequirements: {
+    marginTop: SPACING.sm,
+    padding: SPACING.md,
+    backgroundColor: COLORS.bgSurface,
+    borderRadius: RADIUS.md,
+    gap: SPACING.xs,
+  },
+  requirementsTitle: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+  },
+  requirementItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+  },
+  requirementText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+  },
+  requirementMet: {
+    color: COLORS.success,
+    fontWeight: FONTS.weights.semibold,
+  },
   registerBtn: { marginTop: SPACING.sm },
   footer: {
     flexDirection: "row",
@@ -256,21 +470,21 @@ const styles = StyleSheet.create({
 
   benefits: {
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
-    padding: SPACING.xl,
-    gap: SPACING.sm,
+    padding: SPACING.md,
+    gap: SPACING.xs,
   },
   benefitsTitle: {
-    fontSize: FONTS.sizes.md,
-    fontWeight: FONTS.weights.bold,
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold,
     color: COLORS.textPrimary,
     marginBottom: SPACING.xs,
   },
   benefitItem: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
-    lineHeight: 22,
+    lineHeight: 18,
   },
 });

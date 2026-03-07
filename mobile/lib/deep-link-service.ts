@@ -1,5 +1,7 @@
-import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
+import * as Linking from "expo-linking";
+import { router } from "expo-router";
+import { Platform, Alert } from "react-native";
+import { TELEGRAM_BOT_USERNAME } from "./constants";
 
 export class DeepLinkService {
   /**
@@ -14,7 +16,7 @@ export class DeepLinkService {
     });
 
     // Listen for deep link events
-    Linking.addEventListener('url', (event) => {
+    Linking.addEventListener("url", (event) => {
       this.handleUrl(event.url);
     });
   }
@@ -26,41 +28,102 @@ export class DeepLinkService {
     const { hostname, path, queryParams } = Linking.parse(url);
 
     // Handle different deep link patterns
-    if (hostname === 'history' && path) {
+    if (hostname === "history" && path) {
       // oceanai://history/[groupId]
-      const groupId = path.replace('/', '');
+      const groupId = path.replace("/", "");
       router.push(`/history/${groupId}` as any);
-    } else if (hostname === 'profile') {
+    } else if (hostname === "profile") {
       // oceanai://profile
-      router.push('/profile/edit' as any);
-    } else if (hostname === 'chat' && queryParams?.groupId) {
+      router.push("/profile/edit" as any);
+    } else if (hostname === "chat" && queryParams?.groupId) {
       // oceanai://chat?groupId=xxx
       router.push({
-        pathname: '/chat',
+        pathname: "/chat",
         params: { groupId: queryParams.groupId as string },
       } as any);
     }
   }
 
   /**
-   * Open Telegram bot with location
+   * Open Telegram bot with optional location and user context
    */
   static async openTelegramBot(
-    latitude: number,
-    longitude: number,
-    userId: string
+    userId?: string,
+    latitude?: number,
+    longitude?: number,
   ): Promise<void> {
-    const botUsername = 'OceanAICompanionBot';
-    const startParam = `loc_${latitude}_${longitude}_${userId}`;
-    const telegramUrl = `https://t.me/${botUsername}?start=${startParam}`;
+    const botUsername = TELEGRAM_BOT_USERNAME;
 
-    const canOpen = await Linking.canOpenURL(telegramUrl);
-    if (canOpen) {
-      await Linking.openURL(telegramUrl);
-    } else {
-      // Fallback to web version
-      await Linking.openURL(`https://t.me/${botUsername}`);
+    // Build start parameter with context
+    let startParam = "";
+    if (userId && latitude && longitude) {
+      startParam = `loc_${latitude}_${longitude}_${userId}`;
+    } else if (userId) {
+      startParam = `user_${userId}`;
     }
+
+    // Try deep link first (opens Telegram app directly)
+    const deepLinkUrl = startParam
+      ? `tg://resolve?domain=${botUsername}&start=${startParam}`
+      : `tg://resolve?domain=${botUsername}`;
+
+    try {
+      const canOpenDeepLink = await Linking.canOpenURL(deepLinkUrl);
+      if (canOpenDeepLink) {
+        await Linking.openURL(deepLinkUrl);
+        return;
+      }
+    } catch (error) {
+      console.warn("Deep link failed, trying web URL:", error);
+    }
+
+    // Fallback to web URL (works on both platforms)
+    const webUrl = startParam
+      ? `https://t.me/${botUsername}?start=${startParam}`
+      : `https://t.me/${botUsername}`;
+
+    try {
+      const canOpenWeb = await Linking.canOpenURL(webUrl);
+      if (canOpenWeb) {
+        await Linking.openURL(webUrl);
+        return;
+      }
+    } catch (error) {
+      console.warn("Web URL failed:", error);
+    }
+
+    // If both failed, show app store link
+    this.showTelegramNotInstalledAlert();
+  }
+
+  /**
+   * Show alert when Telegram is not installed
+   */
+  private static showTelegramNotInstalledAlert(): void {
+    const appStoreUrl = Platform.select({
+      ios: "https://apps.apple.com/app/telegram-messenger/id686449807",
+      android:
+        "https://play.google.com/store/apps/details?id=org.telegram.messenger",
+    });
+
+    Alert.alert(
+      "Telegram Not Installed",
+      "To connect with OceanAI on Telegram, you need to install the Telegram app first.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Install Telegram",
+          onPress: () => {
+            if (appStoreUrl) {
+              Linking.openURL(appStoreUrl);
+            }
+          },
+        },
+      ],
+    );
   }
 
   /**
@@ -79,7 +142,7 @@ export class DeepLinkService {
     if (canOpen) {
       await Linking.openURL(url);
     } else {
-      throw new Error('Cannot open URL');
+      throw new Error("Cannot open URL");
     }
   }
 }

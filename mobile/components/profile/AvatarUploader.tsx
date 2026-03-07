@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { toastService } from "../../lib/toast-service";
 import { Avatar } from "../ui/Avatar";
@@ -12,6 +12,7 @@ interface AvatarUploaderProps {
   currentUri?: string;
   userName?: string;
   onUploadComplete: (uri: string) => void;
+  onRemove?: () => void;
   onUploadError: (error: Error) => void;
 }
 
@@ -19,6 +20,7 @@ export function AvatarUploader({
   currentUri,
   userName = "User",
   onUploadComplete,
+  onRemove,
   onUploadError,
 }: AvatarUploaderProps) {
   const [showModal, setShowModal] = useState(false);
@@ -28,6 +30,36 @@ export function AvatarUploader({
 
   const handleAvatarPress = () => {
     setShowModal(true);
+  };
+
+  const handleRemoveAvatar = () => {
+    Alert.alert(
+      "Remove Profile Photo",
+      "Are you sure you want to remove your profile photo?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setShowModal(false);
+              await AvatarService.removeAvatar();
+              if (onRemove) {
+                onRemove();
+              }
+              toastService.success("Profile photo removed successfully!");
+            } catch (error) {
+              toastService.error("Failed to remove profile photo.");
+              onUploadError(error as Error);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handlePickImage = async (source: "camera" | "library") => {
@@ -150,6 +182,26 @@ export function AvatarUploader({
               style={styles.optionButton}
               fullWidth
             />
+            {currentUri && onRemove && (
+              <Button
+                label="Remove Photo"
+                onPress={handleRemoveAvatar}
+                variant="outline"
+                icon={
+                  <Ionicons
+                    name="trash-outline"
+                    size={20}
+                    color={COLORS.danger}
+                  />
+                }
+                iconPosition="left"
+                style={{
+                  ...styles.optionButton,
+                  ...styles.removeButton,
+                }}
+                fullWidth
+              />
+            )}
           </View>
         )}
       </Modal>
@@ -180,18 +232,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionsContainer: {
-    gap: SPACING.md,
-    paddingVertical: SPACING.md,
+    gap: SPACING.sm,
+    paddingVertical: SPACING.sm,
   },
   optionsTitle: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.semibold,
     color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
-    textAlign: 'center',
+    marginBottom: SPACING.xs,
+    textAlign: "center",
   },
   optionButton: {
     width: "100%",
-    minHeight: 56,
+    minHeight: 44,
+  },
+  removeButton: {
+    borderColor: COLORS.danger,
+    marginTop: SPACING.md,
   },
 });

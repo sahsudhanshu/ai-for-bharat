@@ -1,9 +1,9 @@
-import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import * as FileSystem from "expo-file-system/legacy";
 
 const AVATAR_CACHE_DIR = `${FileSystem.cacheDirectory}avatars/`;
-const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
+const MAX_AVATAR_SIZE = 500 * 1024; // 500KB
 const AVATAR_DIMENSIONS = 512;
 
 /**
@@ -16,32 +16,34 @@ export class AvatarService {
   static async initialize(): Promise<void> {
     const dirInfo = await FileSystem.getInfoAsync(AVATAR_CACHE_DIR);
     if (!dirInfo.exists) {
-      await FileSystem.makeDirectoryAsync(AVATAR_CACHE_DIR, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(AVATAR_CACHE_DIR, {
+        intermediates: true,
+      });
     }
   }
 
   /**
    * Pick image from library or camera
    */
-  static async pickImage(source: 'camera' | 'library'): Promise<string | null> {
+  static async pickImage(source: "camera" | "library"): Promise<string | null> {
     const permissionResult =
-      source === 'camera'
+      source === "camera"
         ? await ImagePicker.requestCameraPermissionsAsync()
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
     if (!permissionResult.granted) {
-      throw new Error('Permission denied');
+      throw new Error("Permission denied");
     }
 
     const result =
-      source === 'camera'
+      source === "camera"
         ? await ImagePicker.launchCameraAsync({
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
           })
         : await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: 'images' as any,
+            mediaTypes: "images" as any,
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
@@ -58,7 +60,7 @@ export class AvatarService {
     const manipResult = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: AVATAR_DIMENSIONS, height: AVATAR_DIMENSIONS } }],
-      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+      { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
     );
 
     // Check file size
@@ -68,7 +70,7 @@ export class AvatarService {
       const recompressed = await ImageManipulator.manipulateAsync(
         manipResult.uri,
         [],
-        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG },
       );
       return recompressed.uri;
     }
@@ -81,23 +83,27 @@ export class AvatarService {
    */
   static async uploadAvatar(
     imageUri: string,
-    onProgress?: (progress: number) => void
+    onProgress?: (progress: number) => void,
   ): Promise<string> {
     // Ensure cache directory exists
     await this.initialize();
 
     // Import API functions
-    const { getAvatarPresignedUrl, uploadToS3, updateAvatarUrl } = await import('./api-client');
+    const { getAvatarPresignedUrl, uploadToS3, updateAvatarUrl } =
+      await import("./api-client");
 
     // Process image
     const processedUri = await this.processImage(imageUri);
 
     // Get presigned URL
     const fileName = `avatar-${Date.now()}.jpg`;
-    const { uploadUrl, avatarUrl } = await getAvatarPresignedUrl(fileName, 'image/jpeg');
+    const { uploadUrl, avatarUrl } = await getAvatarPresignedUrl(
+      fileName,
+      "image/jpeg",
+    );
 
     // Upload to S3
-    await uploadToS3(uploadUrl, processedUri, 'image/jpeg', onProgress);
+    await uploadToS3(uploadUrl, processedUri, "image/jpeg", onProgress);
 
     // Update profile with new avatar URL
     await updateAvatarUrl(avatarUrl);
@@ -106,6 +112,14 @@ export class AvatarService {
     await this.cacheAvatar(avatarUrl, processedUri);
 
     return avatarUrl;
+  }
+
+  /**
+   * Remove avatar from profile
+   */
+  static async removeAvatar(): Promise<void> {
+    const { removeAvatar } = await import("./api-client");
+    await removeAvatar();
   }
 
   /**
@@ -159,7 +173,7 @@ export class AvatarService {
    * Extract filename from URL
    */
   private static getFileNameFromUrl(url: string): string {
-    const parts = url.split('/');
-    return parts[parts.length - 1] || 'avatar.jpg';
+    const parts = url.split("/");
+    return parts[parts.length - 1] || "avatar.jpg";
   }
 }

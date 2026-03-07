@@ -1,20 +1,38 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  FlatList,
-  ActivityIndicator,
+  RefreshControl,
+  TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { getAnalytics, getImages } from "../../lib/api-client";
+import { useRouter } from "expo-router";
+import { getImages } from "../../lib/api-client";
 import type { AnalyticsResponse, ImageRecord } from "../../lib/api-client";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
 import { Card, StatCard } from "../../components/ui/Card";
+import { AnalyticsService } from "../../lib/analytics-service";
+import { useNetwork } from "../../lib/network-context";
+import {
+  Skeleton,
+  SkeletonStatCard,
+  SkeletonBarChart,
+  SkeletonSpeciesBreakdown,
+  SkeletonQualityCards,
+  SkeletonCatchItem,
+} from "../../components/ui/Skeleton";
+import { PDFService } from "../../lib/pdf-service";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { useAuth } from "../../lib/auth-context";
+import { toastService } from "../../lib/toast-service";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -26,41 +44,182 @@ const GRADE_COLORS: Record<string, string> = {
   Low: COLORS.error,
 };
 
+function formatRelativeTime(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return date.toLocaleDateString("en-IN");
+}
+
 export default function AnalyticsScreen() {
   const { t, isLoaded } = useLanguage();
+  const { isOnline, effectiveMode } = useNetwork();
+  const { user } = useAuth();
+  const router = useRouter();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [isFromCache, setIsFromCache] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
-      getAnalytics()
-        .then(setAnalytics)
-        .catch((e) => setError(e.message || "Failed to load analytics")),
-      getImages(10)
-        .then((r) => setImages(r.items))
-        .catch(() => {}),
-    ]).finally(() => setLoading(false));
-  }, []);
+  const loadAnalytics = useCallback(
+    async (forceRefresh = false) => {
+      try {
+        setError(null);
 
-  if (loading || !isLoaded) {
-    return (
-      <SafeAreaView style={styles.safe}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>{t("upload.analyzing")}...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+        // Get analytics with caching
+        const analyticsData = await AnalyticsService.getAnalytics(forceRefresh);
 
-  const maxEarnings = Math.max(
-    ...(analytics?.weeklyTrend.map((d) => d.earnings) ?? [1]),
+        if (analyticsData) {
+          setAnalytics(analyticsData);
+          setIsFromCache(!forceRefresh && effectiveMode === "offline");
+
+          // Get cache timestamp
+          const timestamp = await AnalyticsService.getCacheTimestamp();
+          setLastUpdated(timestamp);
+        } else {
+          setError("No analytics data available");
+        }
+      } catch (e: any) {
+        console.error("Failed to load analytics:", e);
+        setError(e.message || "Failed to load analytics");
+
+        // Try to load from cache as fallback
+        const cachedData = await AnalyticsService.getAnalytics(false);
+        if (cachedData) {
+          setAnalytics(cachedData);
+          setIsFromCache(true);
+          const timestamp = await AnalyticsService.getCacheTimestamp();
+          setLastUpdated(timestamp);
+        }
+      }
+    },
+    [effectiveMode],
   );
 
-  // Show error state when analytics data is unavailable
-  if (error || !analytics) {
+  const loadImages = useCallback(async () => {
+    try {
+      const result = await getImages(10);
+      setImages(result.items);
+    } catch (e) {
+      console.error("Failed to load images:", e);
+    }
+  }, []);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadAnalytics(true), loadImages()]);
+    setRefreshing(false);
+  }, [loadAnalytics, loadImages]);
+
+  const onRetry = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    await Promise.all([loadAnalytics(true), loadImages()]);
+    setLoading(false);
+  }, [loadAnalytics, loadImages]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!analytics) {
+      toastService.error("No analytics data available to export");
+      return;
+    }
+
+    if (!user) {
+      toastService.error("User information not available");
+      return;
+    }
+
+    setExportingPDF(true);
+
+    try {
+      // Prepare catch history from images
+      const catchHistory = images
+        .filter((img) => img.status === "completed" && img.analysisResult)
+        .map((img) => ({
+          date: new Date(img.createdAt),
+          species: img.analysisResult!.species,
+          weight:
+            (img.analysisResult!.measurements?.weight_g
+              ? img.analysisResult!.measurements.weight_g / 1000
+              : img.analysisResult!.weightEstimate) || 0,
+          quality: img.analysisResult!.qualityGrade || "Standard",
+          earnings:
+            img.analysisResult!.marketEstimate?.estimated_value ||
+            Math.round(
+              (img.analysisResult!.marketPriceEstimate || 0) *
+                (img.analysisResult!.weightEstimate || 0),
+            ),
+        }));
+
+      // Calculate date range
+      const dates = images.map((img) => new Date(img.createdAt).getTime());
+      const minDate =
+        dates.length > 0 ? new Date(Math.min(...dates)) : new Date();
+      const maxDate =
+        dates.length > 0 ? new Date(Math.max(...dates)) : new Date();
+
+      const dateRange = {
+        from: minDate.toLocaleDateString("en-IN", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }),
+        to: maxDate.toLocaleDateString("en-IN", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        }),
+      };
+
+      // Generate PDF
+      const pdfUri = await PDFService.generateAnalyticsReport(
+        analytics,
+        user.name || user.email || "User",
+        dateRange,
+        catchHistory.length > 0 ? catchHistory : undefined,
+      );
+
+      // Share PDF
+      await PDFService.shareReport(pdfUri);
+
+      toastService.success("PDF report generated successfully!");
+    } catch (error: any) {
+      console.error("Failed to export PDF:", error);
+
+      let errorMessage = "Failed to generate PDF report";
+      if (error.message?.includes("Sharing is not available")) {
+        errorMessage = "Sharing is not available on this device";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
+      toastService.error(errorMessage);
+    } finally {
+      setExportingPDF(false);
+    }
+  }, [analytics, images, user]);
+
+  useEffect(() => {
+    Promise.all([loadAnalytics(false), loadImages()]).finally(() =>
+      setLoading(false),
+    );
+  }, [loadAnalytics, loadImages]);
+
+  if (loading || !isLoaded) {
     return (
       <SafeAreaView style={styles.safe}>
         <ScrollView
@@ -71,39 +230,95 @@ export default function AnalyticsScreen() {
             <Text style={styles.title}>{t("nav.analytics")}</Text>
             <Text style={styles.subtitle}>{t("home.statEarnings")}</Text>
           </View>
-          <View
-            style={{ alignItems: "center", paddingVertical: SPACING["3xl"] }}
-          >
-            <Ionicons
-              name="bar-chart"
-              size={48}
-              color={COLORS.textMuted}
-              style={{ marginBottom: SPACING.md }}
-            />
-            <Text
-              style={{
-                fontSize: FONTS.sizes.lg,
-                fontWeight: FONTS.weights.bold,
-                color: COLORS.textPrimary,
-                marginBottom: SPACING.sm,
-                textAlign: "center",
-              }}
-            >
-              Analytics Unavailable
-            </Text>
-            <Text
-              style={{
-                fontSize: FONTS.sizes.sm,
-                color: COLORS.textMuted,
-                textAlign: "center",
-                lineHeight: 22,
-                paddingHorizontal: SPACING.xl,
-              }}
-            >
-              {error ||
-                "No analytics data available. Upload and analyze catches to see your dashboard."}
-            </Text>
+
+          {/* Loading Skeletons */}
+          <View style={styles.statsGrid}>
+            <SkeletonStatCard style={styles.statCard} />
+            <SkeletonStatCard style={styles.statCard} />
+            <SkeletonStatCard style={styles.statCard} />
+            <SkeletonStatCard style={styles.statCard} />
           </View>
+
+          <Text style={styles.sectionTitle}>{t("home.statEarnings")}</Text>
+          <Card padding={SPACING.md} style={styles.chartCard}>
+            <SkeletonBarChart />
+          </Card>
+
+          <Text style={styles.sectionTitle}>{t("home.insightSpecies")}</Text>
+          <Card padding={SPACING.md} style={styles.chartCard}>
+            <SkeletonSpeciesBreakdown />
+          </Card>
+
+          <Text style={styles.sectionTitle}>{t("upload.species")}</Text>
+          <SkeletonQualityCards />
+
+          <Text style={styles.sectionTitle}>{t("upload.title")}</Text>
+          <SkeletonCatchItem />
+          <SkeletonCatchItem />
+          <SkeletonCatchItem />
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  const maxEarnings = Math.max(
+    ...(analytics?.weeklyTrend.map((d) => d.earnings) ?? [1]),
+  );
+
+  // Show error state when analytics data is unavailable
+  if (error && !analytics) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={[COLORS.primary]}
+              tintColor={COLORS.primary}
+            />
+          }
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>{t("nav.analytics")}</Text>
+            <Text style={styles.subtitle}>{t("home.statEarnings")}</Text>
+          </View>
+
+          <EmptyState
+            icon={
+              <Ionicons
+                name="bar-chart-outline"
+                size={64}
+                color={COLORS.textMuted}
+              />
+            }
+            title="No Analytics Data"
+            description={
+              error ||
+              "Upload and analyze catches to see your dashboard. Your earnings, catch statistics, and insights will appear here."
+            }
+            action={
+              isOnline
+                ? {
+                    label: "Upload Catch",
+                    onPress: () => router.push("/"),
+                  }
+                : undefined
+            }
+          />
+
+          {!isOnline && (
+            <View style={styles.offlineBadge}>
+              <Ionicons
+                name="cloud-offline-outline"
+                size={16}
+                color={COLORS.warning}
+              />
+              <Text style={styles.offlineText}>Offline Mode</Text>
+            </View>
+          )}
 
           {/* Still show catch history if we have images */}
           {images && images.length > 0 && (
@@ -112,7 +327,7 @@ export default function AnalyticsScreen() {
               {images.slice(0, 5).map((img) => (
                 <Card
                   key={img.imageId}
-                  padding={SPACING.base}
+                  padding={SPACING.md}
                   style={styles.catchItem}
                 >
                   <View style={styles.catchRow}>
@@ -214,12 +429,60 @@ export default function AnalyticsScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.primary]}
+            tintColor={COLORS.primary}
+          />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>{t("nav.analytics")}</Text>
-          <Text style={styles.subtitle}>{t("home.statEarnings")}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>{t("nav.analytics")}</Text>
+            <Text style={styles.subtitle}>{t("home.statEarnings")}</Text>
+          </View>
+          <TouchableOpacity
+            style={[
+              styles.exportButton,
+              (exportingPDF || !analytics) && styles.exportButtonDisabled,
+            ]}
+            onPress={handleExportPDF}
+            disabled={exportingPDF || !analytics}
+          >
+            {exportingPDF ? (
+              <ActivityIndicator size="small" color={COLORS.white} />
+            ) : (
+              <Ionicons
+                name="download-outline"
+                size={20}
+                color={COLORS.white}
+              />
+            )}
+            <Text style={styles.exportButtonText}>
+              {exportingPDF ? "Generating..." : "Export PDF"}
+            </Text>
+          </TouchableOpacity>
+          <ProfileMenu size={36} />
         </View>
+
+        {/* Offline/Cache indicator */}
+        {(isFromCache || !isOnline) && (
+          <View style={styles.cacheIndicator}>
+            <Ionicons
+              name={isOnline ? "time-outline" : "cloud-offline-outline"}
+              size={14}
+              color={COLORS.textMuted}
+            />
+            <Text style={styles.cacheText}>
+              {isOnline
+                ? `Cached data${lastUpdated ? ` • Updated ${formatRelativeTime(lastUpdated)}` : ""}`
+                : "Offline Mode • Showing cached data"}
+            </Text>
+          </View>
+        )}
 
         {/* Stats Overview */}
         <View style={styles.statsGrid}>
@@ -265,7 +528,7 @@ export default function AnalyticsScreen() {
 
         {/* Earnings Chart */}
         <Text style={styles.sectionTitle}>{t("home.statEarnings")}</Text>
-        <Card padding={SPACING.base} style={styles.chartCard}>
+        <Card padding={SPACING.md} style={styles.chartCard}>
           <View style={styles.barChart}>
             {analytics?.weeklyTrend.map((day) => {
               const barHeight = Math.max((day.earnings / maxEarnings) * 120, 8);
@@ -291,7 +554,7 @@ export default function AnalyticsScreen() {
 
         {/* Species Breakdown */}
         <Text style={styles.sectionTitle}>{t("home.insightSpecies")}</Text>
-        <Card padding={SPACING.base} style={styles.chartCard}>
+        <Card padding={SPACING.md} style={styles.chartCard}>
           {analytics?.speciesBreakdown.map((s, i) => {
             const colors = [
               COLORS.primary,
@@ -329,11 +592,7 @@ export default function AnalyticsScreen() {
         <Text style={styles.sectionTitle}>{t("upload.species")}</Text>
         <View style={styles.qualityRow}>
           {analytics?.qualityDistribution.map((q) => (
-            <Card
-              key={q.grade}
-              padding={SPACING.base}
-              style={styles.qualityCard}
-            >
+            <Card key={q.grade} padding={SPACING.md} style={styles.qualityCard}>
               <View
                 style={[
                   styles.qualityDot,
@@ -353,105 +612,110 @@ export default function AnalyticsScreen() {
 
         {/* Catch History */}
         <Text style={styles.sectionTitle}>{t("upload.title")}</Text>
-        {images && images.length > 0 && images.slice(0, 5).map((img) => (
-          <Card
-            key={img.imageId}
-            padding={SPACING.base}
-            style={styles.catchItem}
-          >
-            <View style={styles.catchRow}>
-              <View style={styles.catchLeft}>
-                <Ionicons
-                  name="fish-outline"
-                  size={22}
-                  color={COLORS.primaryLight}
-                />
-                <View>
-                  <Text style={styles.catchSpecies}>
-                    {img.status === "failed"
-                      ? "Analysis Failed"
-                      : (img.analysisResult?.species ?? "Pending")}
-                  </Text>
-                  <Text style={styles.catchDate}>
-                    {new Date(img.createdAt).toLocaleDateString("en-IN")}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.catchRight}>
-                {img.status === "failed" ? (
-                  <View
-                    style={[
-                      styles.catchGrade,
-                      { backgroundColor: COLORS.error + "20" },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.catchGradeText, { color: COLORS.error }]}
-                    >
-                      FAILED
+        {images &&
+          images.length > 0 &&
+          images.slice(0, 5).map((img) => (
+            <Card
+              key={img.imageId}
+              padding={SPACING.md}
+              style={styles.catchItem}
+            >
+              <View style={styles.catchRow}>
+                <View style={styles.catchLeft}>
+                  <Ionicons
+                    name="fish-outline"
+                    size={22}
+                    color={COLORS.primaryLight}
+                  />
+                  <View>
+                    <Text style={styles.catchSpecies}>
+                      {img.status === "failed"
+                        ? "Analysis Failed"
+                        : (img.analysisResult?.species ?? "Pending")}
+                    </Text>
+                    <Text style={styles.catchDate}>
+                      {new Date(img.createdAt).toLocaleDateString("en-IN")}
                     </Text>
                   </View>
-                ) : img.analysisResult ? (
-                  <>
+                </View>
+                <View style={styles.catchRight}>
+                  {img.status === "failed" ? (
                     <View
                       style={[
                         styles.catchGrade,
-                        {
-                          backgroundColor:
-                            GRADE_COLORS[
-                              img.analysisResult.qualityGrade ?? "Standard"
-                            ] + "20",
-                        },
+                        { backgroundColor: COLORS.error + "20" },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.catchGradeText, { color: COLORS.error }]}
+                      >
+                        FAILED
+                      </Text>
+                    </View>
+                  ) : img.analysisResult ? (
+                    <>
+                      <View
+                        style={[
+                          styles.catchGrade,
+                          {
+                            backgroundColor:
+                              GRADE_COLORS[
+                                img.analysisResult.qualityGrade ?? "Standard"
+                              ] + "20",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.catchGradeText,
+                            {
+                              color:
+                                GRADE_COLORS[
+                                  img.analysisResult.qualityGrade ?? "Standard"
+                                ],
+                            },
+                          ]}
+                        >
+                          {img.analysisResult.qualityGrade ?? "—"}
+                        </Text>
+                      </View>
+                      <Text style={styles.catchWeight}>
+                        {(img.analysisResult.measurements?.weight_g
+                          ? img.analysisResult.measurements.weight_g / 1000
+                          : img.analysisResult.weightEstimate
+                        ).toFixed(2)}{" "}
+                        kg
+                      </Text>
+                      <Text style={styles.catchValue}>
+                        ₹
+                        {img.analysisResult.marketEstimate?.estimated_value ??
+                          Math.round(
+                            img.analysisResult.marketPriceEstimate *
+                              img.analysisResult.weightEstimate,
+                          )}
+                      </Text>
+                    </>
+                  ) : (
+                    <View
+                      style={[
+                        styles.catchGrade,
+                        { backgroundColor: COLORS.warning + "20" },
                       ]}
                     >
                       <Text
                         style={[
                           styles.catchGradeText,
-                          {
-                            color:
-                              GRADE_COLORS[
-                                img.analysisResult.qualityGrade ?? "Standard"
-                              ],
-                          },
+                          { color: COLORS.warning },
                         ]}
                       >
-                        {img.analysisResult.qualityGrade ?? "—"}
+                        PENDING
                       </Text>
                     </View>
-                    <Text style={styles.catchWeight}>
-                      {(img.analysisResult.measurements?.weight_g
-                        ? img.analysisResult.measurements.weight_g / 1000
-                        : img.analysisResult.weightEstimate
-                      ).toFixed(2)}{" "}
-                      kg
-                    </Text>
-                    <Text style={styles.catchValue}>
-                      ₹
-                      {img.analysisResult.marketEstimate?.estimated_value ??
-                        Math.round(
-                          img.analysisResult.marketPriceEstimate *
-                            img.analysisResult.weightEstimate,
-                        )}
-                    </Text>
-                  </>
-                ) : (
-                  <View
-                    style={[
-                      styles.catchGrade,
-                      { backgroundColor: COLORS.warning + "20" },
-                    ]}
-                  >
-                    <Text
-                      style={[styles.catchGradeText, { color: COLORS.warning }]}
-                    >
-                      PENDING
-                    </Text>
-                  </View>
-                )}
+                  )}
+                </View>
               </View>
-            </View>
-          </Card>
-        ))}
+            </Card>
+          ))}
       </ScrollView>
     </SafeAreaView>
   );
@@ -460,45 +724,125 @@ export default function AnalyticsScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
   scroll: { flex: 1 },
-  content: { padding: SPACING.xl, paddingBottom: SPACING["4xl"] },
+  content: { padding: SPACING.lg, paddingBottom: SPACING["3xl"] },
 
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: SPACING.md,
+  header: {
+    marginBottom: SPACING.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
   },
-  loadingText: { color: COLORS.textMuted, fontSize: FONTS.sizes.sm },
-
-  header: { marginBottom: SPACING.xl },
   title: {
-    fontSize: FONTS.sizes["3xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
   },
   subtitle: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
     marginTop: SPACING.xs,
   },
+  exportButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderRadius: RADIUS.md,
+  },
+  exportButtonDisabled: {
+    backgroundColor: COLORS.textMuted,
+    opacity: 0.6,
+  },
+  exportButtonText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.white,
+    fontWeight: FONTS.weights.semibold,
+  },
+
+  cacheIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    backgroundColor: COLORS.bgCard,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    marginBottom: SPACING.lg,
+    alignSelf: "flex-start",
+  },
+  cacheText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+  },
+
+  errorContainer: {
+    alignItems: "center",
+    paddingVertical: SPACING["3xl"],
+  },
+  errorTitle: {
+    fontSize: FONTS.sizes.lg,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+    marginBottom: SPACING.sm,
+    textAlign: "center",
+  },
+  errorMessage: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textMuted,
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: SPACING.xl,
+    marginBottom: SPACING.lg,
+  },
+  offlineBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    backgroundColor: COLORS.warning + "20",
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    marginBottom: SPACING.lg,
+  },
+  offlineText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.warning,
+    fontWeight: FONTS.weights.semibold,
+  },
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+  },
+  retryButtonText: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.white,
+    fontWeight: FONTS.weights.semibold,
+  },
 
   sectionTitle: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.base,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
-    marginBottom: SPACING.md,
-    marginTop: SPACING.sm,
+    fontWeight: FONTS.weights.semibold,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.xs,
   },
 
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: SPACING.md,
-    marginBottom: SPACING.xl,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   statCard: { width: "47%" },
 
-  chartCard: { marginBottom: SPACING.xl },
+  chartCard: { marginBottom: SPACING.lg },
 
   // Bar Chart
   barChart: {
@@ -570,9 +914,9 @@ const styles = StyleSheet.create({
   },
   qualityGrade: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold },
   qualityCount: {
-    fontSize: FONTS.sizes["2xl"],
+    fontSize: FONTS.sizes.xl,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.extrabold,
+    fontWeight: FONTS.weights.bold,
     marginTop: SPACING.xs,
   },
   qualityLabel: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },

@@ -1,8 +1,19 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Alert } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
-import type { GroupRecord } from '../../lib/types';
+import React from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Alert,
+  Dimensions,
+} from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
+import { Card } from "../ui/Card";
+import type { GroupRecord } from "../../lib/types";
+
+const SCREEN_WIDTH = Dimensions.get("window").width;
 
 interface HistoryCardProps {
   group: GroupRecord;
@@ -10,6 +21,8 @@ interface HistoryCardProps {
   onDelete: () => void;
   onAskAI: () => void;
   onExportPDF: () => void;
+  /** Present only for locally-saved offline records not yet synced to the cloud */
+  offlineSyncStatus?: "pending" | "failed";
 }
 
 export function HistoryCard({
@@ -18,278 +31,400 @@ export function HistoryCard({
   onDelete,
   onAskAI,
   onExportPDF,
+  offlineSyncStatus,
 }: HistoryCardProps) {
-  const statusColors = {
+  const statusColors: Record<string, string> = {
     completed: COLORS.success,
     processing: COLORS.primary,
     partial: COLORS.warning,
     failed: COLORS.error,
   };
 
-  const statusColor = statusColors[group.status as keyof typeof statusColors] || COLORS.textMuted;
+  const statusColor = statusColors[group.status] || COLORS.textMuted;
 
   const handleDelete = () => {
     Alert.alert(
-      'Delete Group',
-      'Are you sure you want to delete this analysis? This action cannot be undone.',
+      "Delete Analysis",
+      "Are you sure you want to delete this analysis? This action cannot be undone.",
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: onDelete },
-      ]
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: onDelete },
+      ],
     );
   };
 
-  // Use imageCount from backend, presignedViewUrls only available in detail view
   const imageCount = group.imageCount || 0;
   const fishCount = group.analysisResult?.aggregateStats?.totalFishCount || 0;
   const speciesCount = group.analysisResult?.aggregateStats?.speciesDistribution
-    ? Object.keys(group.analysisResult.aggregateStats.speciesDistribution).length
+    ? Object.keys(group.analysisResult.aggregateStats.speciesDistribution)
+        .length
     : 0;
-  const hasDiseases = group.analysisResult?.detections?.some(d => d.diseaseStatus !== 'Healthy') || false;
+  const totalWeight =
+    group.analysisResult?.aggregateStats?.totalEstimatedWeight;
+  const totalValue = group.analysisResult?.aggregateStats?.totalEstimatedValue;
+  const hasDiseases =
+    group.analysisResult?.aggregateStats?.diseaseDetected ||
+    group.analysisResult?.detections?.some(
+      (d) => d.diseaseStatus !== "Healthy",
+    ) ||
+    false;
 
-  // Show thumbnails only if presignedViewUrls are available (from detail view)
-  const hasImages = group.presignedViewUrls && group.presignedViewUrls.length > 0;
+  const hasImages =
+    group.presignedViewUrls && group.presignedViewUrls.length > 0;
+  const previewUrls = group.presignedViewUrls?.slice(0, 3) || [];
 
   return (
-    <View style={styles.card}>
-      {/* Thumbnail Grid or Placeholder */}
+    <Card variant="default" padding={0} style={styles.cardContainer}>
+      {/* Thumbnail Row or Placeholder */}
       {hasImages ? (
-        <View style={styles.thumbnailGrid}>
-          {group.presignedViewUrls!.slice(0, 4).map((url, index) => (
+        <View style={styles.thumbnailRow}>
+          {previewUrls.map((url, index) => (
             <Image
               key={index}
               source={{ uri: url }}
-              style={styles.thumbnail}
+              style={[
+                styles.thumbnail,
+                previewUrls.length === 1 && styles.thumbnailFull,
+                previewUrls.length === 2 && styles.thumbnailHalf,
+                previewUrls.length >= 3 && styles.thumbnailThird,
+              ]}
               resizeMode="cover"
             />
           ))}
-          {imageCount > 4 && (
+          {imageCount > 3 && (
             <View style={styles.moreOverlay}>
-              <Text style={styles.moreText}>+{imageCount - 4}</Text>
+              <Text style={styles.moreText}>+{imageCount - 3}</Text>
             </View>
           )}
         </View>
       ) : (
-        <View style={styles.placeholderGrid}>
-          <View style={styles.placeholderIcon}>
-            <Ionicons name="images-outline" size={32} color={COLORS.textMuted} />
-            <Text style={styles.placeholderText}>{imageCount} images</Text>
+        <TouchableOpacity
+          style={styles.placeholderRow}
+          onPress={onViewDetails}
+          activeOpacity={0.8}
+        >
+          <View style={styles.placeholderLeft}>
+            <Ionicons
+              name="images-outline"
+              size={28}
+              color={COLORS.textMuted}
+            />
+            <View>
+              <Text style={styles.placeholderCount}>
+                {imageCount} {imageCount === 1 ? "image" : "images"}
+              </Text>
+              <Text style={styles.placeholderSub}>Tap to view analysis</Text>
+            </View>
           </View>
-        </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
+        </TouchableOpacity>
       )}
 
       {/* Info Section */}
       <View style={styles.infoSection}>
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <View style={styles.row}>
-              <View style={styles.imageCountContainer}>
-                <Ionicons name="images" size={14} color={COLORS.textSecondary} />
-                <Text style={styles.imageCount}>{imageCount} images</Text>
-              </View>
-              <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-                <Text style={[styles.statusText, { color: statusColor }]}>
-                  {group.status}
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.date}>
-              {new Date(group.createdAt).toLocaleDateString('en-IN', {
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
+        {/* Header row: date + status badge */}
+        <View style={styles.headerRow}>
+          <Text style={styles.date}>
+            {new Date(group.createdAt).toLocaleDateString("en-IN", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Text>
+          <View
+            style={[
+              styles.statusBadge,
+              { backgroundColor: statusColor + "22" },
+            ]}
+          >
+            <View
+              style={[styles.statusDot, { backgroundColor: statusColor }]}
+            />
+            <Text style={[styles.statusText, { color: statusColor }]}>
+              {group.status.charAt(0).toUpperCase() + group.status.slice(1)}
             </Text>
           </View>
         </View>
 
-        {/* Stats */}
-        {group.status === 'completed' && (
-          <View style={styles.stats}>
-            <View style={styles.statItem}>
-              <Ionicons name="fish" size={20} color={COLORS.primary} />
-              <Text style={styles.statValue}>{fishCount}</Text>
-              <Text style={styles.statLabel}>Fish</Text>
+        {/* Offline sync badge */}
+        {offlineSyncStatus && (
+          <View
+            style={[
+              styles.syncBadge,
+              {
+                backgroundColor:
+                  offlineSyncStatus === "pending"
+                    ? COLORS.warning + "22"
+                    : COLORS.error + "22",
+              },
+            ]}
+          >
+            <Ionicons
+              name={
+                offlineSyncStatus === "pending"
+                  ? "cloud-upload-outline"
+                  : "cloud-offline-outline"
+              }
+              size={11}
+              color={
+                offlineSyncStatus === "pending" ? COLORS.warning : COLORS.error
+              }
+            />
+            <Text
+              style={[
+                styles.syncBadgeText,
+                {
+                  color:
+                    offlineSyncStatus === "pending"
+                      ? COLORS.warning
+                      : COLORS.error,
+                },
+              ]}
+            >
+              {offlineSyncStatus === "pending"
+                ? "Saved Offline · Pending Sync"
+                : "Sync Failed · Will Retry"}
+            </Text>
+          </View>
+        )}
+
+        {/* Stats row */}
+        {group.status === "completed" && (
+          <View style={styles.statsRow}>
+            <View style={styles.statChip}>
+              <Ionicons name="fish" size={13} color={COLORS.primary} />
+              <Text style={styles.statChipText}>{fishCount} fish</Text>
             </View>
-            <View style={styles.statItem}>
-              <Ionicons name="list" size={20} color={COLORS.secondary} />
-              <Text style={styles.statValue}>{speciesCount}</Text>
-              <Text style={styles.statLabel}>Species</Text>
+            <View style={styles.statChip}>
+              <Ionicons name="list" size={13} color={COLORS.secondary} />
+              <Text style={styles.statChipText}>{speciesCount} species</Text>
             </View>
+            {totalWeight != null && totalWeight > 0 && (
+              <View style={styles.statChip}>
+                <Ionicons
+                  name="scale-outline"
+                  size={13}
+                  color={COLORS.textSecondary}
+                />
+                <Text style={styles.statChipText}>
+                  {totalWeight.toFixed(1)} kg
+                </Text>
+              </View>
+            )}
             {hasDiseases && (
-              <View style={styles.statItem}>
-                <Ionicons name="warning" size={20} color={COLORS.error} />
-                <Text style={[styles.statValue, { color: COLORS.error }]}>!</Text>
-                <Text style={styles.statLabel}>Disease</Text>
+              <View
+                style={[
+                  styles.statChip,
+                  { backgroundColor: COLORS.error + "18" },
+                ]}
+              >
+                <Ionicons name="warning" size={13} color={COLORS.error} />
+                <Text style={[styles.statChipText, { color: COLORS.error }]}>
+                  Disease
+                </Text>
               </View>
             )}
           </View>
         )}
 
-        {/* Actions */}
+        {/* Action buttons */}
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.actionBtn} onPress={onViewDetails}>
-            <Ionicons name="eye-outline" size={18} color={COLORS.primaryLight} />
-            <Text style={styles.actionText}>View</Text>
+          <TouchableOpacity
+            style={styles.primaryAction}
+            onPress={onViewDetails}
+          >
+            <Ionicons name="eye-outline" size={15} color={COLORS.bgDark} />
+            <Text style={styles.primaryActionText}>View Details</Text>
           </TouchableOpacity>
-          
-          {group.status === 'completed' && (
-            <>
-              <TouchableOpacity style={styles.actionBtn} onPress={onAskAI}>
-                <Ionicons name="chatbubble-outline" size={18} color={COLORS.primaryLight} />
-                <Text style={styles.actionText}>Ask AI</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={styles.actionBtn} onPress={onExportPDF}>
-                <Ionicons name="document-outline" size={18} color={COLORS.primaryLight} />
-                <Text style={styles.actionText}>PDF</Text>
-              </TouchableOpacity>
-            </>
+
+          {group.status === "completed" && !offlineSyncStatus && (
+            <TouchableOpacity style={styles.iconAction} onPress={onAskAI}>
+              <Ionicons
+                name="chatbubble-outline"
+                size={15}
+                color={COLORS.primaryLight}
+              />
+            </TouchableOpacity>
           )}
-          
-          <TouchableOpacity style={styles.actionBtn} onPress={handleDelete}>
-            <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-            <Text style={[styles.actionText, { color: COLORS.error }]}>Delete</Text>
+
+          {group.status === "completed" && !offlineSyncStatus && (
+            <TouchableOpacity style={styles.iconAction} onPress={onExportPDF}>
+              <Ionicons
+                name="document-outline"
+                size={15}
+                color={COLORS.primaryLight}
+              />
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.iconAction} onPress={handleDelete}>
+            <Ionicons name="trash-outline" size={15} color={COLORS.error} />
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.lg,
+  cardContainer: {
     marginBottom: SPACING.md,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    overflow: "hidden",
   },
-  thumbnailGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    height: 120,
+  thumbnailRow: {
+    flexDirection: "row",
+    height: 140,
+    overflow: "hidden",
   },
   thumbnail: {
-    width: '50%',
-    height: '50%',
+    height: "100%",
     borderWidth: 0.5,
     borderColor: COLORS.border,
   },
+  thumbnailFull: {
+    width: "100%",
+  },
+  thumbnailHalf: {
+    width: "50%",
+  },
+  thumbnailThird: {
+    width: "33.33%",
+  },
   moreOverlay: {
-    position: 'absolute',
-    bottom: 0,
+    position: "absolute",
     right: 0,
-    width: '50%',
-    height: '50%',
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    top: 0,
+    width: "33.33%",
+    height: "100%",
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   moreText: {
     color: COLORS.textPrimary,
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.md,
     fontWeight: FONTS.weights.bold,
   },
-  placeholderGrid: {
-    height: 120,
+  placeholderRow: {
+    height: 60,
     backgroundColor: COLORS.bgSurface,
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
-  placeholderIcon: {
-    alignItems: 'center',
-    gap: SPACING.xs,
-  },
-  placeholderText: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textMuted,
-    fontWeight: FONTS.weights.semibold,
-  },
-  infoSection: {
-    padding: SPACING.md,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: SPACING.sm,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  placeholderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
-    marginBottom: SPACING.xs,
   },
-  imageCountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  imageCount: {
+  placeholderCount: {
     fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.semibold,
     color: COLORS.textSecondary,
   },
-  statusBadge: {
-    borderRadius: RADIUS.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  statusText: {
+  placeholderSub: {
     fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.bold,
-    textTransform: 'capitalize',
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+  infoSection: {
+    padding: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   date: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textMuted,
-  },
-  stats: {
-    flexDirection: 'row',
-    gap: SPACING.md,
-    marginBottom: SPACING.md,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginTop: 2,
-  },
-  statLabel: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  actionBtn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semibold,
+  },
+  syncBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+  },
+  syncBadgeText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semibold,
+  },
+  statsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: SPACING.xs,
+  },
+  statChip: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
     backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.md,
-    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  actionText: {
+  statChipText: {
     fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.semibold,
-    color: COLORS.primaryLight,
+    color: COLORS.textSecondary,
+    fontWeight: FONTS.weights.medium,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: SPACING.xs,
+    alignItems: "center",
+  },
+  primaryAction: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+  },
+  primaryActionText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.bgDark,
+  },
+  iconAction: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.bgSurface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
 });

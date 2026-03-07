@@ -1,11 +1,18 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Switch, TextInput } from 'react-native';
-import { COLORS, FONTS, SPACING, RADIUS } from '../../lib/constants';
+import React from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Switch,
+  TextInput,
+} from "react-native";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 
 interface PreferenceRowProps {
   label: string;
   description?: string;
-  type: 'toggle' | 'select' | 'text' | 'action';
+  type: "toggle" | "select" | "text" | "action";
   value?: any;
   onValueChange?: (value: any) => void;
   onPress?: () => void;
@@ -24,25 +31,25 @@ export function PreferenceRow({
 }: PreferenceRowProps) {
   const renderControl = () => {
     switch (type) {
-      case 'toggle':
+      case "toggle":
         return (
           <Switch
             value={value}
             onValueChange={onValueChange}
-            trackColor={{ false: COLORS.border, true: COLORS.primary + '80' }}
+            trackColor={{ false: COLORS.border, true: COLORS.primary + "80" }}
             thumbColor={value ? COLORS.primary : COLORS.textSubtle}
           />
         );
 
-      case 'select':
+      case "select":
         return (
           <View style={styles.selectControl}>
-            <Text style={styles.selectValue}>{value || 'Select'}</Text>
+            <Text style={styles.selectValue}>{value || "Select"}</Text>
             <Text style={styles.arrow}>›</Text>
           </View>
         );
 
-      case 'text':
+      case "text":
         return (
           <TextInput
             style={styles.textInput}
@@ -53,12 +60,12 @@ export function PreferenceRow({
           />
         );
 
-      case 'action':
+      case "action":
         return (
           <View style={styles.actionControl}>
             {value && <Text style={styles.actionValue}>{value}</Text>}
             <Text style={[styles.arrow, danger && styles.arrowDanger]}>
-              {danger ? '→' : '›'}
+              {danger ? "→" : "›"}
             </Text>
           </View>
         );
@@ -71,14 +78,16 @@ export function PreferenceRow({
   const content = (
     <View style={styles.container}>
       <View style={styles.left}>
-        <Text style={[styles.label, danger && styles.labelDanger]}>{label}</Text>
+        <Text style={[styles.label, danger && styles.labelDanger]}>
+          {label}
+        </Text>
         {description && <Text style={styles.description}>{description}</Text>}
       </View>
       <View style={styles.right}>{renderControl()}</View>
     </View>
   );
 
-  if (type === 'action' || type === 'select') {
+  if (type === "action" || type === "select") {
     return (
       <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
         {content}
@@ -91,24 +100,24 @@ export function PreferenceRow({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.md,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
   left: {
     flex: 1,
-    marginRight: SPACING.base,
+    marginRight: SPACING.sm,
   },
   right: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   label: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
     fontWeight: FONTS.weights.medium,
   },
@@ -121,8 +130,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   selectControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
   },
   selectValue: {
@@ -144,11 +153,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.xs,
     minWidth: 120,
-    textAlign: 'right',
+    textAlign: "right",
   },
   actionControl: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: SPACING.sm,
   },
   actionValue: {

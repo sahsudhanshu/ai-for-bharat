@@ -9,54 +9,154 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { getGroups, deleteGroup } from "../../lib/api-client";
+import { useFocusEffect } from "@react-navigation/core";
+import { getGroups, deleteGroup, getGroupDetails } from "../../lib/api-client";
 import { HistoryCard } from "../../components/history/HistoryCard";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { COLORS, FONTS, SPACING } from "../../lib/constants";
+import { SkeletonList } from "../../components/ui/Skeleton";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { Ionicons } from "@expo/vector-icons";
 import type { GroupRecord } from "../../lib/types";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  getLocalHistory,
+  getPendingLocalRecords,
+  deleteLocalRecord,
+  type LocalHistoryRecord,
+} from "../../lib/local-history";
+import { setAnalysisData } from "../../lib/analysis-store";
+import { useNetwork } from "../../lib/network-context";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
 const HISTORY_CACHE_KEY = "ocean_ai_history_cache";
 
+/** Convert a local offline record to the GroupRecord shape HistoryCard expects */
+function localToGroupRecord(r: LocalHistoryRecord): GroupRecord {
+  return {
+    groupId: `local_${r.id}`,
+    userId: "",
+    imageCount: 1,
+    s3Keys: [],
+    status: "completed",
+    createdAt: r.createdAt,
+    latitude: r.location?.lat,
+    longitude: r.location?.lng,
+    analysisResult: {
+      images: [],
+      aggregateStats: {
+        totalFishCount: r.fishCount,
+        averageConfidence: r.avgConfidence,
+        totalEstimatedWeight:
+          r.detections.reduce((s, d) => s + (d.weightG ?? 0), 0) / 1000,
+        totalEstimatedValue: r.detections.reduce(
+          (s, d) => s + (d.estimatedValue ?? 0),
+          0,
+        ),
+        diseaseDetected: r.diseaseDetected,
+        speciesDistribution: r.speciesDistribution,
+      },
+      processedAt: r.createdAt,
+    },
+  };
+}
+
 export default function HistoryScreen() {
+  const { isOnline } = useNetwork();
   const [groups, setGroups] = useState<GroupRecord[]>([]);
+  const [localRecords, setLocalRecords] = useState<LocalHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // true when we're showing cached cloud data (offline fallback)
+  const [isOfflineCache, setIsOfflineCache] = useState(false);
+  // Cache of groupId -> presignedViewUrls for thumbnail previews
+  const [thumbnailCache, setThumbnailCache] = useState<
+    Record<string, string[]>
+  >({});
+
+  // Reload local records whenever the screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      loadLocalRecords();
+    }, []),
+  );
 
   useEffect(() => {
-    loadHistory();
+    loadCloudHistory();
+    loadLocalRecords();
   }, []);
 
-  const loadHistory = async (forceRefresh = false) => {
+  // When connectivity is restored: refresh cloud history and re-evaluate local sync status
+  useEffect(() => {
+    if (isOnline) {
+      loadCloudHistory();
+      loadLocalRecords();
+    }
+  }, [isOnline]);
+
+  // Lazily fetch thumbnails for up to 5 most recent groups visible
+  useEffect(() => {
+    if (!isOnline || groups.length === 0) return;
+    const toFetch = groups
+      .slice(0, 5)
+      .filter(
+        (g) =>
+          g.status === "completed" &&
+          !thumbnailCache[g.groupId] &&
+          g.imageCount > 0,
+      );
+    if (toFetch.length === 0) return;
+
+    toFetch.forEach(async (g) => {
+      try {
+        const detail = await getGroupDetails(g.groupId);
+        if (detail.presignedViewUrls && detail.presignedViewUrls.length > 0) {
+          setThumbnailCache((prev) => ({
+            ...prev,
+            [g.groupId]: detail.presignedViewUrls!,
+          }));
+        }
+      } catch {
+        // Non-critical — just skip thumbnail for this group
+      }
+    });
+  }, [groups, isOnline]);
+
+  const loadLocalRecords = async () => {
+    try {
+      const all = await getLocalHistory();
+      // Only show pending/failed — synced records already appear in cloud
+      setLocalRecords(all.filter((r) => r.syncStatus !== "synced"));
+    } catch (e) {
+      console.warn("[History] Failed to load local records:", e);
+    }
+  };
+
+  const CACHE_MAX_RECORDS = 50;
+
+  const loadCloudHistory = async (forceRefresh = false) => {
+    let loadedFromCache = false;
     try {
       if (!forceRefresh) {
-        // Try to load from cache first
         const cached = await AsyncStorage.getItem(HISTORY_CACHE_KEY);
         if (cached) {
           try {
-            const parsedData = JSON.parse(cached);
-            setGroups(parsedData);
+            setGroups(JSON.parse(cached));
             setLoading(false);
-          } catch (parseError) {
-            console.error("Failed to parse cached history:", parseError);
-            // Clear corrupted cache
+            loadedFromCache = true;
+          } catch {
             await AsyncStorage.removeItem(HISTORY_CACHE_KEY);
           }
         }
       }
-
-      // Fetch fresh data
       const data = await getGroups();
-      setGroups(data.groups);
-
-      // Cache the data
-      await AsyncStorage.setItem(
-        HISTORY_CACHE_KEY,
-        JSON.stringify(data.groups),
-      );
-    } catch (error) {
-      console.error("Failed to load history:", error);
+      // Keep only the most recent records to bound storage usage
+      const toCache = data.groups.slice(0, CACHE_MAX_RECORDS);
+      setGroups(toCache);
+      setIsOfflineCache(false);
+      await AsyncStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(toCache));
+    } catch {
+      // Offline — cached cloud records are still displayed; flag it
+      if (loadedFromCache) setIsOfflineCache(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -65,44 +165,66 @@ export default function HistoryScreen() {
 
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    loadHistory(true);
+    loadCloudHistory(true);
+    loadLocalRecords();
   }, []);
 
-  const handleViewDetails = (groupId: string) => {
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
+  const handleViewCloudDetails = (groupId: string) => {
     router.push(`/history/${groupId}` as any);
   };
 
-  const handleDelete = async (groupId: string) => {
+  const handleViewLocalDetails = (record: LocalHistoryRecord) => {
+    setAnalysisData({
+      mode: "offline",
+      offlineResults: record.detections,
+      processingTime: record.processingTime,
+      imageUri: record.imageUri,
+      location: record.location,
+    });
+    router.push("/analysis/detail");
+  };
+
+  // ── Delete ───────────────────────────────────────────────────────────────────
+
+  const handleDeleteCloud = async (groupId: string) => {
     try {
       await deleteGroup(groupId);
-      setGroups((prev) => prev.filter((g) => g.groupId !== groupId));
-
-      // Update cache
       const updated = groups.filter((g) => g.groupId !== groupId);
+      setGroups(updated);
       await AsyncStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(updated));
     } catch (error) {
       console.error("Failed to delete group:", error);
     }
   };
 
+  const handleDeleteLocal = async (id: string) => {
+    await deleteLocalRecord(id);
+    setLocalRecords((prev) => prev.filter((r) => r.id !== id));
+  };
+
   const handleAskAI = (groupId: string) => {
-    router.push({
-      pathname: "/(tabs)/chat",
-      params: { groupId },
-    });
+    router.push({ pathname: "/(tabs)/chat", params: { groupId } });
   };
 
   const handleExportPDF = (groupId: string) => {
-    // PDF export will be implemented in Task 9
     console.log("Export PDF for group:", groupId);
   };
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+
+  const totalCount = groups.length + localRecords.length;
 
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-          <Text style={styles.loadingText}>Loading history...</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>History</Text>
+          <Text style={styles.subtitle}>Loading...</Text>
+        </View>
+        <View style={styles.list}>
+          <SkeletonList itemCount={5} />
         </View>
       </SafeAreaView>
     );
@@ -111,11 +233,24 @@ export default function HistoryScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <Text style={styles.title}>History</Text>
-        <Text style={styles.subtitle}>{groups.length} analysis sessions</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>History</Text>
+          <Text style={styles.subtitle}>{totalCount} analysis sessions</Text>
+        </View>
+        {isOfflineCache && (
+          <View style={styles.offlineBanner}>
+            <Ionicons
+              name="cloud-offline-outline"
+              size={12}
+              color={COLORS.warning}
+            />
+            <Text style={styles.offlineBannerText}>Cached</Text>
+          </View>
+        )}
+        <ProfileMenu size={36} />
       </View>
 
-      {groups.length === 0 ? (
+      {totalCount === 0 ? (
         <EmptyState
           icon={
             <Ionicons name="time-outline" size={48} color={COLORS.textMuted} />
@@ -131,11 +266,54 @@ export default function HistoryScreen() {
         <FlatList
           data={groups}
           keyExtractor={(item) => item.groupId}
+          ListHeaderComponent={
+            localRecords.length > 0 ? (
+              <View>
+                <View style={styles.sectionRow}>
+                  <Ionicons
+                    name="phone-portrait-outline"
+                    size={14}
+                    color={COLORS.warning}
+                  />
+                  <Text style={styles.sectionLabel}>
+                    Offline Analyses{" "}
+                    {isOnline ? "— syncing…" : "— pending sync"}
+                  </Text>
+                </View>
+                {localRecords.map((r) => (
+                  <HistoryCard
+                    key={`local_${r.id}`}
+                    group={localToGroupRecord(r)}
+                    offlineSyncStatus={
+                      r.syncStatus === "failed" ? "failed" : "pending"
+                    }
+                    onViewDetails={() => handleViewLocalDetails(r)}
+                    onDelete={() => handleDeleteLocal(r.id)}
+                    onAskAI={() => {}}
+                    onExportPDF={() => {}}
+                  />
+                ))}
+                {groups.length > 0 && (
+                  <View style={styles.sectionRow}>
+                    <Ionicons
+                      name="cloud-outline"
+                      size={14}
+                      color={COLORS.primaryLight}
+                    />
+                    <Text style={styles.sectionLabel}>Cloud History</Text>
+                  </View>
+                )}
+              </View>
+            ) : undefined
+          }
           renderItem={({ item }) => (
             <HistoryCard
-              group={item}
-              onViewDetails={() => handleViewDetails(item.groupId)}
-              onDelete={() => handleDelete(item.groupId)}
+              group={{
+                ...item,
+                presignedViewUrls: thumbnailCache[item.groupId],
+              }}
+              onViewDetails={() => handleViewCloudDetails(item.groupId)}
+              onDelete={() => handleDeleteCloud(item.groupId)}
               onAskAI={() => handleAskAI(item.groupId)}
               onExportPDF={() => handleExportPDF(item.groupId)}
             />
@@ -160,18 +338,23 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.bgDark,
   },
   header: {
-    paddingHorizontal: SPACING.xl,
-    paddingVertical: SPACING.md,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   title: {
-    fontSize: FONTS.sizes.xl,
+    fontSize: FONTS.sizes.lg,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
   subtitle: {
-    fontSize: FONTS.sizes.sm,
+    fontSize: FONTS.sizes.xs,
     color: COLORS.textMuted,
-    marginTop: SPACING.xs,
+    marginTop: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -179,11 +362,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   loadingText: {
-    marginTop: SPACING.md,
+    marginTop: SPACING.sm,
     fontSize: FONTS.sizes.sm,
     color: COLORS.textMuted,
   },
   list: {
-    padding: SPACING.xl,
+    padding: SPACING.lg,
+  },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.xs,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  sectionLabel: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  offlineBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: COLORS.warning + "18",
+    borderRadius: RADIUS.full,
+  },
+  offlineBannerText: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.warning,
+    fontWeight: FONTS.weights.semibold,
   },
 });

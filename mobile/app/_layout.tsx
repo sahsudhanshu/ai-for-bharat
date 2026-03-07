@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from "../lib/auth-context";
 import { LanguageProvider, useLanguage } from "../lib/i18n";
 import { NetworkProvider } from "../lib/network-context";
 import { ToastProvider } from "../components/providers/ToastProvider";
+import { NetworkStatusBanner } from "../components/ui/NetworkStatusBanner";
 import { COLORS } from "../lib/constants";
 import { runStartupChecks } from "../lib/startup-check";
 
@@ -36,8 +37,16 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="auth/login" />
       <Stack.Screen name="auth/register" />
-      <Stack.Screen name="analysis/[imageId]" options={{ headerShown: true }} />
     </Stack>
+  );
+}
+
+function AppWithNetworkBanner() {
+  return (
+    <>
+      <NetworkStatusBanner />
+      <RootLayoutNav />
+    </>
   );
 }
 
@@ -111,7 +120,7 @@ export default function RootLayout() {
               <AuthProvider>
                 <ToastProvider>
                   <StatusBar style="light" backgroundColor={COLORS.bgDark} />
-                  <RootLayoutNav />
+                  <AppWithNetworkBanner />
                 </ToastProvider>
               </AuthProvider>
             </LanguageProvider>

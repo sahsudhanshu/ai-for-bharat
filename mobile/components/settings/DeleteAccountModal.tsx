@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { Modal } from "../ui/Modal";
 import { deleteUserAccount } from "../../lib/api-client";
+import { toastService } from "../../lib/toast-service";
 
 interface DeleteAccountModalProps {
   visible: boolean;
@@ -38,10 +39,7 @@ export function DeleteAccountModal({
       await onConfirm();
     } catch (err) {
       console.error("Error deleting account:", err);
-      Alert.alert(
-        "Error",
-        "Failed to delete account. Please try again or contact support.",
-      );
+      toastService.error("Failed to delete account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -139,15 +137,15 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.error + "40",
     borderRadius: RADIUS.md,
-    padding: SPACING.base,
+    padding: SPACING.md,
     alignItems: "center",
   },
   warningIcon: {
-    fontSize: 32,
+    fontSize: 24,
     marginBottom: SPACING.xs,
   },
   warningTitle: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: COLORS.error,
     fontWeight: FONTS.weights.bold,
     textAlign: "center",
@@ -181,9 +179,9 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#475569",
     borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.base,
+    paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#f1f5f9",
     fontFamily: "monospace",
   },
@@ -194,7 +192,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
     borderRadius: RADIUS.md,
     alignItems: "center",
     justifyContent: "center",
@@ -205,7 +203,7 @@ const styles = StyleSheet.create({
     borderColor: "#475569", // Lighter border
   },
   cancelButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#cbd5e1", // Brighter text
     fontWeight: FONTS.weights.medium,
   },
@@ -213,7 +211,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.error,
   },
   deleteButtonText: {
-    fontSize: FONTS.sizes.base,
+    fontSize: FONTS.sizes.sm,
     color: "#fff",
     fontWeight: FONTS.weights.bold,
   },

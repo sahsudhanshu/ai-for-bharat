@@ -32,12 +32,17 @@ export const COLORS = {
   success: "#10b981",
   warning: "#f59e0b",
   error: "#ef4444",
+  danger: "#ef4444",
   info: "#3b82f6",
 
   // Quality grades
   premium: "#10b981",
   standard: "#f59e0b",
   low: "#ef4444",
+
+  // Common colors
+  white: "#ffffff",
+  black: "#000000",
 
   // Transparent
   overlay: "rgba(15, 23, 42, 0.8)",
@@ -47,15 +52,15 @@ export const COLORS = {
 // ── Typography ─────────────────────────────────────────────────────────────────
 export const FONTS = {
   sizes: {
-    xs: 11,
-    sm: 13,
-    base: 15,
-    md: 17,
-    lg: 20,
-    xl: 24,
-    "2xl": 28,
-    "3xl": 34,
-    "4xl": 42,
+    xs: 10,
+    sm: 12,
+    base: 13,
+    md: 15,
+    lg: 17,
+    xl: 20,
+    "2xl": 22,
+    "3xl": 26,
+    "4xl": 30,
   },
   weights: {
     normal: "400" as const,
@@ -66,21 +71,23 @@ export const FONTS = {
   },
 };
 
-// ── Spacing ────────────────────────────────────────────────────────────────────
+// ── Spacing (8px Grid System) ──────────────────────────────────────────────────
+// All spacing values follow an 8px grid for consistency with web
 export const SPACING = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  base: 16,
-  lg: 20,
-  xl: 24,
-  "2xl": 32,
-  "3xl": 40,
-  "4xl": 48,
-};
+  xs: 4, // 0.5 × 8px - Minimal spacing
+  sm: 8, // 1 × 8px - Small spacing
+  md: 16, // 2 × 8px - Medium spacing (default)
+  lg: 24, // 3 × 8px - Large spacing
+  xl: 32, // 4 × 8px - Extra large spacing
+  "2xl": 48, // 6 × 8px - 2X large spacing
+  "3xl": 64, // 8 × 8px - 3X large spacing
+  "4xl": 96, // 12 × 8px - 4X large spacing
+  full: 9999, // Full width/height
+} as const;
 
 // ── Border Radius ──────────────────────────────────────────────────────────────
 export const RADIUS = {
+  xs: 4,
   sm: 8,
   md: 12,
   lg: 16,
@@ -100,15 +107,21 @@ export const ENDPOINTS = {
   presignedUrl: "/images/presigned-url",
   analyzeImage: (id: string) => `/images/${id}/analyze`,
   getImages: "/images",
-  getMapData: "/map/markers",
+  getMapData: "/map",
   sendChat: "/chat",
   getChatHistory: "/chat/history",
   getAnalytics: "/analytics",
+  saveWeightEstimate: "/weight-estimates",
+  saveOfflineAnalysis: "/offline-analyses",
 };
 
 // ── App Config ───────────────────────────────────────────────────────────────
 export const APP_NAME = "OceanAI";
 export const APP_TAGLINE = "AI for Bharat Fishermen";
+
+// Telegram Bot Configuration
+export const TELEGRAM_BOT_USERNAME =
+  process.env.EXPO_PUBLIC_TELEGRAM_BOT_USERNAME || "OceanAICompanionBot";
 
 export const FISH_SPECIES = [
   "All Species",

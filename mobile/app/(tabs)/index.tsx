@@ -14,44 +14,16 @@ import { getAnalytics } from "../../lib/api-client";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
 import { Card, StatCard } from "../../components/ui/Card";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
 type Analytics = Awaited<ReturnType<typeof getAnalytics>>;
+
+type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 export default function HomeScreen() {
   const { user } = useAuth();
   const { t, isLoaded } = useLanguage();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
-
-  const FEATURES = [
-    {
-      icon: "camera" as const,
-      title: t("nav.upload"),
-      desc: t("home.toolUploadDesc"),
-      route: "/upload",
-      color: COLORS.primary,
-    },
-    {
-      icon: "map" as const,
-      title: t("nav.oceanMap"),
-      desc: t("home.toolMapDesc"),
-      route: "/map",
-      color: COLORS.secondary,
-    },
-    {
-      icon: "chatbubbles" as const,
-      title: t("nav.assistant"),
-      desc: t("home.toolChatDesc"),
-      route: "/chat",
-      color: COLORS.accent,
-    },
-    {
-      icon: "bar-chart" as const,
-      title: t("nav.analytics"),
-      desc: t("home.toolAnalyticsDesc"),
-      route: "/analytics",
-      color: "#7c3aed",
-    },
-  ];
 
   useEffect(() => {
     getAnalytics()
@@ -69,6 +41,78 @@ export default function HomeScreen() {
 
   if (!isLoaded) return null;
 
+  const QUICK_PROMPTS: {
+    icon: IoniconName;
+    label: string;
+    prompt: string;
+    color: string;
+  }[] = [
+    {
+      icon: "sunny",
+      label: "Daily Briefing",
+      prompt:
+        "Give me my daily fishing briefing — weather, best zones, market prices, and safety alerts.",
+      color: COLORS.secondary,
+    },
+    {
+      icon: "cash",
+      label: "Market Prices",
+      prompt:
+        "What are today's fish market prices? Which species are trending up?",
+      color: "#06b6d4",
+    },
+    {
+      icon: "navigate",
+      label: "Best Zones",
+      prompt: "What are the best fishing zones near me right now?",
+      color: COLORS.accent,
+    },
+    {
+      icon: "warning",
+      label: "Safety Alerts",
+      prompt:
+        "Are there any active safety alerts or weather warnings near my location?",
+      color: "#ef4444",
+    },
+  ];
+
+  const TOOLS: {
+    icon: IoniconName;
+    title: string;
+    desc: string;
+    route: string;
+    color: string;
+  }[] = [
+    {
+      icon: "camera",
+      title: t("nav.upload"),
+      desc: t("home.toolUploadDesc"),
+      route: "/upload",
+      color: COLORS.primary,
+    },
+    {
+      icon: "map",
+      title: t("nav.oceanMap"),
+      desc: t("home.toolMapDesc"),
+      route: "/map",
+      color: COLORS.secondary,
+    },
+    {
+      icon: "time",
+      title: "History",
+      desc: "Past catches & records",
+      route: "/history",
+      color: "#7c3aed",
+    },
+    {
+      icon: "bar-chart",
+      title: t("nav.analytics"),
+      desc: t("home.toolAnalyticsDesc"),
+      route: "/analytics",
+      color: COLORS.accent,
+    },
+  ];
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -79,42 +123,77 @@ export default function HomeScreen() {
         {/* Header */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Good {greeting}</Text>
+            <Text style={styles.greeting}>{greeting}</Text>
             <Text style={styles.userName}>{user?.name ?? "Fisherman"}</Text>
           </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {(user?.name ?? "F")[0].toUpperCase()}
-            </Text>
-          </View>
+          <ProfileMenu size={36} />
         </View>
 
-        {/* Hero Banner */}
-        <View style={styles.heroBanner}>
-          <View style={styles.heroContent}>
-            <View style={styles.heroBadge}>
-              <Ionicons
-                name="trophy"
-                size={12}
-                color="rgba(255,255,255,0.9)"
-                style={{ marginRight: 4 }}
-              />
-              <Text style={styles.heroBadgeText}>AWS AI for Bharat</Text>
+        {/* Agent Hero Banner */}
+        <TouchableOpacity
+          style={styles.agentBanner}
+          onPress={() => router.push("/(tabs)/chat")}
+          activeOpacity={0.85}
+        >
+          <View style={styles.agentBannerContent}>
+            <View style={styles.agentBannerIcon}>
+              <Ionicons name="chatbubble" size={22} color="#fff" />
             </View>
-            <Text style={styles.heroTitle}>{t("home.heroTitle")}</Text>
-            <Text style={styles.heroSubtitle}>{t("home.heroSubtitle")}</Text>
-            <TouchableOpacity
-              style={styles.heroBtn}
-              onPress={() => router.push("/upload")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.heroBtnText}>{t("home.heroAction")} →</Text>
-            </TouchableOpacity>
+            <View style={styles.agentBannerText}>
+              <View style={styles.agentBadgeRow}>
+                <View style={styles.agentLiveBadge}>
+                  <View style={styles.agentLiveDot} />
+                  <Text style={styles.agentLiveBadgeText}>AI AGENT</Text>
+                </View>
+              </View>
+              <Text style={styles.agentBannerTitle}>
+                Your Fishing Assistant
+              </Text>
+              <Text style={styles.agentBannerSub}>
+                Ask about weather, market prices, catch analysis, safety alerts
+                & more
+              </Text>
+            </View>
           </View>
-          {/* Decorative circles */}
+          <View style={styles.agentBannerArrow}>
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color="rgba(255,255,255,0.7)"
+            />
+          </View>
           <View style={styles.decoCircle1} />
           <View style={styles.decoCircle2} />
-        </View>
+        </TouchableOpacity>
+
+        {/* Quick Ask Agent Prompts */}
+        <Text style={styles.sectionTitle}>Ask the Agent</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.promptRow}
+        >
+          {QUICK_PROMPTS.map((p) => (
+            <TouchableOpacity
+              key={p.label}
+              style={styles.promptCard}
+              onPress={() =>
+                router.push({
+                  pathname: "/(tabs)/chat",
+                  params: { initialMessage: p.prompt },
+                })
+              }
+              activeOpacity={0.75}
+            >
+              <View
+                style={[styles.promptIcon, { backgroundColor: p.color + "18" }]}
+              >
+                <Ionicons name={p.icon} size={16} color={p.color} />
+              </View>
+              <Text style={styles.promptLabel}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {/* Stats */}
         <Text style={styles.sectionTitle}>{t("home.overview")}</Text>
@@ -153,57 +232,51 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* Feature Cards */}
+        {/* Tools */}
         <Text style={styles.sectionTitle}>{t("home.tools")}</Text>
-        <View style={styles.featureGrid}>
-          {FEATURES.map((f) => (
+        <View style={styles.toolsGrid}>
+          {TOOLS.map((tool) => (
             <TouchableOpacity
-              key={f.title}
-              style={[styles.featureCard, { borderColor: f.color + "40" }]}
-              onPress={() => router.push(f.route as any)}
+              key={tool.title}
+              style={[styles.toolCard, { borderColor: tool.color + "30" }]}
+              onPress={() => router.push(tool.route as any)}
               activeOpacity={0.8}
             >
               <View
                 style={[
-                  styles.featureIcon,
-                  { backgroundColor: f.color + "20" },
+                  styles.toolIcon,
+                  { backgroundColor: tool.color + "18" },
                 ]}
               >
-                <Ionicons name={f.icon} size={26} color={f.color} />
+                <Ionicons name={tool.icon} size={18} color={tool.color} />
               </View>
-              <Text style={styles.featureTitle}>{f.title}</Text>
-              <Text style={styles.featureDesc}>{f.desc}</Text>
-              <Ionicons
-                name="arrow-forward"
-                size={16}
-                color={f.color}
-                style={{ marginTop: SPACING.xs }}
-              />
+              <Text style={styles.toolTitle}>{tool.title}</Text>
+              <Text style={styles.toolDesc}>{tool.desc}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Recent Activity */}
+        {/* Insights */}
         <Text style={styles.sectionTitle}>{t("home.insights")}</Text>
-        <Card style={styles.insightCard} padding={SPACING.lg}>
+        <Card style={styles.insightCard} padding={SPACING.md}>
           {[
             {
-              icon: "time-outline" as const,
+              icon: "time-outline" as IoniconName,
               label: t("home.insightTime"),
               value: "5:00–8:00 AM",
             },
             {
-              icon: "fish-outline" as const,
+              icon: "fish-outline" as IoniconName,
               label: t("home.insightSpecies"),
               value: analytics?.topSpecies ?? "Indian Pomfret",
             },
             {
-              icon: "leaf-outline" as const,
+              icon: "leaf-outline" as IoniconName,
               label: t("home.insightSustainability"),
               value: "88/100",
             },
             {
-              icon: "trending-up-outline" as const,
+              icon: "trending-up-outline" as IoniconName,
               label: t("home.insightMarket"),
               value: "Pomfret ↑12%",
             },
@@ -214,15 +287,30 @@ export default function HomeScreen() {
             >
               <Ionicons
                 name={item.icon}
-                size={18}
+                size={16}
                 color={COLORS.primaryLight}
-                style={{ marginRight: SPACING.md }}
+                style={{ marginRight: SPACING.sm }}
               />
               <Text style={styles.insightLabel}>{item.label}</Text>
               <Text style={styles.insightValue}>{item.value}</Text>
             </View>
           ))}
         </Card>
+
+        {/* Bottom CTA */}
+        <TouchableOpacity
+          style={styles.bottomCta}
+          onPress={() => router.push("/(tabs)/chat")}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="chatbubble" size={18} color="#fff" />
+          <Text style={styles.bottomCtaText}>Talk to AI Agent</Text>
+          <Ionicons
+            name="arrow-forward"
+            size={16}
+            color="rgba(255,255,255,0.7)"
+          />
+        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -231,13 +319,13 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
   scroll: { flex: 1 },
-  content: { padding: SPACING.xl, paddingBottom: SPACING["4xl"] },
+  content: { padding: SPACING.lg, paddingBottom: SPACING["3xl"] },
 
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: SPACING["2xl"],
+    marginBottom: SPACING.lg,
   },
   greeting: {
     fontSize: FONTS.sizes.sm,
@@ -245,151 +333,201 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.weights.medium,
   },
   userName: {
-    fontSize: FONTS.sizes.xl,
+    fontSize: FONTS.sizes.lg,
     color: COLORS.textPrimary,
     fontWeight: FONTS.weights.bold,
   },
   avatar: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: RADIUS.full,
     backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
   avatarText: {
-    fontSize: FONTS.sizes.lg,
+    fontSize: FONTS.sizes.base,
     color: "#fff",
     fontWeight: FONTS.weights.bold,
   },
 
-  // Hero Banner
-  heroBanner: {
+  /* Agent Banner */
+  agentBanner: {
     backgroundColor: COLORS.primary,
-    borderRadius: RADIUS["2xl"],
-    padding: SPACING.xl,
-    marginBottom: SPACING.xl,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
     overflow: "hidden",
     position: "relative",
-    minHeight: 160,
-  },
-  heroContent: { zIndex: 2, flex: 1 },
-  heroBadge: {
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: RADIUS.full,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-    alignSelf: "flex-start",
-    marginBottom: SPACING.sm,
     flexDirection: "row",
     alignItems: "center",
   },
-  heroBadgeText: {
+  agentBannerContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    zIndex: 2,
+  },
+  agentBannerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  agentBannerText: {
+    flex: 1,
+  },
+  agentBadgeRow: {
+    flexDirection: "row",
+    marginBottom: 3,
+  },
+  agentLiveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    gap: 4,
+  },
+  agentLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#4ade80",
+  },
+  agentLiveBadgeText: {
+    fontSize: 9,
+    fontWeight: FONTS.weights.bold,
     color: "rgba(255,255,255,0.9)",
-    fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.bold,
+    letterSpacing: 0.5,
   },
-  heroTitle: {
-    fontSize: FONTS.sizes["2xl"],
+  agentBannerTitle: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
     color: "#fff",
-    fontWeight: FONTS.weights.extrabold,
-    marginBottom: SPACING.xs,
+    marginBottom: 2,
   },
-  heroSubtitle: {
-    fontSize: FONTS.sizes.sm,
-    color: "rgba(255,255,255,0.75)",
-    marginBottom: SPACING.base,
+  agentBannerSub: {
+    fontSize: FONTS.sizes.xs,
+    color: "rgba(255,255,255,0.7)",
+    lineHeight: 16,
   },
-  heroBtn: {
-    backgroundColor: "#fff",
-    borderRadius: RADIUS.lg,
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
-    alignSelf: "flex-start",
-  },
-  heroBtnText: {
-    color: COLORS.primary,
-    fontWeight: FONTS.weights.bold,
-    fontSize: FONTS.sizes.sm,
+  agentBannerArrow: {
+    zIndex: 2,
+    marginLeft: 8,
   },
   decoCircle1: {
     position: "absolute",
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    right: -30,
-    top: -30,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    right: -20,
+    top: -20,
   },
   decoCircle2: {
     position: "absolute",
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    right: 40,
-    bottom: -20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    right: 50,
+    bottom: -15,
+  },
+
+  /* Quick ask prompts */
+  promptRow: {
+    gap: 10,
+    paddingBottom: 4,
+    marginBottom: SPACING.lg,
+  },
+  promptCard: {
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    gap: 6,
+    minWidth: 90,
+  },
+  promptIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  promptLabel: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semibold,
+    color: COLORS.textSecondary,
+    textAlign: "center",
   },
 
   sectionTitle: {
-    fontSize: FONTS.sizes.md,
+    fontSize: FONTS.sizes.base,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
-    marginBottom: SPACING.md,
-    marginTop: SPACING.sm,
+    fontWeight: FONTS.weights.semibold,
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.xs,
   },
 
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: SPACING.md,
-    marginBottom: SPACING.xl,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
   statCard: { width: "47%", flexGrow: 1 },
 
-  featureGrid: {
+  /* Tools grid */
+  toolsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: SPACING.md,
-    marginBottom: SPACING.xl,
+    gap: SPACING.sm,
+    marginBottom: SPACING.lg,
   },
-  featureCard: {
+  toolCard: {
     width: "47%",
     flexGrow: 1,
     backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.xl,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    padding: SPACING.base,
-    gap: SPACING.xs,
+    padding: SPACING.sm,
+    gap: 4,
   },
-  featureIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: RADIUS.md,
+  toolIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.sm,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: SPACING.xs,
+    marginBottom: 2,
   },
-  featureTitle: {
-    fontSize: FONTS.sizes.md,
+  toolTitle: {
+    fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
   },
-  featureDesc: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },
-  featureArrow: {
-    fontSize: FONTS.sizes.md,
-    fontWeight: FONTS.weights.bold,
-    marginTop: SPACING.xs,
+  toolDesc: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
   },
 
-  insightCard: { marginBottom: SPACING.xl },
+  /* Insights */
+  insightCard: { marginBottom: SPACING.lg },
   insightRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: SPACING.sm,
+    paddingVertical: 6,
   },
   insightRowBorder: { borderTopWidth: 1, borderColor: COLORS.border },
-  insightEmoji: { fontSize: 18, marginRight: SPACING.md },
   insightLabel: {
     flex: 1,
     fontSize: FONTS.sizes.sm,
@@ -399,6 +537,24 @@ const styles = StyleSheet.create({
   insightValue: {
     fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
+    fontWeight: FONTS.weights.semibold,
+  },
+
+  /* Bottom CTA */
+  bottomCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 14,
+    gap: 8,
+    marginTop: SPACING.xs,
+  },
+  bottomCtaText: {
+    color: "#fff",
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.semibold,
+    letterSpacing: 0.3,
   },
 });
