@@ -1,24 +1,23 @@
 /**
- * Chat Stream Client for Server-Sent Events (SSE)
- * Handles streaming chat responses from the Agent API with proper error handling and fallback
+ * Chat Stream Client — SSE streaming from the Agent API.
  *
- * Enhanced with:
- * - Comprehensive error handling with user-friendly messages
- * - Retry logic with exponential backoff for transient failures
- * - Location context passing when available
- * - Detailed error logging for debugging
+ * Uses the actual agent endpoint:
+ *   POST /conversations/{id}/messages/stream
+ *
+ * The agent streams back Server-Sent Events in the format:
+ *   data: {"type":"chunk","text":"..."}   — LLM token
+ *   data: {"type":"tool","name":"..."}    — tool call (informational)
+ *   data: {"type":"end","messageId":"..."}  — stream complete
+ *   data: {"type":"error","error":"..."}  — error
+ *
+ * NOTE: React Native's fetch polyfill does NOT expose response.body as a
+ * ReadableStream, so we use XMLHttpRequest with onprogress which React Native
+ * does support for incremental / streaming reads.
  */
 
 import { AGENT_BASE_URL, IS_AGENT_CONFIGURED } from "./constants";
 import { ApiError } from "./api-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { retryWithBackoff, RETRY_PRESETS } from "./retry-utils";
-
-export interface StreamMessage {
-  type: "token" | "done" | "error";
-  content?: string;
-  error?: string;
-}
 
 export interface StreamOptions {
   conversationId?: string;
@@ -35,269 +34,173 @@ export interface StreamOptions {
   onError?: (error: Error) => void;
 }
 
-/**
- * ChatStreamClient handles SSE streaming for real-time chat responses
- */
-export class ChatStreamClient {
-  private abortController: AbortController | null = null;
+class ChatStreamClient {
+  private xhr: XMLHttpRequest | null = null;
   private isStreaming = false;
 
-  /**
-   * Get authentication token from AsyncStorage
-   */
-  private async getToken(): Promise<string> {
+  private async getToken(): Promise<string | null> {
     try {
-      const token = await AsyncStorage.getItem("ocean_ai_token");
-      if (!token) {
-        throw new Error("No authentication token found");
-      }
-      return token;
-    } catch (error) {
-      console.error("Failed to retrieve token:", error);
-      throw new Error("Authentication required");
+      return await AsyncStorage.getItem("ocean_ai_token");
+    } catch {
+      return null;
     }
   }
 
-  /**
-   * Build the streaming URL with query parameters
-   */
-  private buildStreamUrl(options: StreamOptions): string {
+  streamMessage(options: StreamOptions): Promise<void> {
+    if (!IS_AGENT_CONFIGURED) {
+      return Promise.reject(
+        new ApiError(
+          0,
+          "Agent API is not configured. Set EXPO_PUBLIC_AGENT_URL to enable streaming.",
+        ),
+      );
+    }
+
     const {
       conversationId,
       message,
       language,
       location,
-      replyToMessageId,
-      analysisId,
+      onToken,
+      onComplete,
+      onError,
     } = options;
-    const url = new URL(`${AGENT_BASE_URL}/chat/stream`);
 
-    if (conversationId) {
-      url.searchParams.set("conversationId", conversationId);
-    }
-    url.searchParams.set("message", message);
-
-    if (language) {
-      url.searchParams.set("language", language);
-    }
-
-    if (location) {
-      url.searchParams.set(
-        "location",
-        `${location.latitude},${location.longitude}`,
+    if (!conversationId) {
+      return Promise.reject(
+        new ApiError(400, "conversationId is required for streaming"),
       );
-    }
-
-    if (replyToMessageId) {
-      url.searchParams.set("replyToMessageId", replyToMessageId);
-    }
-
-    if (analysisId) {
-      url.searchParams.set("analysisId", analysisId);
-    }
-
-    return url.toString();
-  }
-
-  /**
-   * Parse SSE data line
-   */
-  private parseSSELine(line: string): StreamMessage | null {
-    // SSE format: "data: {json}"
-    if (!line.startsWith("data: ")) {
-      return null;
-    }
-
-    const dataStr = line.substring(6).trim();
-    if (!dataStr) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(dataStr) as StreamMessage;
-    } catch (error) {
-      console.warn("Failed to parse SSE line:", line, error);
-      return null;
-    }
-  }
-
-  /**
-   * Process SSE stream from response
-   */
-  private async processStream(
-    response: Response,
-    options: StreamOptions,
-  ): Promise<void> {
-    const { onToken, onComplete, onError } = options;
-
-    if (!response.body) {
-      throw new Error("Response body is null");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (this.isStreaming) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        // Decode chunk and add to buffer
-        buffer += decoder.decode(value, { stream: true });
-
-        // Process complete lines
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          if (!trimmedLine) continue;
-
-          const message = this.parseSSELine(trimmedLine);
-          if (!message) continue;
-
-          if (message.type === "token" && message.content) {
-            onToken?.(message.content);
-          } else if (message.type === "done") {
-            onComplete?.();
-            this.isStreaming = false;
-            break;
-          } else if (message.type === "error") {
-            const error = new Error(message.error || "Stream error");
-            onError?.(error);
-            this.isStreaming = false;
-            break;
-          }
-        }
-      }
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        // Stream was stopped by user
-        console.log("Stream aborted by user");
-      } else {
-        console.error("Stream processing error:", error);
-        onError?.(error as Error);
-      }
-    } finally {
-      reader.releaseLock();
-      this.isStreaming = false;
-    }
-  }
-
-  /**
-   * Initiate streaming request with retry logic
-   */
-  private async initiateStream(options: StreamOptions): Promise<Response> {
-    const token = await this.getToken();
-    const url = this.buildStreamUrl(options);
-
-    return retryWithBackoff(
-      async () => {
-        const response = await fetch(url, {
-          method: "GET",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "text/event-stream",
-            "Cache-Control": "no-cache",
-          },
-          signal: this.abortController?.signal,
-        });
-
-        if (!response.ok) {
-          let errorMessage = `Stream request failed: ${response.status}`;
-          try {
-            const errorBody = await response.json();
-            errorMessage = errorBody.message || errorBody.error || errorMessage;
-          } catch {
-            // Ignore JSON parse errors
-          }
-          throw new ApiError(response.status, errorMessage);
-        }
-
-        return response;
-      },
-      {
-        ...RETRY_PRESETS.FAST,
-        onRetry: (attempt, error) => {
-          console.log(
-            `Retrying stream connection (attempt ${attempt}):`,
-            error.message,
-          );
-        },
-      },
-    );
-  }
-
-  /**
-   * Stream a chat message with SSE
-   * Returns a promise that resolves when streaming completes
-   *
-   * Enhanced with:
-   * - Retry logic for connection failures
-   * - Better error messages
-   * - Location context passing
-   */
-  async streamMessage(options: StreamOptions): Promise<void> {
-    if (!IS_AGENT_CONFIGURED) {
-      throw new ApiError(
-        0,
-        "Agent API is not configured. Set EXPO_PUBLIC_AGENT_URL to enable streaming.",
-      );
-    }
-
-    if (!options.message || !options.message.trim()) {
-      throw new ApiError(400, "Message is required");
     }
 
     if (this.isStreaming) {
-      throw new Error("Already streaming a message");
+      this.stopStreaming();
     }
 
     this.isStreaming = true;
-    this.abortController = new AbortController();
 
-    try {
-      const response = await this.initiateStream(options);
-      await this.processStream(response, options);
-    } catch (error) {
-      this.isStreaming = false;
+    return new Promise(async (resolve, reject) => {
+      const token = await this.getToken();
+      const url = `${AGENT_BASE_URL}/conversations/${conversationId}/messages/stream`;
 
-      if (error instanceof Error && error.name === "AbortError") {
-        // User stopped streaming, not an error
-        console.log("Streaming stopped by user");
+      const xhr = new XMLHttpRequest();
+      this.xhr = xhr;
+
+      let processedLength = 0;
+      let buffer = "";
+
+      const processChunk = (newText: string) => {
+        buffer += newText;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "chunk" && data.text) {
+              onToken?.(data.text);
+            } else if (data.type === "end") {
+              this.isStreaming = false;
+              onComplete?.();
+              resolve();
+            } else if (data.type === "error") {
+              const err = new Error(data.error || "Stream error");
+              this.isStreaming = false;
+              onError?.(err);
+              reject(err);
+            }
+            // "tool" events are silently ignored
+          } catch (e) {
+            if (!(e instanceof SyntaxError)) {
+              this.isStreaming = false;
+              onError?.(e as Error);
+              reject(e);
+            }
+          }
+        }
+      };
+
+      xhr.open("POST", url, true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("Accept", "text/event-stream");
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      }
+
+      xhr.onprogress = () => {
+        if (!this.isStreaming) return;
+        const newText = xhr.responseText.slice(processedLength);
+        processedLength = xhr.responseText.length;
+        if (newText) processChunk(newText);
+      };
+
+      xhr.onload = () => {
+        // Flush any remaining buffered text
+        const newText = xhr.responseText.slice(processedLength);
+        if (newText) processChunk(newText);
+
+        if (this.isStreaming) {
+          // Stream finished without an explicit "end" event
+          this.isStreaming = false;
+          onComplete?.();
+          resolve();
+        }
+      };
+
+      xhr.onerror = () => {
+        this.isStreaming = false;
+        const err = new ApiError(0, "Stream network error");
+        onError?.(err);
+        reject(err);
+      };
+
+      xhr.onabort = () => {
+        this.isStreaming = false;
+        resolve(); // user-initiated stop, not an error
+      };
+
+      if ((xhr.status !== 0 && xhr.status < 200) || xhr.status >= 300) {
+        this.isStreaming = false;
+        const err = new ApiError(
+          xhr.status,
+          `Stream request failed: ${xhr.status}`,
+        );
+        onError?.(err);
+        reject(err);
         return;
       }
 
-      console.error("Streaming error:", error);
-      options.onError?.(error as Error);
-      throw error;
-    }
+      console.log("----------------------------------------");
+      console.log("🚀 SENDING PROMPT TO AGENT:");
+      console.log(`💬 Message: ${message}`);
+      console.log(`🌐 Language: ${language}`);
+      console.log(`📍 Location: ${location?.latitude}, ${location?.longitude}`);
+      console.log(`🆔 Conv ID: ${conversationId}`);
+
+      const requestBody = {
+        message,
+        language,
+        latitude: location?.latitude,
+        longitude: location?.longitude,
+      };
+      console.log("📦 JSON Body:", JSON.stringify(requestBody, null, 2));
+      console.log("----------------------------------------");
+
+      xhr.send(JSON.stringify(requestBody));
+    });
   }
 
-  /**
-   * Stop the current streaming operation
-   */
   stopStreaming(): void {
-    if (this.abortController && this.isStreaming) {
-      this.abortController.abort();
-      this.abortController = null;
-      this.isStreaming = false;
+    if (this.xhr) {
+      this.xhr.abort();
+      this.xhr = null;
     }
+    this.isStreaming = false;
   }
 
-  /**
-   * Check if currently streaming
-   */
   getIsStreaming(): boolean {
     return this.isStreaming;
   }
 }
 
-/**
- * Singleton instance for app-wide use
- */
 export const chatStreamClient = new ChatStreamClient();

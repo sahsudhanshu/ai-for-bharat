@@ -1,1 +1,1 @@
-source .venv/bin/activate;python3 run_local.py
+.venv/bin/python ./run_local.py

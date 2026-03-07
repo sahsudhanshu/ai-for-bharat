@@ -497,6 +497,12 @@ export async function sendChat(
           payload.analysisId = analysisId;
         }
 
+        console.log("----------------------------------------");
+        console.log("🚀 SENDING PROMPT TO AGENT (REST):");
+        console.log(`🆔 Conv ID: ${overrideChatId}`);
+        console.log("📦 JSON Body:", JSON.stringify(payload, null, 2));
+        console.log("----------------------------------------");
+
         const res = await retryWithBackoff(
           () =>
             agentFetch<{
@@ -534,6 +540,11 @@ export async function sendChat(
       if (analysisId) {
         payload.analysisId = analysisId;
       }
+
+      console.log("----------------------------------------");
+      console.log("🚀 SENDING PROMPT TO AGENT (LEGACY/GLOBAL):");
+      console.log("📦 JSON Body:", JSON.stringify(payload, null, 2));
+      console.log("----------------------------------------");
 
       return await retryWithBackoff(
         () =>

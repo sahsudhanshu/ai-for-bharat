@@ -33,6 +33,7 @@ import * as Location from "expo-location";
 import { Audio } from "expo-av";
 import { synthesizeSpeech } from "../../lib/api-client";
 import { chatStreamClient } from "../../lib/chat-stream-client";
+import { StreamingText } from "../../components/chat/StreamingText";
 import Markdown from "react-native-markdown-display";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -993,6 +994,7 @@ export default function ChatScreen() {
 
     try {
       const { sendChat } = await import("../../lib/api-client");
+
       const res = await sendChat(
         trimmed,
         targetChatId ?? undefined,
@@ -1042,6 +1044,15 @@ export default function ChatScreen() {
 
   const renderMessage = ({ item }: { item: UIMessage }) => {
     const isUser = item.role === "user";
+
+    // The hub greeting replaces the welcome message when the empty state is shown
+    if (item.id === "welcome" && isEmptyChat) return null;
+
+    // Don't render the placeholder bubble while waiting for the first token —
+    // the typing indicator in the footer already covers this state.
+    if (!isUser && item.id === streamingMessageId && item.text === "") {
+      return null;
+    }
 
     const renderRightActions = (
       progress: Animated.AnimatedInterpolation<number>,
@@ -1156,7 +1167,12 @@ export default function ChatScreen() {
             {isUser ? (
               <Text style={styles.userText}>{item.text}</Text>
             ) : (
-              <Markdown style={markdownStyles}>{item.text}</Markdown>
+              <StreamingText
+                text={item.text}
+                isStreaming={streamingMessageId === item.id}
+                markdownStyles={markdownStyles}
+                plainStyle={markdownStyles.body}
+              />
             )}
 
             {/* Footer */}
@@ -1436,145 +1452,158 @@ export default function ChatScreen() {
             data={messages}
             renderItem={renderMessage}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={[
-              styles.messageList,
-              isEmptyChat && styles.messageListEmpty,
-            ]}
+            contentContainerStyle={styles.messageList}
             showsVerticalScrollIndicator={false}
             onContentSizeChange={() =>
               flatListRef.current?.scrollToEnd({ animated: true })
             }
+            ListHeaderComponent={
+              isEmptyChat ? (
+                <View style={styles.capabilityHub}>
+                  {/* Hero greeting */}
+                  <View style={styles.hubHeader}>
+                    <View style={styles.hubIconWrap}>
+                      <Ionicons name="hardware-chip" size={20} color="#fff" />
+                    </View>
+                    <View style={styles.hubHeaderText}>
+                      <Text style={styles.hubGreeting}>
+                        {greeting}, {user?.name ?? "Captain"}
+                      </Text>
+                      <Text style={styles.hubSubtitle}>
+                        What can I help you with?
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Capability grid */}
+                  <View style={styles.capGrid}>
+                    {AGENT_CAPABILITIES.map((cap) => (
+                      <TouchableOpacity
+                        key={cap.label}
+                        style={styles.capCard}
+                        onPress={() => handleCapabilityPress(cap)}
+                        activeOpacity={0.7}
+                        disabled={isTyping || isStreaming}
+                      >
+                        <View
+                          style={[
+                            styles.capIconWrap,
+                            { backgroundColor: cap.color + "18" },
+                          ]}
+                        >
+                          <Ionicons
+                            name={cap.icon}
+                            size={18}
+                            color={cap.color}
+                          />
+                        </View>
+                        <Text style={styles.capLabel} numberOfLines={1}>
+                          {cap.label}
+                        </Text>
+                        <Text style={styles.capDesc} numberOfLines={1}>
+                          {cap.desc}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Quick suggestion pills */}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.chipRow}
+                    keyboardShouldPersistTaps="always"
+                  >
+                    {QUICK_ACTIONS.map((action) => (
+                      <TouchableOpacity
+                        key={action}
+                        style={styles.chip}
+                        onPress={() => sendMessage(action)}
+                        activeOpacity={0.7}
+                        disabled={isTyping || isStreaming}
+                      >
+                        <Ionicons
+                          name="sparkles"
+                          size={13}
+                          color={COLORS.primaryLight}
+                        />
+                        <Text style={styles.chipText}>{action}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null
+            }
             ListFooterComponent={
               <>
                 {/* Typing / Streaming indicator */}
-                {(isTyping || isStreaming) && (
-                  <View style={styles.typingRow}>
-                    <View style={styles.botAvatar}>
-                      <Ionicons
-                        name="hardware-chip-outline"
-                        size={15}
-                        color={COLORS.primaryLight}
-                      />
-                    </View>
-                    <View style={styles.typingBubble}>
-                      <View style={styles.typingDots}>
-                        <Animated.View
-                          style={[
-                            styles.dot,
-                            { transform: [{ translateY: dot1Anim }] },
-                          ]}
-                        />
-                        <Animated.View
-                          style={[
-                            styles.dot,
-                            { transform: [{ translateY: dot2Anim }] },
-                          ]}
-                        />
-                        <Animated.View
-                          style={[
-                            styles.dot,
-                            { transform: [{ translateY: dot3Anim }] },
-                          ]}
-                        />
+                {(isTyping || isStreaming) &&
+                  (() => {
+                    const streamingMsg = messages.find(
+                      (m) => m.id === streamingMessageId,
+                    );
+                    const hasContent = Boolean(streamingMsg?.text);
+                    // Once tokens are flowing the ▌ cursor in the bubble signals
+                    // progress — only show the stop button, not the typing dots.
+                    const showDots = isTyping || !hasContent;
+                    return (
+                      <View style={styles.typingRow}>
+                        <View style={styles.botAvatar}>
+                          <Ionicons
+                            name="hardware-chip-outline"
+                            size={15}
+                            color={COLORS.primaryLight}
+                          />
+                        </View>
+                        {showDots && (
+                          <View style={styles.typingBubble}>
+                            <View style={styles.typingDots}>
+                              <Animated.View
+                                style={[
+                                  styles.dot,
+                                  { transform: [{ translateY: dot1Anim }] },
+                                ]}
+                              />
+                              <Animated.View
+                                style={[
+                                  styles.dot,
+                                  { transform: [{ translateY: dot2Anim }] },
+                                ]}
+                              />
+                              <Animated.View
+                                style={[
+                                  styles.dot,
+                                  { transform: [{ translateY: dot3Anim }] },
+                                ]}
+                              />
+                            </View>
+                            <Text style={styles.typingLabel}>
+                              {isStreaming ? "Generating..." : t("chat.typing")}
+                            </Text>
+                          </View>
+                        )}
+                        {isStreaming && (
+                          <TouchableOpacity
+                            style={styles.stopBtn}
+                            onPress={() => {
+                              chatStreamClient.stopStreaming();
+                              setIsStreaming(false);
+                              setStreamingMessageId(null);
+                            }}
+                          >
+                            <Ionicons
+                              name="stop-circle"
+                              size={22}
+                              color={COLORS.error}
+                            />
+                          </TouchableOpacity>
+                        )}
                       </View>
-                      <Text style={styles.typingLabel}>
-                        {isStreaming ? "Generating..." : t("chat.typing")}
-                      </Text>
-                    </View>
-                    {isStreaming && (
-                      <TouchableOpacity
-                        style={styles.stopBtn}
-                        onPress={() => {
-                          chatStreamClient.stopStreaming();
-                          setIsStreaming(false);
-                          setStreamingMessageId(null);
-                        }}
-                      >
-                        <Ionicons
-                          name="stop-circle"
-                          size={22}
-                          color={COLORS.error}
-                        />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
+                    );
+                  })()}
               </>
             }
           />
-
-          {/* ─── Agent Capability Hub (empty state) ────── */}
-          {isEmptyChat && (
-            <View style={styles.capabilityHub}>
-              {/* Hero greeting */}
-              <View style={styles.hubHeader}>
-                <View style={styles.hubIconWrap}>
-                  <Ionicons name="hardware-chip" size={20} color="#fff" />
-                </View>
-                <View style={styles.hubHeaderText}>
-                  <Text style={styles.hubGreeting}>
-                    {greeting}, {user?.name ?? "Captain"}
-                  </Text>
-                  <Text style={styles.hubSubtitle}>
-                    What can I help you with?
-                  </Text>
-                </View>
-              </View>
-
-              {/* Capability grid */}
-              <View style={styles.capGrid}>
-                {AGENT_CAPABILITIES.map((cap) => (
-                  <TouchableOpacity
-                    key={cap.label}
-                    style={styles.capCard}
-                    onPress={() => handleCapabilityPress(cap)}
-                    activeOpacity={0.7}
-                    disabled={isTyping || isStreaming}
-                  >
-                    <View
-                      style={[
-                        styles.capIconWrap,
-                        { backgroundColor: cap.color + "18" },
-                      ]}
-                    >
-                      <Ionicons name={cap.icon} size={18} color={cap.color} />
-                    </View>
-                    <Text style={styles.capLabel} numberOfLines={1}>
-                      {cap.label}
-                    </Text>
-                    <Text style={styles.capDesc} numberOfLines={1}>
-                      {cap.desc}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Quick suggestion pills */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chipRow}
-                keyboardShouldPersistTaps="always"
-              >
-                {QUICK_ACTIONS.map((action) => (
-                  <TouchableOpacity
-                    key={action}
-                    style={styles.chip}
-                    onPress={() => sendMessage(action)}
-                    activeOpacity={0.7}
-                    disabled={isTyping || isStreaming}
-                  >
-                    <Ionicons
-                      name="sparkles"
-                      size={13}
-                      color={COLORS.primaryLight}
-                    />
-                    <Text style={styles.chipText}>{action}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
 
           {/* ─── Input Bar ────────────────────────────────── */}
           <View style={styles.inputArea}>
@@ -2146,10 +2175,8 @@ const styles = StyleSheet.create({
   /* ── Agent Capability Hub ────────────────────────────────── */
   capabilityHub: {
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 16,
     paddingBottom: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
     backgroundColor: COLORS.bgDark,
   },
   hubHeader: {
