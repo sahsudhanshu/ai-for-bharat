@@ -12,6 +12,7 @@ import {
   ENDPOINTS,
 } from "./constants";
 import type { MLAnalysisResponse, GroupAnalysis } from "./types";
+import { getFreshToken } from "./auth-context";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -134,6 +135,7 @@ export interface GroupRecord {
   longitude?: number;
   locationMapped?: boolean;
   locationMapReason?: string;
+  presignedViewUrls?: string[];
   createdAt: string;
 }
 
@@ -145,11 +147,10 @@ export interface GroupListResponse {
 // ── Core fetch helper ─────────────────────────────────────────────────────────
 
 /**
- * Get the current auth token from localStorage.
+ * Get the current auth token, refreshing it if expired.
  */
-function getToken(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem("ocean_ai_token") || "";
+async function getToken(): Promise<string> {
+  return await getFreshToken();
 }
 
 /**
@@ -176,7 +177,7 @@ async function apiFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
-  const token = getToken();
+  const token = await getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -224,7 +225,7 @@ async function agentFetch<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${AGENT_BASE_URL}${path}`;
-  const token = getToken();
+  const token = await getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -407,7 +408,7 @@ export async function streamChat(
 ): Promise<{ chatId: string; messageId?: string }> {
   if (IS_AGENT_CONFIGURED && overrideChatId) {
     const url = `${AGENT_BASE_URL}/conversations/${overrideChatId}/messages/stream`;
-    const token = getToken();
+    const token = await getToken();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -713,7 +714,7 @@ export async function updateUserProfile(
  */
 export async function exportUserData(): Promise<string> {
   const url = `${API_BASE_URL}${ENDPOINTS.exportUserData}`;
-  const token = getToken();
+  const token = await getToken();
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,

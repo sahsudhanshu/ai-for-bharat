@@ -39,11 +39,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-float">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
-          <p className="text-sm font-medium text-muted-foreground animate-pulse">Loading OceanAI...</p>
+          <p className="text-sm font-medium text-muted-foreground animate-gentle-pulse">Loading OceanAI...</p>
         </div>
       </div>
     );
@@ -60,7 +60,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <div className="flex-1 flex flex-col relative overflow-hidden">
         <Header />
         <GlobalAlertStrip />
-        <main className="flex-1 p-4 sm:p-6 lg:p-12 pb-24 lg:pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500 overflow-y-auto">
+        <main
+          key={pathname}
+          className="flex-1 p-4 sm:p-6 lg:p-10 pb-24 lg:pb-10 animate-fade-in-up overflow-y-auto"
+          style={{ animationDuration: '0.4s' }}
+        >
           {children}
         </main>
       </div>
@@ -68,4 +72,3 @@ export default function AppLayout({ children }: AppLayoutProps) {
     </div>
   );
 }
-

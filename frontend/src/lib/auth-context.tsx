@@ -59,6 +59,25 @@ interface AuthContextType {
   changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
 }
 
+export async function getFreshToken(): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !isCognitoConfigured) return resolve("");
+    const cognitoUser = userPool.getCurrentUser();
+    if (!cognitoUser) {
+      return resolve(localStorage.getItem("ocean_ai_token") || "");
+    }
+    cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
+      if (err || !session || !session.isValid()) {
+        resolve(localStorage.getItem("ocean_ai_token") || "");
+      } else {
+        const token = session.getAccessToken().getJwtToken();
+        localStorage.setItem("ocean_ai_token", token);
+        resolve(token);
+      }
+    });
+  });
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const isCognitoConfigured = Boolean(userPoolId && clientId);
@@ -157,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
   // Keep a stable ref to logout so the event listener always calls the latest version
-  const logoutRef = useRef<() => void>(() => {});
+  const logoutRef = useRef<() => void>(() => { });
 
   useEffect(() => {
     if (!isCognitoConfigured) {

@@ -94,8 +94,7 @@ exports.handler = async (event) => {
                 ExpressionAttributeValues: {
                     ":slug": slug,
                     ":enabled": true,
-                },
-                Limit: 1,
+                }
             })
         );
 

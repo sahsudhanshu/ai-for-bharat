@@ -28,6 +28,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Images,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,7 @@ import {
 import { useLanguage } from "@/lib/i18n";
 import { resolveMLUrl } from "@/lib/constants";
 import CameraModal from "@/components/CameraModal";
+import AgentChat from "@/components/AgentChat";
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -119,6 +122,12 @@ export default function UploadPage() {
       );
   }, [currentMlResult]);
 
+  // Get top species name for context
+  const topSpeciesName = useMemo(() => {
+    if (cropEntries.length === 0) return '';
+    return cropEntries[0][1].species.label;
+  }, [cropEntries]);
+
   const toggleCropExpand = (key: string) => {
     setExpandedCrops((prev) => {
       const next = new Set(prev);
@@ -132,8 +141,6 @@ export default function UploadPage() {
     try {
       setIsLoadingHistory(true);
       const response = await getGroups(10);
-      console.log('History loaded:', response);
-      console.log('Number of groups:', response.groups?.length);
       setHistory(response.groups || []);
     } catch (err) {
       console.error("Failed to load upload history", err);
@@ -246,25 +253,19 @@ export default function UploadPage() {
       setMlResults([]);
       setCurrentResultIndex(0);
 
-      // Create group presigned URLs
       const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
       const { groupId, presignedUrls } = await createGroupPresignedUrls(fileMetadata);
       setCurrentGroupId(groupId);
 
-      // Upload all files to S3
       await uploadGroupToS3(presignedUrls, files, (index, pct) => {
         setUploadProgress(prev => ({ ...prev, [index]: pct }));
       });
 
-      // Analyze group
       setStep("processing");
       setAnalysisProgress(0);
       const progressInterval = setInterval(() => {
         setAnalysisProgress((prev) => {
-          if (prev >= 85) {
-            clearInterval(progressInterval);
-            return prev;
-          }
+          if (prev >= 85) { clearInterval(progressInterval); return prev; }
           return prev + 8;
         });
       }, 300);
@@ -274,19 +275,10 @@ export default function UploadPage() {
       clearInterval(progressInterval);
       setAnalysisProgress(100);
 
-      // Debug: Log the analysis result structure
-      console.log('Analysis Result:', analysisResult);
-      console.log('Images in result:', analysisResult.images);
-      console.log('Number of images:', analysisResult.images.length);
-
-      // The images array already contains the ML analysis results
-      // Each image has: { imageIndex, s3Key, crops, yolo_image_url }
-      // which matches the MLAnalysisResponse structure
       setMlResults(analysisResult.images as any);
       setStep("done");
       setExpandedCrops(new Set());
 
-      // Reload history to show the new upload
       await loadHistory();
 
       const totalFish = analysisResult.aggregateStats.totalFishCount;
@@ -316,51 +308,30 @@ export default function UploadPage() {
     mlResults.forEach((result, imgIdx) => {
       const cropList = Object.entries(result.crops ?? {});
       totalFish += cropList.length;
-
-      if (cursorY > 250) {
-        doc.addPage();
-        cursorY = 20;
-      }
-
+      if (cursorY > 250) { doc.addPage(); cursorY = 20; }
       doc.setFontSize(14);
       doc.text(`Image ${imgIdx + 1} - ${cropList.length} fish detected`, 14, cursorY);
       cursorY += 10;
-
       cropList.forEach(([key, crop], idx) => {
         const supplement = generateMockSupplement(crop.species.label, idx);
-
-        if (cursorY > 260) {
-          doc.addPage();
-          cursorY = 20;
-        }
-
+        if (cursorY > 260) { doc.addPage(); cursorY = 20; }
         doc.setFontSize(11);
         doc.text(`  Fish #${idx + 1}: ${crop.species.label}`, 18, cursorY);
         cursorY += 6;
-
         doc.setFontSize(9);
-        const lines = [
-          `    Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`,
-          `    Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`,
-          `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "—"} KG`,
-          `    Quality: ${supplement?.qualityGrade ?? "—"}`,
-        ];
-        lines.forEach((line) => {
-          doc.text(line, 18, cursorY);
-          cursorY += 5;
-        });
+        [`    Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`,
+        `    Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`,
+        `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "—"} KG`,
+        `    Quality: ${supplement?.qualityGrade ?? "—"}`,
+        ].forEach((line) => { doc.text(line, 18, cursorY); cursorY += 5; });
         cursorY += 3;
       });
       cursorY += 5;
     });
 
     doc.setFontSize(12);
-    if (cursorY > 260) {
-      doc.addPage();
-      cursorY = 20;
-    }
+    if (cursorY > 260) { doc.addPage(); cursorY = 20; }
     doc.text(`Total Fish Detected: ${totalFish}`, 14, cursorY);
-
     doc.save(`oceanai-group-${Date.now()}.pdf`);
     toast.success("PDF exported successfully.");
   };
@@ -385,777 +356,533 @@ export default function UploadPage() {
   const hasFiles = files.length > 0;
   const hasResults = mlResults.length > 0;
 
+  // Sync image navigation between carousel and results
+  const navigateImage = (direction: 'prev' | 'next') => {
+    const maxIdx = Math.max(files.length - 1, mlResults.length - 1);
+    if (direction === 'prev') {
+      const idx = Math.max(0, selectedPreviewIndex - 1);
+      setSelectedPreviewIndex(idx);
+      if (hasResults) setCurrentResultIndex(idx);
+    } else {
+      const idx = Math.min(maxIdx, selectedPreviewIndex + 1);
+      setSelectedPreviewIndex(idx);
+      if (hasResults) setCurrentResultIndex(idx);
+    }
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── AGENT MODE (after analysis) ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (hasResults) {
+    return (
+      <div className="h-[calc(100dvh-120px)] lg:h-[calc(100dvh-100px)] flex flex-col animate-fade-in">
+        {/* ── Top bar ── */}
+        <div className="flex items-center justify-between mb-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Sparkles className="w-4.5 h-4.5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold leading-tight">Analysis Complete</h1>
+              <p className="text-xs text-muted-foreground/60">
+                {mlResults.length} {mlResults.length === 1 ? 'image' : 'images'} analyzed · {cropEntries.length} fish in current view
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportToPdf}
+              className="h-8 rounded-xl border-border/20 text-xs font-medium hover:bg-muted/20"
+            >
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Export PDF
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => currentGroupId && router.push(`/history/${currentGroupId}`)}
+              className="h-8 rounded-xl border-border/20 text-xs font-medium hover:bg-muted/20"
+            >
+              <Eye className="w-3.5 h-3.5 mr-1.5" />
+              Full Report
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={reset}
+              className="h-8 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              New Scan
+            </Button>
+          </div>
+        </div>
+
+        {/* ── Split view ── */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
+
+          {/* ── LEFT: Image carousel + Analysis ── */}
+          <div className="lg:col-span-7 flex flex-col min-h-0 gap-3">
+            {/* Image viewer */}
+            <div className="relative rounded-2xl overflow-hidden border border-border/15 bg-card/30 backdrop-blur-sm flex-shrink-0 animate-slide-in-left" style={{ animationDuration: '0.5s' }}>
+              <img
+                src={previews[selectedPreviewIndex]}
+                alt="Analysis"
+                className="w-full h-auto max-h-[280px] sm:max-h-[320px] object-contain bg-black/10 transition-opacity duration-300"
+              />
+              {/* Navigation arrows */}
+              {files.length > 1 && (
+                <>
+                  <button
+                    onClick={() => navigateImage('prev')}
+                    disabled={selectedPreviewIndex === 0}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/60 transition-all disabled:opacity-20"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => navigateImage('next')}
+                    disabled={selectedPreviewIndex >= files.length - 1}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/60 transition-all disabled:opacity-20"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </>
+              )}
+              {/* Image counter */}
+              {files.length > 1 && (
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1">
+                  {files.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => { setSelectedPreviewIndex(idx); if (hasResults) setCurrentResultIndex(idx); }}
+                      className={cn(
+                        "h-1.5 rounded-full transition-all duration-300",
+                        selectedPreviewIndex === idx
+                          ? "w-6 bg-white"
+                          : "w-1.5 bg-white/40 hover:bg-white/60"
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+              {location && (
+                <div className="absolute top-3 left-3 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm text-white text-[9px] font-mono">
+                  <MapPin className="w-2.5 h-2.5 text-emerald-400" />
+                  {location.lat.toFixed(4)}°N, {location.lng.toFixed(4)}°E
+                </div>
+              )}
+            </div>
+
+            {/* ── Thumbnails (if >1 image) ── */}
+            {files.length > 1 && (
+              <div className="flex gap-1.5 px-1 overflow-x-auto scrollbar-none shrink-0">
+                {previews.map((preview, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => { setSelectedPreviewIndex(idx); if (hasResults) setCurrentResultIndex(idx); }}
+                    className={cn(
+                      "shrink-0 rounded-lg overflow-hidden border-2 transition-all duration-200",
+                      selectedPreviewIndex === idx
+                        ? "border-primary ring-1 ring-primary/20 scale-105"
+                        : "border-transparent opacity-60 hover:opacity-90"
+                    )}
+                  >
+                    <img src={preview} alt="" className="w-12 h-12 object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── Fish detection results ── */}
+            <div className="flex-1 overflow-y-auto min-h-0 space-y-2 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+              {/* YOLO overview */}
+              {currentMlResult?.yolo_image_url && (
+                <div className="rounded-xl border border-border/15 overflow-hidden bg-card/20">
+                  <button
+                    onClick={() => toggleCropExpand('yolo_overview')}
+                    className="w-full flex items-center justify-between p-3 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Eye className="w-3 h-3" /> YOLO Detection View
+                    </span>
+                    {expandedCrops.has('yolo_overview') ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                  {expandedCrops.has('yolo_overview') && (
+                    <img
+                      src={resolveMLUrl(currentMlResult.yolo_image_url)}
+                      alt="YOLO"
+                      className="w-full object-contain max-h-[200px] border-t border-border/10"
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Fish cards */}
+              {cropEntries.length > 0 ? (
+                <div className="space-y-2">
+                  {cropEntries.map(([key, crop], idx) => {
+                    const supplement = mockSupplements[key];
+                    const isExpanded = expandedCrops.has(key);
+                    const hasCropImg = !!crop.crop_url;
+                    const hasGradcam = !!crop.species.gradcam_url || !!crop.disease.gradcam_url;
+                    const diseaseIsHealthy = crop.disease.label.toLowerCase() === "healthy" || crop.disease.label.toLowerCase() === "healthy fish";
+
+                    return (
+                      <div key={key} className="rounded-xl border border-border/15 bg-card/20 overflow-hidden transition-all">
+                        <div className="p-3 space-y-2">
+                          <div className="flex gap-2.5">
+                            {hasCropImg ? (
+                              <img src={resolveMLUrl(crop.crop_url)} alt={crop.species.label}
+                                className="w-14 h-14 rounded-lg border border-border/10 object-cover bg-black/10 shrink-0" />
+                            ) : (
+                              <div className="w-14 h-14 rounded-lg border border-border/10 bg-primary/5 flex items-center justify-center shrink-0">
+                                <span className="text-xl">🐟</span>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0 space-y-0.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-[10px] text-muted-foreground/50 font-medium">Fish #{idx + 1}</p>
+                                  <h3 className="text-sm font-bold text-primary leading-tight truncate">{crop.species.label}</h3>
+                                </div>
+                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-primary/20 text-primary/80 font-bold">
+                                  {(crop.species.confidence * 100).toFixed(0)}%
+                                </Badge>
+                              </div>
+                              <div className={cn(
+                                "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium",
+                                diseaseIsHealthy ? "bg-emerald-500/8 text-emerald-500" : "bg-amber-500/8 text-amber-500",
+                              )}>
+                                <span>{diseaseIsHealthy ? "✓" : "⚠"}</span>
+                                {crop.disease.label}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Inline stats */}
+                          {supplement && (
+                            <div className="grid grid-cols-3 gap-2 pt-1">
+                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                <p className="text-[9px] text-muted-foreground/50 font-medium">Weight</p>
+                                <p className="text-xs font-bold">{supplement.weight_kg.toFixed(1)} kg</p>
+                              </div>
+                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                <p className="text-[9px] text-muted-foreground/50 font-medium">Quality</p>
+                                <p className={cn("text-xs font-bold", supplement.qualityGrade === "Premium" ? "text-emerald-500" : supplement.qualityGrade === "Standard" ? "text-amber-500" : "text-red-500")}>{supplement.qualityGrade}</p>
+                              </div>
+                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                <p className="text-[9px] text-muted-foreground/50 font-medium">Value</p>
+                                <p className="text-xs font-bold">₹{supplement.estimatedValue}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Grad-CAM toggle */}
+                          {hasGradcam && (
+                            <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] text-muted-foreground/50 hover:text-foreground" onClick={() => toggleCropExpand(key)}>
+                              <Bug className="w-2.5 h-2.5 mr-1" /> Grad-CAM
+                              {isExpanded ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+                            </Button>
+                          )}
+                        </div>
+
+                        {isExpanded && hasGradcam && (
+                          <div className="px-3 pb-3 grid grid-cols-2 gap-2">
+                            {crop.species.gradcam_url && (
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-medium text-muted-foreground/50">Species</p>
+                                <img src={resolveMLUrl(crop.species.gradcam_url)} alt="Species Grad-CAM" className="w-full rounded-lg border border-border/10 object-contain bg-black/10 max-h-[120px]" />
+                              </div>
+                            )}
+                            {crop.disease.gradcam_url && (
+                              <div className="space-y-1">
+                                <p className="text-[9px] font-medium text-muted-foreground/50">Disease</p>
+                                <img src={resolveMLUrl(crop.disease.gradcam_url)} alt="Disease Grad-CAM" className="w-full rounded-lg border border-border/10 object-contain bg-black/10 max-h-[120px]" />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : currentMlResult && cropEntries.length === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center py-10 opacity-40">
+                  <BarChart2 className="w-10 h-10 mb-3" />
+                  <p className="text-sm font-bold">No Fish Detected</p>
+                  <p className="text-xs text-muted-foreground">Below {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}% threshold</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* ── RIGHT: Agent Chat ── */}
+          <div className="lg:col-span-5 min-h-0 animate-slide-in-right" style={{ animationDuration: '0.5s', animationDelay: '0.15s' }}>
+            <AgentChat
+              variant="compact"
+              contextGroupId={currentGroupId}
+              contextImageIndex={currentResultIndex}
+              contextImageCount={mlResults.length}
+              contextSpecies={topSpeciesName}
+              className="h-full"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── UPLOAD MODE (before analysis) ────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="max-w-6xl mx-auto space-y-6 sm:space-y-8 pb-10">
+    <div className="max-w-5xl mx-auto space-y-6 pb-10 animate-fade-in-up" style={{ animationDuration: '0.4s' }}>
       <div className="flex justify-between items-start">
-        <div className="space-y-2">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
+        <div className="space-y-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
             {t("upload.title")}
           </h1>
-          <p className="text-sm sm:text-base text-muted-foreground">
+          <p className="text-xs sm:text-sm text-muted-foreground/60">
             {t("upload.subtitle")}
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
-        {/* Left Column: Upload */}
-        <div className="lg:col-span-7 space-y-6">
-          <Card className="rounded-3xl border-2 border-dashed border-border/50 bg-card/30 backdrop-blur-sm overflow-hidden transition-all duration-300">
-            <CardContent className="p-0">
-              {!hasFiles ? (
-                <div
-                  className={cn(
-                    "flex flex-col items-center justify-center p-6 sm:p-12 text-center min-h-[300px] sm:min-h-[400px] transition-all duration-300 cursor-pointer",
-                    dragActive ? "bg-primary/5 scale-[0.99]" : "bg-transparent",
-                  )}
-                  onDragEnter={handleDrag}
-                  onDragLeave={handleDrag}
-                  onDragOver={handleDrag}
-                  onDrop={handleDrop}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <div
-                    className={cn(
-                      "w-16 h-16 sm:w-20 sm:h-20 rounded-2xl flex items-center justify-center mb-4 sm:mb-6 text-primary transition-all duration-300",
-                      dragActive
-                        ? "bg-primary text-white scale-110"
-                        : "bg-primary/10",
-                    )}
-                  >
-                    <Upload className="w-8 h-8 sm:w-10 sm:h-10" />
-                  </div>
-                  <h3 className="text-lg sm:text-xl font-bold mb-2">
-                    {dragActive ? t("upload.dropHere") : "Upload Single or Multiple Images"}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground mb-6 sm:mb-8 max-w-xs mx-auto">
-                    Select one or more fish images for AI analysis
-                  </p>
-                  <div
-                    className="flex flex-wrap items-center justify-center gap-3 sm:gap-4"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="rounded-xl h-10 sm:h-12 px-5 sm:px-6 bg-primary font-bold text-xs sm:text-sm"
-                    >
-                      {t("upload.browse")}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="rounded-xl h-10 sm:h-12 px-5 sm:px-6 border-border font-bold text-xs sm:text-sm"
-                      onClick={handleCameraClick}
-                    >
-                      <Camera className="mr-2 w-4 h-4 sm:w-5 sm:h-5" />
-                      {t("upload.camera")}
-                    </Button>
-                  </div>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        handleFiles(Array.from(e.target.files));
-                        e.target.value = ''; // Reset input to allow selecting same files again
-                      }
-                    }}
-                    accept="image/*"
-                    multiple
-                  />
-                  <input
-                    type="file"
-                    ref={mobileFileInputRef}
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files) {
-                        handleFiles(Array.from(e.target.files));
-                        e.target.value = ''; // Reset input to allow selecting same files again
-                      }
-                    }}
-                    accept="image/*"
-                    capture="environment"
-                    multiple
-                  />
-                </div>
-              ) : (
-                <div>
-                  {/* Main Image Display */}
-                  <div className="relative group">
-                    <img
-                      src={previews[selectedPreviewIndex]}
-                      alt="Selected Preview"
-                      className="w-full h-auto max-h-[400px] sm:max-h-[450px] object-contain rounded-t-3xl bg-black/20"
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                      <Button
-                        variant="secondary"
-                        className="rounded-xl font-bold bg-white text-black text-xs sm:text-sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isDisabled}
-                      >
-                        Add More
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        className="rounded-xl font-bold text-xs sm:text-sm"
-                        onClick={reset}
-                        disabled={isDisabled}
-                      >
-                        <Trash2 className="mr-2 w-4 h-4" />
-                        Clear All
-                      </Button>
-                    </div>
-                    {location && (
-                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-white text-[10px] font-mono">
-                        <MapPin className="w-3 h-3 text-emerald-400" />
-                        {location.lat.toFixed(4)}°N, {location.lng.toFixed(4)}°E
-                      </div>
-                    )}
-                    {files.length > 1 && (
-                      <div className="absolute top-3 right-3 px-3 py-1.5 rounded-full bg-black/60 backdrop-blur-md text-white text-xs font-bold">
-                        <Images className="w-3 h-3 inline mr-1" />
-                        {selectedPreviewIndex + 1} / {files.length}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Preview Grid */}
-                  <div className="p-4 border-t border-border bg-muted/20">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="text-sm font-bold">{files.length} Images Selected</h4>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isDisabled}
-                        className="h-8 text-xs"
-                      >
-                        Add More
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-                      {previews.map((preview, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "relative group cursor-pointer rounded-lg overflow-hidden border-2 transition-all",
-                            selectedPreviewIndex === idx
-                              ? "border-primary ring-2 ring-primary/20"
-                              : "border-transparent hover:border-primary/50"
-                          )}
-                          onClick={() => setSelectedPreviewIndex(idx)}
-                        >
-                          <img
-                            src={preview}
-                            alt={`Preview ${idx + 1}`}
-                            className="w-full h-16 sm:h-20 object-cover"
-                          />
-                          {step === "idle" && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeFile(idx);
-                              }}
-                              className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                          {step === "uploading" && uploadProgress[idx] !== undefined && (
-                            <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                              <span className="text-white text-xs font-bold">
-                                {uploadProgress[idx]}%
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+      {/* Upload area */}
+      <Card className="rounded-2xl border border-dashed border-border/30 bg-card/20 backdrop-blur-sm overflow-hidden transition-all duration-300">
+        <CardContent className="p-0">
+          {!hasFiles ? (
+            <div
+              className={cn(
+                "flex flex-col items-center justify-center p-8 sm:p-14 text-center min-h-[320px] transition-all duration-500 cursor-pointer",
+                dragActive ? "bg-primary/3 scale-[0.995]" : "bg-transparent",
               )}
-            </CardContent>
-
-            {hasFiles && step === "idle" && !hasResults && (
-              <CardFooter className="p-4 sm:p-6 border-t border-border bg-card/50 flex flex-col sm:flex-row gap-4 justify-between items-center">
-                <div className="flex items-center gap-3 text-xs sm:text-sm text-muted-foreground">
-                  <FileText className="w-4 h-4" />
-                  <span>
-                    {files.length} {files.length === 1 ? "image" : "images"} ready
-                  </span>
-                </div>
-                <Button
-                  onClick={startAnalysis}
-                  className="w-full sm:w-auto rounded-xl h-12 px-8 bg-primary font-bold shadow-lg shadow-primary/20 transition-all active:scale-95"
-                >
-                  {t("upload.startAnalysis")}
-                  <Zap className="ml-2 w-4 h-4 fill-white" />
-                </Button>
-              </CardFooter>
-            )}
-          </Card>
-
-          {/* Progress Cards */}
-          {step === "uploading" && (
-            <Card className="rounded-3xl border-border bg-card/50 backdrop-blur-sm p-6 space-y-4">
-              <div className="flex justify-between items-center text-sm font-medium">
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                  Uploading {files.length} {files.length === 1 ? "image" : "images"}
-                </span>
-                <span className="text-primary font-bold">
-                  {overallUploadProgress}%
-                </span>
+              onDragEnter={handleDrag}
+              onDragLeave={handleDrag}
+              onDragOver={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div
+                className={cn(
+                  "w-16 h-16 rounded-2xl flex items-center justify-center mb-5 transition-all duration-500",
+                  dragActive
+                    ? "bg-primary text-white scale-110 rotate-3"
+                    : "bg-primary/8 text-primary",
+                )}
+              >
+                <Upload className="w-7 h-7" />
               </div>
-              <Progress
-                value={overallUploadProgress}
-                className="h-3 rounded-full bg-primary/10"
-              />
-            </Card>
-          )}
-
-          {step === "processing" && (
-            <Card className="rounded-3xl border-border bg-card/50 backdrop-blur-sm p-6 space-y-4">
-              <div className="flex justify-between items-center text-sm font-medium">
-                <span className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-primary fill-primary animate-pulse" />
-                  {t("upload.processing")}
-                </span>
-                <span className="text-primary font-bold">
-                  {analysisProgress}%
-                </span>
-              </div>
-              <Progress
-                value={analysisProgress}
-                className="h-3 rounded-full bg-primary/10"
-              />
-              <p className="text-xs text-muted-foreground text-center italic animate-pulse">
-                Analyzing {files.length} images with AI...
+              <h3 className="text-base sm:text-lg font-bold mb-1.5">
+                {dragActive ? t("upload.dropHere") : "Upload Fish Images"}
+              </h3>
+              <p className="text-xs text-muted-foreground/50 mb-6 max-w-[280px] mx-auto">
+                Drag & drop or browse for single or multiple fish photos for AI analysis
               </p>
-            </Card>
-          )}
-
-          {/* Tips Card */}
-          {step !== "processing" && step !== "uploading" && (
-            <Card className="rounded-3xl border-none bg-blue-500/5 p-6">
-              <div className="flex gap-4">
-                <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500 h-fit shrink-0">
-                  <Info className="w-5 h-5" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="font-bold text-blue-500">
-                    {t("upload.tips")}
-                  </h4>
-                  <ul className="text-sm text-blue-400/80 leading-relaxed space-y-1">
-                    <li>• {t("upload.tip1")}</li>
-                    <li>• {t("upload.tip2")}</li>
-                    <li>• {t("upload.tip3")}</li>
-                    <li>• Upload multiple images for batch analysis</li>
-                  </ul>
-                </div>
+              <div className="flex flex-wrap items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="rounded-xl h-10 px-5 bg-primary font-semibold text-xs"
+                >
+                  {t("upload.browse")}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="rounded-xl h-10 px-5 border-border/20 font-semibold text-xs"
+                  onClick={handleCameraClick}
+                >
+                  <Camera className="mr-1.5 w-4 h-4" />
+                  {t("upload.camera")}
+                </Button>
               </div>
-            </Card>
-          )}
-        </div>
-
-        {/* Right Column: Results */}
-        <div className="lg:col-span-5 space-y-6" ref={resultsCardRef}>
-          <Card
-            className={cn(
-              "rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm flex flex-col transition-all duration-500 relative",
-              !hasResults && "opacity-50 grayscale pointer-events-none",
-            )}
-          >
-            <CardHeader className="p-6 sm:p-8">
-              <div className="flex justify-between items-start">
-                <div>
-                  <CardTitle className="text-xl sm:text-2xl font-bold">
-                    {t("upload.results")}
-                  </CardTitle>
-                  <CardDescription>{t("upload.resultsBy")}</CardDescription>
+              <input type="file" ref={fileInputRef} className="hidden"
+                onChange={(e) => { if (e.target.files) { handleFiles(Array.from(e.target.files)); e.target.value = ''; } }}
+                accept="image/*" multiple />
+              <input type="file" ref={mobileFileInputRef} className="hidden"
+                onChange={(e) => { if (e.target.files) { handleFiles(Array.from(e.target.files)); e.target.value = ''; } }}
+                accept="image/*" capture="environment" multiple />
+            </div>
+          ) : (
+            <div>
+              {/* Main Image Display */}
+              <div className="relative group">
+                <img
+                  src={previews[selectedPreviewIndex]}
+                  alt="Selected Preview"
+                  className="w-full h-auto max-h-[350px] object-contain rounded-t-2xl bg-black/10 transition-all duration-300"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-6 gap-3">
+                  <Button variant="secondary" className="rounded-xl font-semibold bg-white/90 text-black text-xs h-9" onClick={() => fileInputRef.current?.click()} disabled={isDisabled}>
+                    Add More
+                  </Button>
+                  <Button variant="destructive" className="rounded-xl font-semibold text-xs h-9" onClick={reset} disabled={isDisabled}>
+                    <Trash2 className="mr-1.5 w-3.5 h-3.5" /> Clear
+                  </Button>
                 </div>
-                {hasResults && (
-                  <Badge className="px-3 sm:px-4 py-1.5 rounded-full border-none text-[10px] sm:text-xs bg-primary text-white">
-                    {cropEntries.length} fish in this image
-                  </Badge>
+                {location && (
+                  <div className="absolute top-3 left-3 flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 backdrop-blur-sm text-white text-[9px] font-mono">
+                    <MapPin className="w-2.5 h-2.5 text-emerald-400" />
+                    {location.lat.toFixed(4)}°N, {location.lng.toFixed(4)}°E
+                  </div>
+                )}
+                {files.length > 1 && (
+                  <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/40 backdrop-blur-sm text-white text-[10px] font-bold">
+                    <Images className="w-3 h-3 inline mr-1" />
+                    {selectedPreviewIndex + 1} / {files.length}
+                  </div>
                 )}
               </div>
 
-              {/* Image Navigation */}
-              {mlResults.length > 1 && (
-                <div className="mt-4 flex items-center justify-between gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentResultIndex(prev => Math.max(0, prev - 1))}
-                    disabled={currentResultIndex === 0}
-                    className="rounded-lg"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <div className="text-sm font-medium text-center">
-                    Image {currentResultIndex + 1} of {mlResults.length}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentResultIndex(prev => Math.min(mlResults.length - 1, prev + 1))}
-                    disabled={currentResultIndex === mlResults.length - 1}
-                    className="rounded-lg"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
-            </CardHeader>
-
-            <CardContent className="p-6 sm:p-8 pt-0 flex-1 space-y-6 overflow-y-auto max-h-[calc(100vh-200px)]">
-              {currentMlResult && cropEntries.length > 0 ? (
-                <>
-                  {/* YOLO Detection Overview */}
-                  {currentMlResult.yolo_image_url && (
-                    <div className="space-y-2">
-                      <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                        <Eye className="w-3.5 h-3.5" />
-                        YOLO Detection
-                      </h4>
-                      <img
-                        src={resolveMLUrl(currentMlResult.yolo_image_url)}
-                        alt="YOLO Detection"
-                        className="w-full rounded-2xl border border-border object-contain bg-black/10 max-h-[250px]"
-                      />
-                    </div>
-                  )}
-
-                  {/* Per-Crop Result Cards */}
-                  <div className="space-y-4">
-                    <h4 className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                      Detected Fish ({cropEntries.length})
-                    </h4>
-
-                    {cropEntries.map(([key, crop], idx) => {
-                      const supplement = mockSupplements[key];
-                      const isExpanded = expandedCrops.has(key);
-                      const hasCropImg = !!crop.crop_url;
-                      const hasGradcam =
-                        !!crop.species.gradcam_url ||
-                        !!crop.disease.gradcam_url;
-                      const diseaseIsHealthy =
-                        crop.disease.label.toLowerCase() === "healthy" ||
-                        crop.disease.label.toLowerCase() === "healthy fish";
-
-                      return (
-                        <div
-                          key={key}
-                          className="rounded-2xl border border-border/60 bg-muted/10 overflow-hidden transition-all"
-                        >
-                          {/* Crop Header */}
-                          <div className="p-4 space-y-3">
-                            <div className="flex gap-3">
-                              {/* Crop Thumbnail */}
-                              {hasCropImg ? (
-                                <img
-                                  src={resolveMLUrl(crop.crop_url)}
-                                  alt={crop.species.label}
-                                  className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border border-border object-cover bg-black/10 shrink-0"
-                                />
-                              ) : (
-                                <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border border-border bg-primary/5 flex items-center justify-center shrink-0">
-                                  <span className="text-2xl">🐟</span>
-                                </div>
-                              )}
-
-                              {/* Species Info */}
-                              <div className="flex-1 min-w-0 space-y-1">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-xs text-muted-foreground font-medium">
-                                      Fish #{idx + 1}
-                                    </p>
-                                    <h3 className="text-lg sm:text-xl font-bold text-primary leading-tight truncate">
-                                      {crop.species.label}
-                                    </h3>
-                                    <p className="text-[10px] text-muted-foreground italic">
-                                      {supplement?.scientificName}
-                                    </p>
-                                  </div>
-                                  <Badge
-                                    variant="outline"
-                                    className="text-[10px] px-2 py-0.5 shrink-0 border-primary/30 text-primary font-bold"
-                                  >
-                                    {(crop.species.confidence * 100).toFixed(1)}
-                                    %
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Disease Badge */}
-                            <div
-                              className={cn(
-                                "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium",
-                                diseaseIsHealthy
-                                  ? "bg-emerald-500/10 text-emerald-600"
-                                  : "bg-amber-500/10 text-amber-600",
-                              )}
-                            >
-                              <span>{diseaseIsHealthy ? "✓" : "🦠"}</span>
-                              <span className="font-bold">
-                                {crop.disease.label}
-                              </span>
-                              <span className="text-muted-foreground">
-                                ({(crop.disease.confidence * 100).toFixed(1)}%
-                                confidence)
-                              </span>
-                            </div>
-
-                            {/* Confidence Meters */}
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1">
-                                <p className="text-[10px] text-muted-foreground font-medium">
-                                  Species Confidence
-                                </p>
-                                <div className="relative h-2 rounded-full bg-primary/10 overflow-hidden">
-                                  <div
-                                    className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                                    style={{
-                                      width: `${crop.species.confidence * 100}%`,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                              <div className="space-y-1">
-                                <p className="text-[10px] text-muted-foreground font-medium">
-                                  YOLO Detection
-                                </p>
-                                <div className="relative h-2 rounded-full bg-blue-500/10 overflow-hidden">
-                                  <div
-                                    className="absolute inset-y-0 left-0 bg-blue-500 rounded-full transition-all"
-                                    style={{
-                                      width: `${crop.yolo_confidence * 100}%`,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Mock Supplementary Data */}
-                            {supplement && (
-                              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/30">
-                                <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
-                                  <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                                    <Scale className="w-3 h-3" />
-                                    <span className="text-[9px] font-bold uppercase tracking-wider">
-                                      Weight (est.)
-                                    </span>
-                                  </div>
-                                  <p className="text-base sm:text-lg font-bold">
-                                    {supplement.weight_kg.toFixed(2)} KG
-                                  </p>
-                                  <p className="text-[9px] text-muted-foreground">
-                                    {supplement.length_mm} mm length
-                                  </p>
-                                </div>
-                                <div className="p-3 rounded-xl bg-muted/20 border border-border/30">
-                                  <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-                                    <BarChart2 className="w-3 h-3" />
-                                    <span className="text-[9px] font-bold uppercase tracking-wider">
-                                      Quality (est.)
-                                    </span>
-                                  </div>
-                                  <p
-                                    className={cn(
-                                      "text-base sm:text-lg font-bold",
-                                      supplement.qualityGrade === "Premium"
-                                        ? "text-emerald-500"
-                                        : supplement.qualityGrade === "Standard"
-                                          ? "text-amber-500"
-                                          : "text-red-500",
-                                    )}
-                                  >
-                                    {supplement.qualityGrade}
-                                  </p>
-                                  <p className="text-[9px] text-muted-foreground">
-                                    AI quality estimate
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Market Estimate (Mock) */}
-                            {supplement && (
-                              <div className="flex items-center justify-between p-3 rounded-xl bg-primary/5 border border-primary/10">
-                                <div className="space-y-0.5">
-                                  <div className="flex items-center gap-1.5 text-primary">
-                                    <TrendingUp className="w-3 h-3" />
-                                    <span className="text-[9px] font-bold uppercase tracking-wider">
-                                      Market Est.
-                                    </span>
-                                  </div>
-                                  <p className="text-lg font-bold">
-                                    ₹{supplement.estimatedValue}
-                                  </p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] text-muted-foreground">
-                                    @ ₹{supplement.marketPricePerKg}/kg
-                                  </p>
-                                  <Badge
-                                    className={cn(
-                                      "px-2 py-0.5 mt-1 border-none text-[9px] font-bold",
-                                      supplement.isSustainable
-                                        ? "bg-emerald-500/10 text-emerald-500"
-                                        : "bg-amber-500/10 text-amber-500",
-                                    )}
-                                  >
-                                    {supplement.isSustainable
-                                      ? "Sustainable ✓"
-                                      : "Limited ⚠"}
-                                  </Badge>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Grad-CAM Toggle */}
-                            {hasGradcam && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="w-full h-8 text-xs text-muted-foreground hover:text-foreground"
-                                onClick={() => toggleCropExpand(key)}
-                              >
-                                <Bug className="w-3 h-3 mr-1.5" />
-                                Grad-CAM Heatmaps
-                                {isExpanded ? (
-                                  <ChevronUp className="w-3.5 h-3.5 ml-auto" />
-                                ) : (
-                                  <ChevronDown className="w-3.5 h-3.5 ml-auto" />
-                                )}
-                              </Button>
-                            )}
-                          </div>
-
-                          {/* Expanded: Grad-CAM Images */}
-                          {isExpanded && hasGradcam && (
-                            <div className="px-4 pb-4 space-y-3">
-                              <div className="grid grid-cols-2 gap-3">
-                                {crop.species.gradcam_url && (
-                                  <div className="space-y-1.5">
-                                    <p className="text-[10px] font-semibold text-muted-foreground">
-                                      Species Grad-CAM
-                                    </p>
-                                    <img
-                                      src={resolveMLUrl(
-                                        crop.species.gradcam_url,
-                                      )}
-                                      alt="Species Grad-CAM"
-                                      className="w-full rounded-xl border border-border object-contain bg-black/10 max-h-[160px]"
-                                    />
-                                  </div>
-                                )}
-                                {crop.disease.gradcam_url && (
-                                  <div className="space-y-1.5">
-                                    <p className="text-[10px] font-semibold text-muted-foreground">
-                                      Disease Grad-CAM
-                                    </p>
-                                    <img
-                                      src={resolveMLUrl(
-                                        crop.disease.gradcam_url,
-                                      )}
-                                      alt="Disease Grad-CAM"
-                                      className="w-full rounded-xl border border-border object-contain bg-black/10 max-h-[160px]"
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : currentMlResult && cropEntries.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-50">
-                  <BarChart2 className="w-16 h-16 mb-6" />
-                  <p className="text-lg font-bold">No Fish Detected</p>
-                  <p className="text-sm max-w-xs mx-auto text-muted-foreground">
-                    No fish met the {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}% YOLO detection confidence threshold in this image.
-                  </p>
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center text-center py-20 opacity-30">
-                  <BarChart2 className="w-16 h-16 mb-6" />
-                  <p className="text-lg font-bold">
-                    {scanError ?? t("upload.noResults")}
-                  </p>
-                  <p className="text-sm max-w-xs mx-auto">
-                    {scanError
-                      ? "Please retake the image and try again."
-                      : t("upload.noResultsDesc")}
-                  </p>
-                </div>
-              )}
-            </CardContent>
-
-            {hasResults && (
-              <CardFooter className="p-6 sm:p-8 pt-0 gap-4 flex-col">
-                <div className="flex gap-4 w-full flex-col sm:flex-row">
-                  <Button
-                    variant="outline"
-                    onClick={exportToPdf}
-                    className="flex-1 w-full h-12 sm:h-14 rounded-xl border-border font-bold"
-                  >
-                    {t("upload.export")}
-                  </Button>
-                  <Button
-                    variant="default"
-                    onClick={() =>
-                      currentGroupId &&
-                      router.push(`/history/${currentGroupId}`)
-                    }
-                    className="flex-1 w-full h-12 sm:h-14 rounded-xl font-bold bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-all active:scale-95"
-                  >
-                    <Eye className="w-5 h-5 mr-2" />
-                    View Full Report
-                  </Button>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (!currentGroupId) return;
-                    const prompt = `Please fetch the details of group ID "${currentGroupId}" and provide essential information including species identified, health/disease status, estimated weight, quality grades, and market value summary based on my latest scan.`;
-                    router.push(`/chatbot?prefill=${encodeURIComponent(prompt)}`);
-                  }}
-                  className="w-full h-12 sm:h-14 rounded-xl font-bold border-primary/30 text-primary hover:bg-primary/5 transition-all active:scale-95"
-                >
-                  <Bot className="w-5 h-5 mr-2" />
-                  Ask AI Agent
-                </Button>
-              </CardFooter>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      {/* Camera Modal */}
-      <CameraModal
-        isOpen={showCamera}
-        onClose={() => setShowCamera(false)}
-        onCapture={handleCameraCapture}
-      />
-
-      {/* Recent Upload History */}
-      <Card className="rounded-3xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
-        <CardHeader className="p-6 sm:p-8 pb-3">
-          <CardTitle className="text-xl sm:text-2xl font-bold">
-            Recent Upload History
-          </CardTitle>
-          <CardDescription>
-            Your latest group analysis results
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-6 sm:p-8 pt-2">
-          {isLoadingHistory ? (
-            <div className="text-sm text-muted-foreground">
-              Loading history...
-            </div>
-          ) : history.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No uploads yet.</div>
-          ) : (
-            <div className="space-y-3">
-              {history.map((group) => {
-                const stats = group.analysisResult?.aggregateStats;
-                const fishCount = stats?.totalFishCount ?? 0;
-                const topSpecies = stats ? Object.keys(stats.speciesDistribution)[0] : null;
-                const hasDisease = stats?.diseaseDetected ?? false;
-
-                return (
-                  <div
-                    key={group.groupId}
-                    className="rounded-xl border border-border/60 bg-muted/20 p-4"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-12 h-12 rounded-lg border border-border bg-primary/10 flex items-center justify-center text-primary">
-                          <FileText className="w-5 h-5" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-sm truncate">
-                            {group.imageCount} {group.imageCount === 1 ? "Image" : "Images"}
-                            {fishCount > 0 && (
-                              <span className="text-xs text-muted-foreground ml-1.5">
-                                · {fishCount} fish
-                              </span>
-                            )}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            {new Date(group.createdAt).toLocaleString("en-IN")}
-                          </p>
-                        </div>
-                      </div>
-                      <Badge
-                        variant="secondary"
+              {/* Preview thumbnails */}
+              {files.length > 1 && (
+                <div className="p-3 border-t border-border/10 bg-muted/5">
+                  <div className="flex gap-1.5 overflow-x-auto scrollbar-none">
+                    {previews.map((preview, idx) => (
+                      <button
+                        key={idx}
                         className={cn(
-                          "uppercase text-[10px] shrink-0",
-                          group.status === "failed"
-                            ? "bg-red-500 hover:bg-red-600 text-white"
-                            : group.status === "completed"
-                              ? "bg-emerald-500 hover:bg-emerald-600 text-white"
-                              : group.status === "partial"
-                                ? "bg-amber-500 hover:bg-amber-600 text-white"
-                                : "bg-blue-500 hover:bg-blue-600 text-white",
+                          "relative shrink-0 rounded-lg overflow-hidden border-2 transition-all duration-200",
+                          selectedPreviewIndex === idx
+                            ? "border-primary ring-1 ring-primary/15"
+                            : "border-transparent opacity-50 hover:opacity-80"
                         )}
+                        onClick={() => setSelectedPreviewIndex(idx)}
                       >
-                        {group.status}
-                      </Badge>
-                    </div>
-                    {stats && (
-                      <div className="mt-3 text-xs text-muted-foreground grid grid-cols-2 gap-2">
-                        <span>Fish: {fishCount}</span>
-                        <span>Species: {Object.keys(stats.speciesDistribution).length}</span>
-                        {topSpecies && <span>Top: {topSpecies}</span>}
-                        <span className={hasDisease ? "text-amber-500" : "text-emerald-500"}>
-                          {hasDisease ? "⚠️ Disease detected" : "✓ Healthy"}
-                        </span>
-                      </div>
-                    )}
-                    <div className="mt-3 flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 rounded-lg text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={async () => {
-                          try {
-                            await deleteGroup(group.groupId);
-                            setHistory(prev => prev.filter(g => g.groupId !== group.groupId));
-                            toast.success("Removed from history");
-                          } catch {
-                            toast.error("Failed to remove. Please try again.");
-                          }
-                        }}
-                      >
-                        <Trash2 className="w-3.5 h-3.5 mr-1" />
-                        Remove
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-8 rounded-lg text-xs"
-                        onClick={() => router.push(`/history/${group.groupId}`)}
-                      >
-                        <Eye className="w-3.5 h-3.5 mr-1" />
-                        View details
-                      </Button>
-                    </div>
+                        <img src={preview} alt="" className="w-14 h-14 object-cover" />
+                        {step === "idle" && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                            className="absolute top-0.5 right-0.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </button>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
+
+        {hasFiles && step === "idle" && !hasResults && (
+          <CardFooter className="p-4 border-t border-border/10 bg-card/20 flex flex-col sm:flex-row gap-3 justify-between items-center">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground/50">
+              <FileText className="w-3.5 h-3.5" />
+              {files.length} {files.length === 1 ? "image" : "images"} ready
+            </div>
+            <Button
+              onClick={startAnalysis}
+              className="w-full sm:w-auto rounded-xl h-10 px-6 bg-primary font-semibold shadow-sm shadow-primary/10 transition-all active:scale-95 text-sm"
+            >
+              Start Analysis
+              <Zap className="ml-1.5 w-3.5 h-3.5 fill-white" />
+            </Button>
+          </CardFooter>
+        )}
       </Card>
+
+      {/* Progress */}
+      {step === "uploading" && (
+        <Card className="rounded-2xl border-border/15 bg-card/20 backdrop-blur-sm p-5 space-y-3 animate-scale-in">
+          <div className="flex justify-between items-center text-sm font-medium">
+            <span className="flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+              Uploading {files.length} {files.length === 1 ? "image" : "images"}
+            </span>
+            <span className="text-primary font-bold text-sm">{overallUploadProgress}%</span>
+          </div>
+          <Progress value={overallUploadProgress} className="h-2 rounded-full bg-primary/5" />
+        </Card>
+      )}
+
+      {step === "processing" && (
+        <Card className="rounded-2xl border-border/15 bg-card/20 backdrop-blur-sm p-5 space-y-3 animate-scale-in">
+          <div className="flex justify-between items-center text-sm font-medium">
+            <span className="flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-primary animate-gentle-pulse" />
+              Analyzing with AI
+            </span>
+            <span className="text-primary font-bold text-sm">{analysisProgress}%</span>
+          </div>
+          <Progress value={analysisProgress} className="h-2 rounded-full bg-primary/5" />
+          <p className="text-[10px] text-muted-foreground/40 text-center">
+            Running species identification, disease detection, and weight estimation...
+          </p>
+        </Card>
+      )}
+
+      {/* Tips */}
+      {step !== "processing" && step !== "uploading" && (
+        <div className="rounded-2xl bg-muted/30 border border-border/40 p-4 sm:p-5 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+          <div className="flex gap-3 sm:gap-4">
+            <div className="p-2 bg-primary/10 rounded-xl text-primary h-fit shrink-0">
+              <Info className="w-5 h-5" />
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="font-semibold text-sm sm:text-[15px] text-foreground/90">{t("upload.tips")}</h4>
+              <ul className="text-xs sm:text-[13px] text-muted-foreground leading-relaxed space-y-1">
+                <li>• {t("upload.tip2")}</li>
+                <li>• {t("upload.tip3")}</li>
+                <li>• Upload multiple images for batch analysis</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent History */}
+      {history.length > 0 && (
+        <div className="space-y-3 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+          <h2 className="text-sm font-bold text-muted-foreground/50">Recent Analyses</h2>
+          <div className="space-y-2">
+            {history.slice(0, 5).map((group) => {
+              const stats = group.analysisResult?.aggregateStats;
+              const fishCount = stats?.totalFishCount ?? 0;
+              const hasDisease = stats?.diseaseDetected ?? false;
+
+              return (
+                <div key={group.groupId}
+                  className="rounded-xl border border-border/15 bg-card/15 p-3 flex items-center justify-between gap-3 hover:bg-card/30 transition-colors duration-200 cursor-pointer"
+                  onClick={() => router.push(`/history/${group.groupId}`)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg border border-border/10 bg-primary/5 flex items-center justify-center text-primary">
+                      <Images className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold truncate">
+                        {group.imageCount} {group.imageCount === 1 ? "Image" : "Images"}
+                        {fishCount > 0 && <span className="text-muted-foreground/40 ml-1.5">· {fishCount} fish</span>}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground/40">
+                        {new Date(group.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className={cn(
+                      "text-[9px] px-2 py-0.5 font-semibold border-none",
+                      group.status === "completed" ? "bg-emerald-500/10 text-emerald-500"
+                        : group.status === "failed" ? "bg-red-500/10 text-red-500"
+                          : "bg-amber-500/10 text-amber-500"
+                    )}>
+                      {group.status}
+                    </Badge>
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Camera Modal */}
+      <CameraModal isOpen={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />
     </div>
   );
 }

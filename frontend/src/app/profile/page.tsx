@@ -65,29 +65,28 @@ export default function ProfilePage() {
         loadProfile();
     }, []);
 
+    // Sync form state when user or profile loads/updates (unless currently editing)
+    useEffect(() => {
+        if (!isLoadingProfile && profile && !isEditing) {
+            setEditName(profile.name || user?.name || "");
+            setEditPhone(profile.phone || user?.phone || "");
+            setEditPort(profile.port || user?.port || "");
+            setEditCustomPort(profile.customPort || "");
+            setEditRegion(profile.region || user?.region || "");
+            setEditRole(profile.role || user?.role || "fisherman");
+        }
+    }, [profile, user, isLoadingProfile, isEditing]);
+
     async function loadProfile() {
         setIsLoadingProfile(true);
         try {
             const p = await getUserProfile();
             setProfile(p);
-            setEditName(p.name || user?.name || "");
-            setEditPhone(p.phone || "");
-            setEditPort(p.port || "");
-            setEditCustomPort(p.customPort || "");
-            setEditRegion(p.region || "");
-            setEditRole(p.role || "fisherman");
             setPublicProfileEnabled(p.publicProfileEnabled ?? false);
             setPublicProfileSlug(p.publicProfileSlug || "");
             setShowPublicStats((p as any).showPublicStats ?? false);
         } catch (err) {
             console.error("Failed to load profile:", err);
-            if (user) {
-                setEditName(user.name || "");
-                setEditPhone(user.phone || "");
-                setEditPort(user.port || "");
-                setEditRegion(user.region || "");
-                setEditRole(user.role || "fisherman");
-            }
         } finally {
             setIsLoadingProfile(false);
         }
@@ -98,11 +97,11 @@ export default function ProfilePage() {
     function cancelEditing() {
         if (profile) {
             setEditName(profile.name || user?.name || "");
-            setEditPhone(profile.phone || "");
-            setEditPort(profile.port || "");
+            setEditPhone(profile.phone || user?.phone || "");
+            setEditPort(profile.port || user?.port || "");
             setEditCustomPort(profile.customPort || "");
-            setEditRegion(profile.region || "");
-            setEditRole(profile.role || "fisherman");
+            setEditRegion(profile.region || user?.region || "");
+            setEditRole(profile.role || user?.role || "fisherman");
         }
         setIsEditing(false);
     }
@@ -378,10 +377,22 @@ export default function ProfilePage() {
                                         }
                                         setIsSavingPublicProfile(true);
                                         try {
+                                            const finalName = editName || profile?.name || user?.name || "Fisherman";
+                                            const finalRole = editRole || profile?.role || user?.role || "fisherman";
                                             await updateUserProfile({
+                                                name: finalName,
+                                                phone: editPhone || profile?.phone || user?.phone || "",
+                                                port: editPort || profile?.port || user?.port || "",
+                                                customPort: editPort === "other" ? editCustomPort : "",
+                                                region: editRegion || profile?.region || user?.region || "",
+                                                role: finalRole,
                                                 publicProfileEnabled: checked,
                                                 publicProfileSlug: slug,
                                             } as any);
+
+                                            // Make sure we update local context so it feels snappy
+                                            updateUser({ name: finalName, phone: editPhone || user?.phone, port: editPort || user?.port, region: editRegion || user?.region, role: finalRole });
+
                                             toast.success(checked ? "Public profile enabled!" : "Public profile disabled");
                                         } catch {
                                             toast.error("Failed to update public profile setting");
@@ -411,7 +422,18 @@ export default function ProfilePage() {
                                             onCheckedChange={async (checked) => {
                                                 setShowPublicStats(checked);
                                                 try {
-                                                    await updateUserProfile({ showPublicStats: checked } as any);
+                                                    const finalName = editName || profile?.name || user?.name || "Fisherman";
+                                                    const finalRole = editRole || profile?.role || user?.role || "fisherman";
+
+                                                    await updateUserProfile({
+                                                        name: finalName,
+                                                        phone: editPhone || profile?.phone || user?.phone || "",
+                                                        port: editPort || profile?.port || user?.port || "",
+                                                        customPort: editPort === "other" ? editCustomPort : "",
+                                                        region: editRegion || profile?.region || user?.region || "",
+                                                        role: finalRole,
+                                                        showPublicStats: checked
+                                                    } as any);
                                                     toast.success(checked ? "Stats will show on your public profile!" : "Stats hidden from public profile");
                                                 } catch {
                                                     setShowPublicStats(!checked);

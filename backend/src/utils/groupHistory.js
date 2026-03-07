@@ -10,8 +10,14 @@
  */
 
 const { QueryCommand } = require("@aws-sdk/lib-dynamodb");
+const { GetObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { ddb } = require("./dynamodb");
+const { s3 } = require("./s3");
 const { queryGroupsByUserId } = require("./groupsDb");
+
+const BUCKET = process.env.S3_BUCKET_NAME;
+const URL_EXPIRY_SECONDS = 3600; // 1 hour for viewing
 
 const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
 const USER_ID_INDEX = "userId-createdAt-index";
@@ -61,7 +67,7 @@ function transformLegacyToGroup(legacyRecord) {
     // Extract species and fish count from analysisResult if available
     let primarySpecies = null;
     let totalFishCount = 0;
-    
+
     if (legacyRecord.analysisResult) {
         // Legacy records store single fish analysis
         primarySpecies = legacyRecord.analysisResult.species;
@@ -120,8 +126,34 @@ async function getMergedHistory(userId, options = {}) {
         // Apply limit to merged results
         const items = merged.slice(0, limit);
 
+        // Generate presigned URLs for thumbnails (up to 3 images per group)
+        const itemsWithThumbnails = await Promise.all(items.map(async (item) => {
+            let keysToSign = [];
+            if (item.s3Keys && item.s3Keys.length > 0) {
+                keysToSign = item.s3Keys.slice(0, 3);
+            } else if (item.isLegacy && item.groupId) {
+                // For legacy records where imageId = groupId and might exist in bucket
+                keysToSign = [`protected/${userId}/${item.groupId}/${item.groupId}.jpg`]; // Fallback effort, though legacy might not conform
+            }
+
+            const presignedViewUrls = await Promise.all(
+                keysToSign.map(async (s3Key) => {
+                    const command = new GetObjectCommand({
+                        Bucket: BUCKET,
+                        Key: s3Key,
+                    });
+                    return getSignedUrl(s3, command, { expiresIn: URL_EXPIRY_SECONDS });
+                })
+            ).catch(() => []); // Fail silently if S3 issues arise
+
+            return {
+                ...item,
+                presignedViewUrls
+            };
+        }));
+
         return {
-            items,
+            items: itemsWithThumbnails,
             // Note: Pagination with lastKey is complex with merged sources
             // For MVP, we return up to limit items without pagination token
             lastKey: groupsResult.lastKey,
