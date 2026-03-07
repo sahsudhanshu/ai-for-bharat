@@ -1,26 +1,32 @@
 """
-Fishing Spots tool — finds nearby water bodies and scores them for fishing.
+Fishing Spots tool — finds nearby water bodies, sub-samples real points WITHIN
+each body, and scores every point for fishing viability.
 
-Uses:
-  • Overpass API (OpenStreetMap) to find real water bodies within a radius
-  • OpenWeatherMap to get weather conditions at each location
-  • DynamoDB catch records to gauge historical fish density
-  • Distance from the user to estimate transport cost
+Data sources
+────────────
+• Overpass API (OpenStreetMap)    — real water body geometries + sub-sampled points
+• ERDDAP / NASA MODIS (free)      — chlorophyll-a as marine fish-density proxy
+• OpenWeatherMap                  — live weather at each point
+• DynamoDB ai-bharat-images       — recency-weighted user catch history
+• User GPS                        — transport cost
 
-Returns a JSON payload with up to 15 ranked spots, each containing:
-  name, latitude, longitude, type, distance_km,
-  weather_score (0-100), fish_density_score (0-100), transport_score (0-100),
-  confidence (weighted composite 0-100), color (#hex).
+Confidence (0–100) per point
+────────────────────────────
+  Weather       35 %  — wind, rain, clouds
+  Fish Density  40 %  — chlorophyll (marine) + recency-weighted DynamoDB catches
+  Transport     25 %  — distance from user
 
-Confidence weights:
-  Weather       40 %  (low wind, no rain, partly cloudy)
-  Fish Density  35 %  (catch-record count within 30 km)
-  Transport     25 %  (closer distance → lower cost → higher score)
+Color
+─────
+  #10b981 (green)  confidence ≥ 68
+  #f59e0b (amber)  45 – 67
+  #ef4444 (red)    < 45
 """
 from __future__ import annotations
 
 import json
 import math
+from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
@@ -32,7 +38,7 @@ from src.utils.dynamodb import dynamodb
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Helpers
+# Geometric helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -44,135 +50,211 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-async def _fetch_overpass_water_bodies(lat: float, lon: float, radius_m: int) -> list[dict]:
-    """Query the Overpass API for nearby water bodies."""
+def _sample_geometry_points(
+    geometry: list[dict], name: str, water_type: str, n_sub: int = 3
+) -> list[dict]:
+    """
+    Given a list of OSM geometry nodes [{lat, lon}, ...] for a water body way,
+    return a centroid point + up to n_sub evenly-spaced real points along / within
+    the body's shape.
+    Each returned point: {name, lat, lon, type, is_sub, parent_name}
+    """
+    if not geometry:
+        return []
+    total = len(geometry)
+
+    # Centroid
+    c_lat = sum(g["lat"] for g in geometry) / total
+    c_lon = sum(g["lon"] for g in geometry) / total
+    points = [{
+        "name": name, "lat": c_lat, "lon": c_lon,
+        "type": water_type, "is_sub": False, "parent_name": name,
+    }]
+
+    if total >= 4:
+        step = max(1, total // (n_sub + 1))
+        for i in range(1, n_sub + 1):
+            idx = min(i * step, total - 1)
+            g = geometry[idx]
+            points.append({
+                "name": f"{name} — section {i}",
+                "lat": g["lat"], "lon": g["lon"],
+                "type": water_type, "is_sub": True, "parent_name": name,
+            })
+
+    return points
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data fetchers
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def _fetch_overpass_bodies(lat: float, lon: float, radius_m: int) -> list[dict]:
+    """
+    Fetch water body ways/nodes from Overpass *with full geometry*.
+    Also fetches named fishing spots, ghats, jetties, ferry terminals.
+    Returns list of bodies: {name, water_type, centroid_lat, centroid_lon, geometry[]}
+    """
     query = (
-        f"[out:json][timeout:25];\n"
+        f"[out:json][timeout:30];\n"
         f"(\n"
-        f"  way[\"natural\"=\"water\"](around:{radius_m},{lat},{lon});\n"
-        f"  way[\"waterway\"~\"river|canal\"](around:{radius_m},{lat},{lon});\n"
-        f"  relation[\"natural\"=\"water\"](around:{radius_m},{lat},{lon});\n"
-        f"  node[\"natural\"~\"bay|beach|cape\"](around:{radius_m},{lat},{lon});\n"
+        f"  way[\"waterway\"~\"river|stream|canal\"][\"name\"](around:{radius_m},{lat},{lon});\n"
+        f"  way[\"natural\"=\"water\"][\"name\"](around:{radius_m},{lat},{lon});\n"
         f"  way[\"natural\"~\"beach|coastline\"](around:{radius_m},{lat},{lon});\n"
+        f"  node[\"natural\"~\"bay|beach|cape\"][\"name\"](around:{radius_m},{lat},{lon});\n"
+        f"  node[\"leisure\"=\"fishing\"](around:{radius_m},{lat},{lon});\n"
+        f"  node[\"sport\"=\"fishing\"](around:{radius_m},{lat},{lon});\n"
+        f"  node[\"amenity\"=\"ferry_terminal\"][\"name\"](around:{radius_m},{lat},{lon});\n"
+        f"  node[\"waterway\"=\"dock\"][\"name\"](around:{radius_m},{lat},{lon});\n"
         f");\n"
-        f"out center 30;"
+        f"out geom 40;"
     )
     try:
-        async with httpx.AsyncClient(timeout=22) as client:
+        async with httpx.AsyncClient(timeout=28) as client:
             resp = await client.post(
                 "https://overpass-api.de/api/interpreter",
                 data={"data": query},
             )
             resp.raise_for_status()
             elements = resp.json().get("elements", [])
-    except Exception:
+    except Exception as e:
+        print(f"[fishing_spots] Overpass error: {e}", flush=True)
         return []
 
-    spots: list[dict] = []
+    bodies: list[dict] = []
     seen: set[str] = set()
 
     for elem in elements:
         tags = elem.get("tags", {})
         name = (
-            tags.get("name")
-            or tags.get("name:en")
-            or tags.get("name:hi")
-            or tags.get("waterway")
-            or tags.get("natural")
-            or "Water Body"
+            tags.get("name") or tags.get("name:en") or tags.get("name:hi")
+            or tags.get("waterway") or tags.get("natural")
+            or tags.get("leisure") or "Water Body"
         )
+        water_type = tags.get("natural") or tags.get("waterway") or tags.get("leisure") or "water"
 
+        # Geometry
         if elem["type"] == "node":
-            plat, plon = elem.get("lat"), elem.get("lon")
+            geom = [{"lat": elem["lat"], "lon": elem["lon"]}]
         else:
-            center = elem.get("center", {})
-            plat, plon = center.get("lat"), center.get("lon")
+            geom = elem.get("geometry", [])
+            if not geom:
+                center = elem.get("center", {})
+                if center:
+                    geom = [{"lat": center["lat"], "lon": center["lon"]}]
 
-        if plat is None or plon is None:
+        if not geom:
             continue
 
-        water_type = tags.get("natural") or tags.get("waterway") or "water"
+        c_lat = sum(g["lat"] for g in geom) / len(geom)
+        c_lon = sum(g["lon"] for g in geom) / len(geom)
         key = f"{name.lower().strip()}_{water_type}"
         if key in seen:
             continue
         seen.add(key)
 
-        spots.append({"name": name, "lat": float(plat), "lon": float(plon), "type": water_type})
+        bodies.append({
+            "name": name, "water_type": water_type,
+            "centroid_lat": c_lat, "centroid_lon": c_lon,
+            "geometry": geom,
+        })
 
-    return spots[:20]
+    return bodies[:15]
+
+
+async def _fetch_chlorophyll_score(
+    client: httpx.AsyncClient, lat: float, lon: float
+) -> Optional[float]:
+    """
+    Fetch chlorophyll-a (mg/m³) from NASA MODIS via ERDDAP (free, no API key).
+    Higher chlorophyll → more phytoplankton → more fish.
+    Returns 0-100 score, or None for inland / cloud-covered / unavailable areas.
+    """
+    delta = 0.1
+    url = (
+        f"https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla1day.json"
+        f"?chlorophyll%5B(last)%5D%5B({lat - delta:.5f}):({lat + delta:.5f})%5D"
+        f"%5B({lon - delta:.5f}):({lon + delta:.5f})%5D"
+    )
+    try:
+        r = await client.get(url, timeout=8)
+        if r.status_code != 200:
+            return None
+        rows = r.json().get("table", {}).get("rows", [])
+        values = []
+        for row in rows:
+            v = row[-1]
+            if v is not None:
+                try:
+                    f = float(v)
+                    if math.isfinite(f) and f > 0:
+                        values.append(f)
+                except (TypeError, ValueError):
+                    pass
+        if not values:
+            return None
+        chl = sum(values) / len(values)
+        # Score mapping (mg/m³ → 0-100)
+        if chl >= 10:  return 97.0
+        if chl >= 5:   return 87.0
+        if chl >= 2:   return 73.0
+        if chl >= 0.5: return 55.0
+        if chl >= 0.1: return 38.0
+        return 22.0
+    except Exception:
+        return None
+
+
+def _fish_density_score(
+    spot_lat: float, spot_lon: float, catch_markers: list[dict]
+) -> float:
+    """
+    Continuous recency-weighted catch density → 0-100.
+    catch_markers: [{lat, lon, days_ago}]
+    Recent catches (≤7 days) count 3×; last month 2×; last quarter 1.5×; older 1×.
+    Distance decays linearly to 0 at 30 km.
+    """
+    weighted = 0.0
+    for m in catch_markers:
+        dist = _haversine(spot_lat, spot_lon, m["lat"], m["lon"])
+        if dist > 30:
+            continue
+        dist_w = max(0.05, 1 - dist / 30)
+        days = m.get("days_ago", 365)
+        time_w = 3.0 if days <= 7 else (2.0 if days <= 30 else (1.5 if days <= 90 else 1.0))
+        weighted += dist_w * time_w
+    if weighted == 0:
+        return 20.0
+    return min(95.0, round(20.0 + weighted * 7.5, 1))
+
+
+def _combined_density(chl_score: Optional[float], dynamo_score: float) -> float:
+    """Combine marine chlorophyll (60%) and catch records (40%) for coastal/sea;
+    fall back to catches only for inland bodies."""
+    if chl_score is not None:
+        return round(chl_score * 0.60 + dynamo_score * 0.40, 1)
+    return dynamo_score
 
 
 def _weather_score(wind_speed: float, rain_1h: float, clouds: int) -> float:
-    """0-100: higher = better fishing weather."""
-    # Wind (dominant factor)
-    if wind_speed < 3:
-        wind_s = 100
-    elif wind_speed < 6:
-        wind_s = 85
-    elif wind_speed < 10:
-        wind_s = 65
-    elif wind_speed < 14:
-        wind_s = 40
-    else:
-        wind_s = 15
-
-    # Rain penalty
-    if rain_1h == 0:
-        rain_pen = 0
-    elif rain_1h < 1:
-        rain_pen = 10
-    elif rain_1h < 5:
-        rain_pen = 25
-    else:
-        rain_pen = 40
-
-    # Clouds: partly cloudy is good (fish near surface)
-    if clouds < 20:
-        cloud_s = 70
-    elif clouds < 60:
-        cloud_s = 90
-    else:
-        cloud_s = 60
-
+    wind_s = (
+        100 if wind_speed < 3 else 85 if wind_speed < 6 else
+        65 if wind_speed < 10 else 40 if wind_speed < 14 else 15
+    )
+    rain_pen = 0 if rain_1h == 0 else 10 if rain_1h < 1 else 25 if rain_1h < 5 else 40
+    cloud_s = 70 if clouds < 20 else 90 if clouds < 60 else 60
     return max(0.0, min(100.0, wind_s * 0.55 + cloud_s * 0.25 - rain_pen))
 
 
-def _fish_density_score(spot_lat: float, spot_lon: float, catch_markers: list[dict]) -> float:
-    """0-100 based on number of historical catch records near the spot."""
-    nearby = sum(
-        1 for m in catch_markers
-        if _haversine(spot_lat, spot_lon, m["lat"], m["lon"]) <= 30
-    )
-    if nearby == 0:
-        return 20.0
-    if nearby <= 2:
-        return 40.0
-    if nearby <= 7:
-        return 60.0
-    if nearby <= 20:
-        return 80.0
-    return 95.0
-
-
 def _transport_score(dist_km: float) -> float:
-    """0-100: closer distance = lower transport cost = higher score."""
-    if dist_km < 5:
-        return 100.0
-    if dist_km < 15:
-        return 90.0
-    if dist_km < 25:
-        return 78.0
-    if dist_km < 40:
-        return 62.0
-    return 45.0
+    return (
+        100.0 if dist_km < 5 else 90.0 if dist_km < 15 else
+        78.0 if dist_km < 25 else 62.0 if dist_km < 40 else 45.0
+    )
 
 
 def _confidence_color(score: float) -> str:
-    if score >= 68:
-        return "#10b981"  # green
-    if score >= 45:
-        return "#f59e0b"  # amber
-    return "#ef4444"       # red
+    return "#10b981" if score >= 68 else ("#f59e0b" if score >= 45 else "#ef4444")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,50 +268,40 @@ async def get_nearby_fishing_spots(
     radius_km: Optional[float] = 50,
 ) -> str:
     """
-    Find nearby sea, river, lake, and other water bodies using real map data
-    (OpenStreetMap), then compute a fishing confidence score for each location based on:
-      • Weather conditions at that spot (wind speed, rainfall, cloud cover)
-      • Fish density (historical catch records from the database near that spot)
-      • Transport cost (distance from the user's current location)
+    Find nearby water bodies using real OpenStreetMap data, sub-sample actual points
+    WITHIN each body (river bends, lake sections, coastal zones), and score every
+    point for fishing viability using:
+      • Live weather per body (OpenWeatherMap)
+      • Marine chlorophyll-a via NASA MODIS/ERDDAP — real phytoplankton/fish proxy
+      • Recency-weighted historical catch records from the app database
+      • Transport cost — distance from the user's GPS location
 
-    Returns a JSON object containing:
-      - "spots": list of up to 15 ranked fishing locations, each with:
-          name, latitude, longitude, type, distance_km,
-          weather_score (0-100), fish_density_score (0-100),
-          transport_score (0-100), confidence (0-100), color (hex string)
-      - "summary": human-readable text ranking
+    Also discovers named fishing spots, ghats, jetties, and ferry terminals nearby.
 
-    The color field indicates:
-      🟢 green  (#10b981) — high confidence (≥68)
-      🟡 amber  (#f59e0b) — medium confidence (45–67)
-      🔴 red    (#ef4444) — low confidence (<45)
-
-    Use this tool when the user asks about:
-      - Best nearby fishing spots or locations
-      - Where to fish near me / nearby water bodies
-      - Fishing spots with weather and fish density info
+    Confidence = Weather 35% + Fish Density 40% + Transport 25%
+    Color: 🟢 green (≥68) · 🟡 amber (45–67) · 🔴 red (<45)
 
     Args:
         latitude: User's current latitude (e.g. 15.4909 for Goa)
         longitude: User's current longitude (e.g. 73.8278 for Goa)
-        radius_km: Search radius in kilometres (default 50)
+        radius_km: Search radius in km (default 50)
     """
-    print(f"[TOOL] get_nearby_fishing_spots -> lat={latitude}, lon={longitude}, radius={radius_km}km", flush=True)
+    print(f"[TOOL] get_nearby_fishing_spots -> lat={latitude}, lon={longitude}, r={radius_km}km", flush=True)
     radius_m = int((radius_km or 50) * 1000)
+    now_utc = datetime.now(timezone.utc)
 
-    # 1. Real water body locations from OpenStreetMap ─────────────────────────
-    spots = await _fetch_overpass_water_bodies(latitude, longitude, radius_m)
+    # ── Step 1: Water body geometries + fishing nodes from OpenStreetMap ──────
+    print("[fishing_spots] Querying Overpass for water body geometries...", flush=True)
+    bodies = await _fetch_overpass_bodies(latitude, longitude, radius_m)
 
-    if not spots:
+    if not bodies:
         return json.dumps({
-            "error": (
-                "Could not fetch nearby water bodies from OpenStreetMap. "
-                "Check your internet connection or try a larger radius."
-            ),
+            "error": "No water bodies found. Try increasing radius or check connectivity.",
             "spots": [],
         }, indent=2)
+    print(f"[fishing_spots] {len(bodies)} water bodies found.", flush=True)
 
-    # 2. Historical catch records from DynamoDB ───────────────────────────────
+    # ── Step 2: Recency-weighted DynamoDB catch records ────────────────────────
     catch_markers: list[dict] = []
     try:
         table = dynamodb.Table(IMAGES_TABLE)
@@ -237,96 +309,115 @@ async def get_nearby_fishing_spots(
             IndexName="status-createdAt-index",
             KeyConditionExpression=Key("status").eq("completed"),
             FilterExpression=Attr("latitude").exists() & Attr("longitude").exists(),
-            ProjectionExpression="latitude, longitude",
+            ProjectionExpression="latitude, longitude, createdAt",
             ScanIndexForward=False,
-            Limit=400,
+            Limit=500,
         )
         for item in response.get("Items", []):
             try:
                 m_lat = float(item["latitude"])
                 m_lon = float(item["longitude"])
-                if math.isfinite(m_lat) and math.isfinite(m_lon):
-                    catch_markers.append({"lat": m_lat, "lon": m_lon})
+                if not (math.isfinite(m_lat) and math.isfinite(m_lon)):
+                    continue
+                days_ago = 365
+                created = item.get("createdAt", "")
+                if created:
+                    try:
+                        ts = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        days_ago = max(0, (now_utc - ts).days)
+                    except ValueError:
+                        pass
+                catch_markers.append({"lat": m_lat, "lon": m_lon, "days_ago": days_ago})
             except (TypeError, ValueError):
                 continue
-    except Exception:
-        pass  # fish density will fall back to baseline 20
+    except Exception as e:
+        print(f"[fishing_spots] DynamoDB error: {e}", flush=True)
+    print(f"[fishing_spots] {len(catch_markers)} catch records loaded.", flush=True)
 
-    # 3. Score each spot ───────────────────────────────────────────────────────
-    # Keep only the 12 closest to avoid excessive weather API calls
-    spots_with_dist = sorted(
-        [{"spot": s, "dist": _haversine(latitude, longitude, s["lat"], s["lon"])} for s in spots],
-        key=lambda x: x["dist"],
-    )[:12]
+    # ── Step 3: Score each body + its sub-points ───────────────────────────────
+    bodies_sorted = sorted(
+        bodies,
+        key=lambda b: _haversine(latitude, longitude, b["centroid_lat"], b["centroid_lon"]),
+    )[:10]
 
-    scored_spots: list[dict] = []
+    all_spots: list[dict] = []
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        for entry in spots_with_dist:
-            spot = entry["spot"]
-            dist = entry["dist"]
+    async with httpx.AsyncClient(timeout=12) as client:
+        for body in bodies_sorted:
+            c_lat, c_lon = body["centroid_lat"], body["centroid_lon"]
 
-            transport_s = _transport_score(dist)
-            fish_s = _fish_density_score(spot["lat"], spot["lon"], catch_markers)
-
-            # Weather at this spot
+            # Weather at centroid (same for all sub-points of this body)
             weather_s = 50.0
             if OPENWEATHERMAP_API_KEY:
                 try:
                     wr = await client.get(
                         "https://api.openweathermap.org/data/2.5/weather",
-                        params={
-                            "lat": spot["lat"],
-                            "lon": spot["lon"],
-                            "appid": OPENWEATHERMAP_API_KEY,
-                            "units": "metric",
-                        },
+                        params={"lat": c_lat, "lon": c_lon,
+                                "appid": OPENWEATHERMAP_API_KEY, "units": "metric"},
                     )
                     if wr.status_code == 200:
                         wd = wr.json()
                         weather_s = _weather_score(
-                            wind_speed=wd.get("wind", {}).get("speed", 5),
-                            rain_1h=wd.get("rain", {}).get("1h", 0),
-                            clouds=wd.get("clouds", {}).get("all", 50),
+                            wd.get("wind", {}).get("speed", 5),
+                            wd.get("rain", {}).get("1h", 0),
+                            wd.get("clouds", {}).get("all", 50),
                         )
                 except Exception:
                     pass
 
-            confidence = round(weather_s * 0.40 + fish_s * 0.35 + transport_s * 0.25, 1)
+            # Chlorophyll at centroid — works for sea/coast, returns None inland
+            chl_score = await _fetch_chlorophyll_score(client, c_lat, c_lon)
+            if chl_score is not None:
+                print(f"[fishing_spots] {body['name']}: chlorophyll score={chl_score}", flush=True)
 
-            scored_spots.append({
-                "name": spot["name"],
-                "latitude": round(spot["lat"], 6),
-                "longitude": round(spot["lon"], 6),
-                "type": spot["type"],
-                "distance_km": round(dist, 1),
-                "weather_score": round(weather_s, 1),
-                "fish_density_score": round(fish_s, 1),
-                "transport_score": round(transport_s, 1),
-                "confidence": confidence,
-                "color": _confidence_color(confidence),
-            })
+            # Sub-sample points within this body
+            sub_points = _sample_geometry_points(body["geometry"], body["name"], body["water_type"], n_sub=3)
 
-    scored_spots.sort(key=lambda x: x["confidence"], reverse=True)
-    top_spots = scored_spots[:15]
+            for pt in sub_points:
+                dist = _haversine(latitude, longitude, pt["lat"], pt["lon"])
+                transport_s = _transport_score(dist)
+                dynamo_s = _fish_density_score(pt["lat"], pt["lon"], catch_markers)
+                fish_s = _combined_density(chl_score, dynamo_s)
+                confidence = round(weather_s * 0.35 + fish_s * 0.40 + transport_s * 0.25, 1)
 
-    # 4. Human-readable summary ───────────────────────────────────────────────
+                all_spots.append({
+                    "name": pt["name"],
+                    "parent_water_body": pt["parent_name"],
+                    "latitude": round(pt["lat"], 6),
+                    "longitude": round(pt["lon"], 6),
+                    "type": pt["type"],
+                    "is_sub_point": pt["is_sub"],
+                    "distance_km": round(dist, 1),
+                    "weather_score": round(weather_s, 1),
+                    "fish_density_score": round(fish_s, 1),
+                    "transport_score": round(transport_s, 1),
+                    "chlorophyll_available": chl_score is not None,
+                    "confidence": confidence,
+                    "color": _confidence_color(confidence),
+                })
+
+    all_spots.sort(key=lambda x: x["confidence"], reverse=True)
+    top_spots = all_spots[:20]
+
+    # ── Summary ────────────────────────────────────────────────────────────────
     lines = [
-        f"🎣 **Nearby Fishing Spots** ({len(top_spots)} found within {radius_km:.0f} km):\n",
-        "Score breakdown: Weather 40% | Fish Density 35% | Transport Cost 25%\n",
+        f"🎣 **{len(top_spots)} fishing points across {len(bodies_sorted)} water bodies** "
+        f"(within {radius_km:.0f} km)\n",
+        "Score: Weather 35% | Fish Density 40% (chlorophyll + catches) | Transport 25%\n",
     ]
-    for i, s in enumerate(top_spots, 1):
-        emoji = "🟢" if s["confidence"] >= 68 else ("🟡" if s["confidence"] >= 45 else "🔴")
+    for i, s in enumerate(top_spots[:8], 1):
+        e = "🟢" if s["confidence"] >= 68 else ("🟡" if s["confidence"] >= 45 else "🔴")
+        chl_tag = " 🌊" if s["chlorophyll_available"] else ""
         lines.append(
-            f"  {i}. {emoji} **{s['name']}** ({s['type']}) — {s['distance_km']} km away\n"
+            f"  {i}. {e} **{s['name']}** ({s['type']}) — {s['distance_km']} km{chl_tag}\n"
             f"     Confidence: **{s['confidence']}/100** | "
-            f"Weather: {s['weather_score']}/100 | "
-            f"Fish Density: {s['fish_density_score']}/100 | "
-            f"Transport: {s['transport_score']}/100"
+            f"Weather: {s['weather_score']} | Fish: {s['fish_density_score']} | "
+            f"Transport: {s['transport_score']}"
         )
 
     return json.dumps({
         "spots": top_spots,
         "user_location": {"lat": latitude, "lon": longitude},
+        "total_bodies_found": len(bodies),
         "summary": "\n".join(lines),
     }, indent=2)
