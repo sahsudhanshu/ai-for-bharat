@@ -114,7 +114,7 @@ export default function ChatbotPage() {
 
   // ═════════════════════════════════════════════════════════════════════════
   return (
-    <div className="flex flex-col space-y-4 sm:space-y-6 h-[calc(100dvh-185px)] sm:h-[calc(100dvh-210px)] lg:h-[calc(100dvh-140px)] animate-fade-in-up">
+    <div className="mx-auto w-full max-w-[1760px] px-2 sm:px-4 xl:px-6 flex flex-col space-y-4 sm:space-y-6 h-[calc(100dvh-185px)] sm:h-[calc(100dvh-210px)] lg:h-[calc(100dvh-140px)] animate-fade-in-up">
 
       {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">

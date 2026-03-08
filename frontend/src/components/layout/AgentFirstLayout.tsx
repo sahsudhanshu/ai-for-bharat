@@ -8,12 +8,17 @@ import {
     Sparkles, Upload, MapPin, BarChart3, Clock, Settings,
     HelpCircle, User, LogOut, ChevronLeft, Globe, Bell, X,
     Plus, MessageSquare, PanelLeftClose, PanelLeftOpen,
+    Home, Camera,
+    PanelRightOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth-context';
 import { useLanguage, LANGUAGES } from '@/lib/i18n';
 import { useAgentFirstStore, selectActiveComponent, selectIsOffline } from '@/lib/stores/agent-first-store';
 import AgentChat from '@/components/AgentChat';
+import CommandPalette from '@/components/agent/CommandPalette';
+import { useAgentContext } from '@/lib/stores/agent-context-store';
+import LanguageOnboarding from '@/components/LanguageOnboarding';
 import ContentCanvasPane from '@/components/canvas/ContentCanvasPane';
 import PaneDivider from './PaneDivider';
 import { OfflineIndicator } from './OfflineIndicator';
@@ -135,6 +140,13 @@ export default function AgentFirstLayout() {
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [sidebarExpanded, setSidebarExpanded] = useState(false);
     const [rightSidebarExpanded, setRightSidebarExpanded] = useState(false);
+    const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
+    // ── Sync current page to agent context store ──────────────────────────────
+    const setContextPage = useAgentContext(s => s.setCurrentPage);
+    useEffect(() => {
+        setContextPage(activeComponent ?? 'chat');
+    }, [activeComponent, setContextPage]);
 
     // Hover-to-expand refs
     const leftHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,12 +155,12 @@ export default function AgentFirstLayout() {
     const rightHoverExpanded = useRef(false);
 
     const handleLeftMouseEnter = useCallback(() => {
-        if (sidebarExpanded) return;
+        if (sidebarExpanded || profileDropdownOpen) return;
         leftHoverTimer.current = setTimeout(() => {
             setSidebarExpanded(true);
             leftHoverExpanded.current = true;
         }, 800);
-    }, [sidebarExpanded]);
+    }, [sidebarExpanded, profileDropdownOpen]);
 
     const handleLeftMouseLeave = useCallback(() => {
         if (leftHoverTimer.current) { clearTimeout(leftHoverTimer.current); leftHoverTimer.current = null; }
@@ -304,18 +316,18 @@ export default function AgentFirstLayout() {
                             }}
                             className={cn(
                                 "rounded-xl bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center border border-primary/20 hover:border-primary/40 transition-all hover:scale-105 cursor-pointer gap-2",
-                                sidebarExpanded ? "h-9 px-3" : "w-9 h-9 justify-center group/logobtn"
+                                sidebarExpanded ? "h-9 px-3" : "w-10 h-10 justify-center group/logobtn"
                             )}
                         >
                             {sidebarExpanded ? (
                                 <>
-                                    <Sparkles className="w-4.5 h-4.5 text-primary shrink-0" />
+                                    <Sparkles className="w-5 h-5 text-primary shrink-0" />
                                     <span className="text-sm font-bold text-primary truncate whitespace-nowrap">OceanAI</span>
                                 </>
                             ) : (
                                 <>
-                                    <Sparkles className="w-4.5 h-4.5 text-primary shrink-0 group-hover/logobtn:hidden" />
-                                    <PanelLeftOpen className="w-4.5 h-4.5 text-primary shrink-0 hidden group-hover/logobtn:block" />
+                                    <Sparkles className="w-5 h-5 text-primary shrink-0 group-hover/logobtn:hidden" />
+                                    <PanelLeftOpen className="w-5 h-5 text-primary shrink-0 hidden group-hover/logobtn:block" />
                                 </>
                             )}
                         </button>
@@ -330,7 +342,7 @@ export default function AgentFirstLayout() {
                     </div>
 
                     {/* New Chat Button */}
-                    <div className={cn("pt-3 pb-0.5", sidebarExpanded ? "px-3" : "px-2")}>
+                    <div className={cn("pt-3 pb-0.5", sidebarExpanded ? "px-3" : "px-2 flex flex-col items-center")}>
                         <button
                             onClick={() => {
                                 setChatCollapsed(false);
@@ -360,7 +372,7 @@ export default function AgentFirstLayout() {
                     </div>
 
                     {/* Agent / Chat Button */}
-                    <div className={cn("pb-1", sidebarExpanded ? "px-3" : "px-2")}>
+                    <div className={cn("pb-1", sidebarExpanded ? "px-3" : "px-2 flex flex-col items-center")}>
                         <button
                             onClick={() => { clearComponent(); setChatCollapsed(false); }}
                             className={cn(
@@ -447,7 +459,7 @@ export default function AgentFirstLayout() {
                     {(!sidebarExpanded || (!isLoadingHistory && chatHistory.length === 0)) && <div className="flex-1" />}
 
                     {/* Secondary Nav — open as overlay dialogs */}
-                    <div className={cn("flex flex-col gap-0.5 py-2 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2")}>
+                    <div className={cn("flex flex-col gap-0.5 py-2 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2 items-center")}>
                         {[
                             { icon: User, label: 'Profile', isActive: overlayTab === 'profile', onClick: () => openOverlay('profile') },
                             { icon: Settings, label: 'Settings', isActive: overlayTab === 'settings', onClick: () => openOverlay('settings') },
@@ -468,7 +480,7 @@ export default function AgentFirstLayout() {
                                             : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/20"
                                     )}
                                 >
-                                    <Icon className="w-5 h-5 shrink-0 transition-all mx-1" />
+                                    <Icon className="w-[22px] h-[22px] shrink-0 transition-all mx-0.5" />
                                     <span className={cn(
                                         "text-[13px] font-medium truncate whitespace-nowrap transition-all flex-1 text-left",
                                         sidebarExpanded ? "opacity-100 max-w-full" : "opacity-0 max-w-0"
@@ -486,8 +498,8 @@ export default function AgentFirstLayout() {
                     </div>
 
                     {/* User Avatar */}
-                    <div className={cn("pb-3 pt-1 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2")}>
-                        <DropdownMenu>
+                    <div className={cn("pb-3 pt-1 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2 flex flex-col items-center")}>
+                        <DropdownMenu open={profileDropdownOpen} onOpenChange={setProfileDropdownOpen}>
                             <DropdownMenuTrigger asChild>
                                 <button className={cn(
                                     "w-full flex items-center py-2 transition-all",
@@ -542,52 +554,14 @@ export default function AgentFirstLayout() {
             ════════════════════════════════════════════════════════════════════════ */}
                 <div className="flex-1 flex flex-col h-screen overflow-hidden" ref={containerRef}>
 
-                    {/* ── Mobile Top Bar ── */}
-                    <div className="md:hidden flex items-center justify-between h-14 px-3 border-b border-border/20 bg-card/30 backdrop-blur-xl shrink-0 gap-2">
+                    {/* ── Mobile Top Bar (simplified: logo + offline only) ── */}
+                    <div className="md:hidden flex items-center justify-between h-12 px-4 border-b border-border/20 bg-card/30 backdrop-blur-xl shrink-0" data-compact>
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center justify-center border border-primary/20">
                                 <Sparkles className="w-4 h-4 text-primary" />
                             </div>
-                            <span className="font-bold text-sm">OceanAI</span>
+                            <span className="font-bold text-base text-foreground">OceanAI</span>
                             {isOffline && <OfflineIndicator className="text-[9px] ml-1" />}
-                        </div>
-                        <div className="flex items-center gap-1 min-w-0">
-                            <div className="flex items-center gap-1 overflow-x-auto pr-1">
-                                {TOOL_ITEMS.map((tool) => {
-                                    const Icon = tool.icon;
-                                    const isActive = activeComponent === tool.id;
-                                    return (
-                                        <button
-                                            key={tool.id}
-                                            onClick={() => handleToolClick(tool.id)}
-                                            className={cn(
-                                                "w-9 h-9 rounded-lg shrink-0 flex items-center justify-center transition-all duration-150",
-                                                isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-muted/30"
-                                            )}
-                                        >
-                                            <Icon className="w-4 h-4" />
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <button className="ml-0.5 shrink-0">
-                                        <Avatar className="h-7 w-7 border border-border/30">
-                                            <AvatarImage src={user?.avatar} />
-                                            <AvatarFallback className="text-[9px] font-bold bg-primary/10 text-primary">{userInitials}</AvatarFallback>
-                                        </Avatar>
-                                    </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48 rounded-xl border-border/30">
-                                    <DropdownMenuItem onClick={() => openOverlay('settings')} className="cursor-pointer"><Settings className="mr-2 w-4 h-4" />Settings</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => openOverlay('profile')} className="cursor-pointer"><User className="mr-2 w-4 h-4" />Profile</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => openOverlay('help')} className="cursor-pointer"><HelpCircle className="mr-2 w-4 h-4" />Help</DropdownMenuItem>
-                                    <DropdownMenuItem onClick={() => { setActiveComponent('history'); closeOverlay(); }} className="cursor-pointer"><Clock className="mr-2 w-4 h-4" />History</DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={handleLogout} className="text-red-400 cursor-pointer"><LogOut className="mr-2 w-4 h-4" />Logout</DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
                         </div>
                     </div>
 
@@ -707,7 +681,7 @@ export default function AgentFirstLayout() {
                         </div>
                     ) : (
                         /* ── Mobile: Full Chat + Drawer for Canvas ── */
-                        <div className="flex-1 overflow-hidden relative">
+                        <div className="flex-1 overflow-hidden relative pb-[72px]">
                             <AgentChat
                                 variant="compact"
                                 chatId={chatId}
@@ -729,19 +703,106 @@ export default function AgentFirstLayout() {
                                             <div className="flex items-center gap-2">
                                                 <button
                                                     onClick={() => { setMobileDrawerOpen(false); clearComponent(); }}
-                                                    className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-muted/30 text-muted-foreground"
+                                                    className="w-10 h-10 rounded-lg flex items-center justify-center hover:bg-muted/30 text-muted-foreground"
                                                 >
                                                     <ChevronLeft className="w-5 h-5" />
                                                 </button>
                                                 <span className="text-sm font-semibold capitalize">{activeComponent === 'map' ? 'Ocean Map' : activeComponent === 'upload' ? 'Catch Analysis' : 'Analytics'}</span>
                                             </div>
                                         </div>
-                                        <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
+                                        <div className="flex-1 overflow-y-auto overflow-x-hidden relative pb-[72px]">
                                             <div className="p-3 sm:p-4 min-h-full">
                                                 <ContentCanvasPane />
                                             </div>
                                         </div>
                                     </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            {/* ════════════════════════════════════════════════════════════════
+                                MOBILE BOTTOM TAB NAVIGATION
+                                Fixed bar with 4 large, labelled icons for non-tech-savvy users
+                            ════════════════════════════════════════════════════════════════ */}
+                            <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-card/95 backdrop-blur-xl border-t border-border/30 safe-area-bottom">
+                                <div className="flex items-stretch justify-around h-[68px]">
+                                    {[
+                                        {
+                                            id: 'ai' as const,
+                                            icon: Sparkles,
+                                            label: 'AI',
+                                            isActive: !activeComponent && !mobileDrawerOpen,
+                                            onClick: () => { clearComponent(); setMobileDrawerOpen(false); },
+                                        },
+                                        {
+                                            id: 'camera' as const,
+                                            icon: Camera,
+                                            label: 'Camera',
+                                            isActive: activeComponent === 'upload',
+                                            onClick: () => handleToolClick('upload'),
+                                        },
+                                        {
+                                            id: 'market' as const,
+                                            icon: MapPin,
+                                            label: 'Market',
+                                            isActive: activeComponent === 'map',
+                                            onClick: () => handleToolClick('map'),
+                                        },
+                                        {
+                                            id: 'profile' as const,
+                                            icon: User,
+                                            label: 'Profile',
+                                            isActive: overlayTab === 'profile',
+                                            onClick: () => openOverlay('profile'),
+                                        },
+                                    ].map((tab) => {
+                                        const TabIcon = tab.icon;
+                                        return (
+                                            <button
+                                                key={tab.id}
+                                                onClick={tab.onClick}
+                                                className={cn(
+                                                    "flex-1 flex flex-col items-center justify-center gap-1 transition-colors duration-150",
+                                                    tab.isActive
+                                                        ? "text-primary"
+                                                        : "text-muted-foreground"
+                                                )}
+                                            >
+                                                <TabIcon className={cn(
+                                                    "w-7 h-7 transition-all",
+                                                    tab.isActive && "scale-110"
+                                                )} />
+                                                <span className={cn(
+                                                    "text-[11px] font-semibold leading-none",
+                                                    tab.isActive && "font-bold"
+                                                )}>
+                                                    {tab.label}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </nav>
+
+                            {/* Floating Ask AI FAB — visible when tool drawer is open on mobile */}
+                            <AnimatePresence>
+                                {mobileDrawerOpen && activeComponent && (
+                                    <motion.button
+                                        initial={{ scale: 0, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        exit={{ scale: 0, opacity: 0 }}
+                                        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+                                        onClick={() => {
+                                            const ctx = activeComponent;
+                                            clearComponent();
+                                            setMobileDrawerOpen(false);
+                                            setTimeout(() => {
+                                                (window as any).__agentChatInject?.(`I was just looking at ${ctx}. Help me with what I see there.`);
+                                            }, 200);
+                                        }}
+                                        className="fixed bottom-[84px] right-4 z-[60] md:hidden w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/30 flex items-center justify-center"
+                                    >
+                                        <Sparkles className="w-5 h-5" />
+                                    </motion.button>
                                 )}
                             </AnimatePresence>
                         </div>
@@ -781,11 +842,17 @@ export default function AgentFirstLayout() {
                                 </>
                             ) : (
                                 <button
-                                    onClick={() => { setRightSidebarExpanded(true); rightHoverExpanded.current = false; }}
-                                    className="absolute -left-0.5 top-1/2 -translate-y-1/2 w-5 h-10 rounded-l-md flex items-center justify-center bg-card/60 border border-r-0 border-border/20 opacity-0 group-hover/rtoggle:opacity-100 transition-all duration-200 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
+                                    onClick={() => { setRightSidebarExpanded(false); rightHoverExpanded.current = false; }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-muted/30 transition-colors text-muted-foreground/50 hover:text-foreground"
                                 >
-                                    <PanelLeftClose className="w-3 h-3" />
+                                    <PanelRightOpen className="w-4 h-4" />
                                 </button>
+                                // <button
+                                //     onClick={() => { setRightSidebarExpanded(true); rightHoverExpanded.current = false; }}
+                                //     className="absolute -left-0.5 top-1/2 -translate-y-1/2 w-5 h-10 rounded-l-md flex items-center justify-center bg-card/60 border border-r-0 border-border/20 opacity-0 group-hover/rtoggle:opacity-100 transition-all duration-200 text-muted-foreground/40 hover:text-foreground hover:bg-muted/40"
+                                // >
+                                //     <PanelLeftClose className="w-3 h-3" />
+                                // </button>
                             )}
                     </div >
 
@@ -831,6 +898,25 @@ export default function AgentFirstLayout() {
                 </aside >
 
                 {/* ════════════════════════════════════════════════════════════════════════
+            COMMAND PALETTE (Ctrl+K)
+            ════════════════════════════════════════════════════════════════════════ */}
+                <CommandPalette
+                    chatHistory={chatHistory}
+                    onFocusChat={() => {
+                        if (isMobile) { setMobileDrawerOpen(false); }
+                        setChatCollapsed(false);
+                    }}
+                    onSelectChat={(id) => setChatId(id)}
+                    onNewChat={async () => {
+                        try {
+                            const conv = await createConversation();
+                            setChatId(conv.conversationId);
+                            setChatHistory(prev => [conv, ...prev]);
+                        } catch {}
+                    }}
+                />
+
+                {/* ════════════════════════════════════════════════════════════════════════
             OVERLAY DIALOGS (Settings / Profile / Help)
             ════════════════════════════════════════════════════════════════════════ */}
                 < OverlayDialog isOpen={overlayTab !== null} onClose={closeOverlay} >
@@ -838,6 +924,11 @@ export default function AgentFirstLayout() {
                     {overlayTab === 'profile' && <ProfileOverlay onClose={closeOverlay} onSwitchTab={(tab) => setOverlayTab(tab)} />}
                     {overlayTab === 'help' && <HelpOverlay />}
                 </OverlayDialog >
+
+                {/* ════════════════════════════════════════════════════════════════════════
+            LANGUAGE ONBOARDING — Full-screen first-visit language selector
+            ════════════════════════════════════════════════════════════════════════ */}
+                <LanguageOnboarding />
 
             </div >
         </TooltipProvider >

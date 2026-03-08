@@ -6,26 +6,26 @@ import { Circle, Marker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 
 interface Props {
-    /** Callback with user coords once acquired */
-    onLocationFound?: (lat: number, lng: number) => void;
-    /** Show 50km radius circle */
-    showRadius?: boolean;
-    /** Auto-center map on user location */
-    autoCenter?: boolean;
+  /** Callback with user coords once acquired */
+  onLocationFound?: (lat: number, lng: number) => void;
+  /** Show 50km radius circle */
+  showRadius?: boolean;
+  /** Auto-center map on user location */
+  autoCenter?: boolean;
 }
 
 export default function UserLocationMarker({
-    onLocationFound,
-    showRadius = true,
-    autoCenter = true,
+  onLocationFound,
+  showRadius = true,
+  autoCenter = true,
 }: Props) {
-    const map = useMap();
-    const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-    const [hasMounted, setHasMounted] = useState(false);
+  const map = useMap();
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
 
-    const pulseIcon = useMemo(() => L.divIcon({
-        className: "",
-        html: `
+  const pulseIcon = useMemo(() => L.divIcon({
+    className: "",
+    html: `
       <div style="position:relative;width:40px;height:40px;">
         <div style="
           position:absolute;top:50%;left:50%;
@@ -54,42 +54,42 @@ export default function UserLocationMarker({
         }
       </style>
     `,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
-    }), []);
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  }), []);
 
-    useEffect(() => {
-        setHasMounted(true);
-        if (!navigator.geolocation) return;
+  useEffect(() => {
+    setHasMounted(true);
+    if (!navigator.geolocation) return;
 
-        let cancelled = false;
+    let cancelled = false;
 
-        navigator.geolocation.getCurrentPosition(
-            (pos) => {
-                if (cancelled) return;
-                const lat = pos.coords.latitude;
-                const lng = pos.coords.longitude;
-                setCoords({ lat, lng });
-                onLocationFound?.(lat, lng);
-                if (autoCenter) {
-                    map.flyTo([lat, lng], 9, { duration: 1.5 });
-                }
-            },
-            () => {
-                // Permission denied or error — silent fail
-            },
-            { enableHighAccuracy: true, timeout: 10000 }
-        );
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (cancelled) return;
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setCoords({ lat, lng });
+        onLocationFound?.(lat, lng);
+        if (autoCenter) {
+          map.flyTo([lat, lng], 9, { duration: 1.5 });
+        }
+      },
+      () => {
+        // Permission denied or error — silent fail
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
 
-        return () => {
-            cancelled = true;
-        };
-    }, [map, onLocationFound, autoCenter]);
+    return () => {
+      cancelled = true;
+    };
+  }, [map, onLocationFound, autoCenter]);
 
-    // Inject tooltip styling
-    useEffect(() => {
-        const style = document.createElement("style");
-        style.textContent = `
+  // Inject tooltip styling
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = `
       .leaflet-tooltip-location {
         background: rgba(0,0,0,0.75) !important;
         color: white !important;
@@ -105,37 +105,37 @@ export default function UserLocationMarker({
         border-top-color: rgba(0,0,0,0.75) !important;
       }
     `;
-        document.head.appendChild(style);
-        return () => { document.head.removeChild(style); };
-    }, []);
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
 
-    if (!hasMounted || !coords) return null;
+  if (!hasMounted || !coords) return null;
 
-    return (
-      <>
-        <Marker position={[coords.lat, coords.lng]} icon={pulseIcon} zIndexOffset={1000}>
-          <Tooltip
-            permanent={false}
-            direction="top"
-            offset={[0, -24]}
-            className="leaflet-tooltip-location"
-          >
-            You Are Here
-          </Tooltip>
-        </Marker>
-        {showRadius && (
-          <Circle
-            center={[coords.lat, coords.lng]}
-            radius={50000}
-            pathOptions={{
-              color: "rgba(59,130,246,0.5)",
-              fillColor: "rgba(59,130,246,0.06)",
-              fillOpacity: 1,
-              weight: 2,
-              dashArray: "8 6",
-            }}
-          />
-        )}
-      </>
-    );
+  return (
+    <>
+      <Marker position={[coords.lat, coords.lng]} icon={pulseIcon} zIndexOffset={1000}>
+        <Tooltip
+          permanent={false}
+          direction="top"
+          offset={[0, -24]}
+          className="leaflet-tooltip-location"
+        >
+          You Are Here
+        </Tooltip>
+      </Marker>
+      {showRadius && (
+        <Circle
+          center={[coords.lat, coords.lng]}
+          radius={50000}
+          pathOptions={{
+            color: "rgba(59,130,246,0.5)",
+            fillColor: "rgba(59,130,246,0.06)",
+            fillOpacity: 1,
+            weight: 2,
+            dashArray: "8 6",
+          }}
+        />
+      )}
+    </>
+  );
 }

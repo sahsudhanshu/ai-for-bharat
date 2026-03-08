@@ -49,7 +49,7 @@ except ImportError:
 
 from src.core.state import AgentState
 from src.core.prompts import build_system_prompt
-from src.memory.manager import build_message_history, extract_and_update_long_term_memory
+from src.memory.manager import build_message_history, extract_and_update_long_term_memory, _is_memory_placeholder
 from src.memory.dynamodb_store import get_long_term_memory
 from src.utils.languages import validate_language, get_rejection_message
 from src.tools.weather import get_weather
@@ -61,6 +61,9 @@ from src.tools.group_history import get_group_history
 from src.tools.get_group_details import get_group_details
 from src.tools.web_search import web_search
 from src.tools.fishing_spots import get_nearby_fishing_spots
+from src.tools.fish_weight import estimate_fish_weight
+
+_INTENT_CLASSIFIER_MISSING_DEP_LOGGED = False
 
 # Import RAG integration
 try:
@@ -71,7 +74,7 @@ except ImportError:
     print("⚠ RAG not available - Bedrock KB integration skipped")
 
 # ── All tools the agent can invoke ───────────────────────────────────────────
-TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details, web_search, get_nearby_fishing_spots]
+TOOLS = [get_weather, get_catch_history, get_catch_details, get_map_data, get_market_prices, get_group_history, get_group_details, web_search, get_nearby_fishing_spots, estimate_fish_weight]
 if RAG_AVAILABLE:
     TOOLS.append(create_rag_tool())
 
@@ -157,10 +160,7 @@ async def load_context(state: AgentState) -> Dict[str, Any]:
     ltm = await ltm_task
 
     # Filter out placeholder text so the LLM doesn't echo it in responses
-    if ltm and ltm.strip().lower().replace("- ", "") in (
-        "no facts recorded yet.", "no facts recorded yet",
-        "no new facts to record.", "no new facts to record",
-    ):
+    if _is_memory_placeholder(ltm):
         ltm = None
 
     # User location from browser GPS
@@ -236,6 +236,7 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
     implies opening the map, viewing history, or uploading an image.
     Sets ui_map, ui_history, ui_upload (and map_lat/map_lon if applicable).
     """
+    import importlib.util
     import json as _json
     import logging
     import os
@@ -246,6 +247,18 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
         "ui_map": False, "ui_history": False, "ui_upload": False,
         "map_lat": None, "map_lon": None,
     }
+
+    # Classifier is optional. Skip cleanly if dependency or API key is missing.
+    google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    has_genai_pkg = importlib.util.find_spec("google.generativeai") is not None
+    if not google_api_key or not has_genai_pkg:
+        global _INTENT_CLASSIFIER_MISSING_DEP_LOGGED
+        if not _INTENT_CLASSIFIER_MISSING_DEP_LOGGED:
+            logging.info(
+                "[intent_classifier] disabled (missing GOOGLE_API_KEY or google.generativeai); using defaults"
+            )
+            _INTENT_CLASSIFIER_MISSING_DEP_LOGGED = True
+        return defaults
 
     try:
         if not _GEMINI_AVAILABLE:

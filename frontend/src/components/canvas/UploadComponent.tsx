@@ -48,12 +48,15 @@ import {
   uploadGroupToS3,
   analyzeGroup,
   getGroups,
+  estimateFishWeight,
   type GroupRecord,
+  type FishWeightEstimate,
 } from "@/lib/api-client";
 import { useLanguage } from "@/lib/i18n";
 import { resolveMLUrl } from "@/lib/constants";
 import CameraModal from "@/components/CameraModal";
 import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
+import { useAgentContext } from "@/lib/stores/agent-context-store";
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
@@ -114,21 +117,43 @@ export default function UploadComponent({
   const [history, setHistory] = useState<GroupRecord[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+  // Weight estimation state
+  const [weightFormOpen, setWeightFormOpen] = useState<Record<string, boolean>>({});
+  const [weightInputs, setWeightInputs] = useState<Record<string, { length1: string; length3: string; height: string; width: string }>>({});
+  const [weightLoading, setWeightLoading] = useState<Record<string, boolean>>({});
+  const [weightResults, setWeightResults] = useState<Record<string, FishWeightEstimate>>({});
+  const [weightErrors, setWeightErrors] = useState<Record<string, string>>({});
+
+  const handleWeightEstimate = async (cropKey: string, species: string) => {
+    const inputs = weightInputs[cropKey];
+    if (!inputs || !inputs.length1 || !inputs.length3 || !inputs.height || !inputs.width) {
+      setWeightErrors(prev => ({ ...prev, [cropKey]: "Please fill all measurement fields" }));
+      return;
+    }
+    setWeightLoading(prev => ({ ...prev, [cropKey]: true }));
+    setWeightErrors(prev => ({ ...prev, [cropKey]: "" }));
+    try {
+      const result = await estimateFishWeight({
+        species,
+        length1: parseFloat(inputs.length1),
+        length3: parseFloat(inputs.length3),
+        height: parseFloat(inputs.height),
+        width: parseFloat(inputs.width),
+      });
+      setWeightResults(prev => ({ ...prev, [cropKey]: result }));
+      setWeightFormOpen(prev => ({ ...prev, [cropKey]: false }));
+    } catch (err) {
+      setWeightErrors(prev => ({ ...prev, [cropKey]: err instanceof Error ? err.message : "Estimation failed" }));
+    } finally {
+      setWeightLoading(prev => ({ ...prev, [cropKey]: false }));
+    }
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mobileFileInputRef = useRef<HTMLInputElement>(null);
 
   // Current ML result being displayed
   const currentMlResult = mlResults[currentResultIndex] || null;
-
-  // Generate mock supplements for current result
-  const mockSupplements = useMemo<Record<string, MockCropSupplement>>(() => {
-    if (!currentMlResult?.crops) return {};
-    const supplements: Record<string, MockCropSupplement> = {};
-    Object.entries(currentMlResult.crops).forEach(([key, crop], idx) => {
-      supplements[key] = generateMockSupplement(crop.species.label, idx);
-    });
-    return supplements;
-  }, [currentMlResult]);
 
   const YOLO_CONFIDENCE_THRESHOLD = 0.30;
 
@@ -368,6 +393,11 @@ export default function UploadComponent({
       }
 
       toast.success(`Analysis complete! ${totalFish} fish detected across ${files.length} images.`);
+
+      // Sync scan summary to agent context
+      useAgentContext.getState().setScanSummary(
+        `${files.length} images, ${totalFish} fish, top species: ${topSpeciesName ?? 'unknown'}`
+      );
     } catch (err) {
       setStep("error");
       const errorMessage = err instanceof Error ? err.message : t("upload.error");
@@ -510,6 +540,18 @@ export default function UploadComponent({
               Full Report
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const summary = `Scan complete: ${mlResults.length} images, ${cropEntries.length} fish detected.`;
+                (window as any).__agentChatInject?.(`${summary} Analyze these results — what species were found, any diseases, and recommendations?`);
+              }}
+              className="h-8 rounded-xl border-primary/30 text-primary text-xs font-medium hover:bg-primary/10"
+            >
+              <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+              Discuss with AI
+            </Button>
+            <Button
               variant="ghost"
               size="sm"
               onClick={reset}
@@ -624,7 +666,6 @@ export default function UploadComponent({
               {cropEntries.length > 0 ? (
                 <div className="space-y-2">
                   {cropEntries.map(([key, crop], idx) => {
-                    const supplement = mockSupplements[key];
                     const isExpanded = expandedCrops.has(key);
                     const hasCropImg = !!crop.crop_url;
                     const hasGradcam = !!crop.species.gradcam_url || !!crop.disease.gradcam_url;
@@ -662,22 +703,93 @@ export default function UploadComponent({
                             </div>
                           </div>
 
-                          {/* Inline stats */}
-                          {supplement && (
-                            <div className="grid grid-cols-3 gap-2 pt-1">
-                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                <p className="text-[9px] text-muted-foreground/50 font-medium">Weight</p>
-                                <p className="text-xs font-bold">{supplement.weight_kg.toFixed(1)} kg</p>
+                          {/* Weight Estimation Section */}
+                          {weightResults[key] ? (
+                            /* ── Show results ── */
+                            <div className="space-y-1.5 pt-1">
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Est. Weight</p>
+                                  <p className="text-xs font-bold">{(weightResults[key].estimated_weight_grams / 1000).toFixed(2)} kg</p>
+                                </div>
+                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Quality</p>
+                                  <p className={cn("text-xs font-bold", weightResults[key].quality_grade === "Premium" ? "text-emerald-500" : weightResults[key].quality_grade === "Standard" ? "text-amber-500" : "text-red-500")}>{weightResults[key].quality_grade}</p>
+                                </div>
+                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Value</p>
+                                  <p className="text-xs font-bold">₹{weightResults[key].estimated_fish_value.min_inr}–{weightResults[key].estimated_fish_value.max_inr}</p>
+                                </div>
                               </div>
-                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                <p className="text-[9px] text-muted-foreground/50 font-medium">Quality</p>
-                                <p className={cn("text-xs font-bold", supplement.qualityGrade === "Premium" ? "text-emerald-500" : supplement.qualityGrade === "Standard" ? "text-amber-500" : "text-red-500")}>{supplement.qualityGrade}</p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div className="text-center p-1.5 rounded-lg bg-primary/5">
+                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Weight Range</p>
+                                  <p className="text-[10px] font-bold">{(weightResults[key].estimated_weight_range.min_grams / 1000).toFixed(2)}–{(weightResults[key].estimated_weight_range.max_grams / 1000).toFixed(2)} kg</p>
+                                </div>
+                                <div className="text-center p-1.5 rounded-lg bg-primary/5">
+                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Market Price</p>
+                                  <p className="text-[10px] font-bold">₹{weightResults[key].market_price_per_kg.min_inr}–{weightResults[key].market_price_per_kg.max_inr}/kg</p>
+                                </div>
                               </div>
-                              <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                <p className="text-[9px] text-muted-foreground/50 font-medium">Value</p>
-                                <p className="text-xs font-bold">₹{supplement.estimatedValue}</p>
+                              {weightResults[key].notes && (
+                                <p className="text-[9px] text-muted-foreground/40 italic px-1">{weightResults[key].notes}</p>
+                              )}
+                            </div>
+                          ) : weightFormOpen[key] ? (
+                            /* ── Show measurement form ── */
+                            <div className="space-y-2 pt-1">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                {(["length1", "length3", "height", "width"] as const).map((field) => (
+                                  <div key={field}>
+                                    <label className="text-[9px] text-muted-foreground/50 font-medium block mb-0.5">
+                                      {field === "length1" ? "Length 1 (cm)" : field === "length3" ? "Total Length (cm)" : field === "height" ? "Height (cm)" : "Width (cm)"}
+                                    </label>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      placeholder="0.00"
+                                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-border/20 bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                      value={weightInputs[key]?.[field] || ""}
+                                      onChange={(e) => setWeightInputs(prev => ({ ...prev, [key]: { ...prev[key], [field]: e.target.value } }))}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              {weightErrors[key] && (
+                                <p className="text-[9px] text-red-500 font-medium">{weightErrors[key]}</p>
+                              )}
+                              <div className="flex gap-1.5">
+                                <Button
+                                  size="sm"
+                                  className="flex-1 h-7 text-[10px] rounded-lg bg-primary font-semibold"
+                                  onClick={() => handleWeightEstimate(key, crop.species.label)}
+                                  disabled={weightLoading[key]}
+                                >
+                                  {weightLoading[key] ? (
+                                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Estimating...</>
+                                  ) : "Calculate Weight"}
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-[10px] rounded-lg text-muted-foreground"
+                                  onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: false }))}
+                                >
+                                  Cancel
+                                </Button>
                               </div>
                             </div>
+                          ) : (
+                            /* ── Show button ── */
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full h-7 text-[10px] rounded-lg border-primary/20 text-primary hover:bg-primary/5 font-medium mt-1"
+                              onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: true }))}
+                            >
+                              <Zap className="w-3 h-3 mr-1" />
+                              Get Estimated Weight
+                            </Button>
                           )}
 
                           {/* Grad-CAM toggle */}

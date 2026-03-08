@@ -7,7 +7,7 @@
  */
 "use client"
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMap, useMapEvents } from 'react-leaflet';
 
 interface MapBounds {
@@ -27,34 +27,51 @@ interface Props {
 export default function MapEventsWrapper({ onMouseMove, onClick, onMapReady, onMoveEnd }: Props) {
     const map = useMap();
 
-    useEffect(() => {
-        if (map && onMapReady) {
-            onMapReady(map);
-        }
-    }, [map, onMapReady]);
+    // Use a stable ref for callbacks to prevent resetting listeners unnecessarily
+    const callbacks = useRef({ onMouseMove, onClick, onMapReady, onMoveEnd });
 
-    useMapEvents({
-        mousemove(e) {
-            onMouseMove(e.latlng);
-        },
-        click(e) {
-            onClick?.(e.latlng);
-        },
-        moveend() {
-            if (onMoveEnd) {
-                const bounds = map.getBounds();
-                const center = map.getCenter();
-                onMoveEnd(
-                    {
-                        north: bounds.getNorth(),
-                        south: bounds.getSouth(),
-                        east: bounds.getEast(),
-                        west: bounds.getWest(),
-                    },
-                    { lat: center.lat, lng: center.lng }
-                );
-            }
-        },
+    useEffect(() => {
+        callbacks.current = { onMouseMove, onClick, onMapReady, onMoveEnd };
     });
+
+    useEffect(() => {
+        if (map && callbacks.current.onMapReady) {
+            callbacks.current.onMapReady(map);
+        }
+    }, [map]);
+
+    const handlers = useRef({
+        mousemove(e: any) {
+            callbacks.current.onMouseMove(e.latlng);
+        },
+        click(e: any) {
+            callbacks.current.onClick?.(e.latlng);
+        },
+        dragend() {
+            triggerEnd();
+        },
+        zoomend() {
+            triggerEnd();
+        }
+    });
+
+    function triggerEnd() {
+        if (callbacks.current.onMoveEnd) {
+            const bounds = map.getBounds();
+            const center = map.getCenter();
+            callbacks.current.onMoveEnd(
+                {
+                    north: bounds.getNorth(),
+                    south: bounds.getSouth(),
+                    east: bounds.getEast(),
+                    west: bounds.getWest(),
+                },
+                { lat: center.lat, lng: center.lng }
+            );
+        }
+    }
+
+    useMapEvents(handlers.current);
+
     return null;
 }

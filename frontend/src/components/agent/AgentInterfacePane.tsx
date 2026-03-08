@@ -33,6 +33,8 @@ export default function AgentInterfacePane({
   const { t } = useLanguage();
   const isOffline = useAgentFirstStore(selectIsOffline);
   const paneMessages = useAgentFirstStore(selectPaneMessages);
+  const activeComponent = useAgentFirstStore((state) => state.activeComponent);
+  const componentProps = useAgentFirstStore((state) => state.componentProps);
   const currentChatId = useAgentFirstStore((state) => state.currentChatId);
   const conversationHistory = useAgentFirstStore((state) => state.conversationHistory);
   const setChatId = useAgentFirstStore((state) => state.setChatId);
@@ -52,6 +54,11 @@ export default function AgentInterfacePane({
   
   // Track processed PaneMessages to avoid duplicates
   const processedMessagesRef = useRef<Set<string>>(new Set());
+
+  const selectedContextGroupId =
+    (activeComponent === 'history' || activeComponent === 'upload')
+      ? (componentProps?.selectedGroupId ?? componentProps?.currentGroupId ?? null)
+      : null;
 
   // ── Preserve scroll position across component changes ──────────────────────
   useEffect(() => {
@@ -282,6 +289,7 @@ export default function AgentInterfacePane({
           <AgentChat
             variant="compact"
             chatId={currentChatId}
+            contextGroupId={selectedContextGroupId}
             onChatIdChange={handleChatIdChange}
             initialMessages={conversationHistory}
             onMessagesChange={handleConversationUpdate}

@@ -445,13 +445,28 @@ export async function sendChat(
 /**
  * Stream a chat message and receive chunks via SSE.
  */
+export interface StreamChatUi {
+  map: boolean;
+  history: boolean;
+  upload: boolean;
+  mapLat?: number;
+  mapLon?: number;
+}
+
+export interface StreamChatResult {
+  chatId: string;
+  messageId?: string;
+  ui?: StreamChatUi;
+}
+
 export async function streamChat(
   message: string,
   onChunk: (text: string) => void,
   overrideChatId?: string,
   language?: string,
   location?: { latitude: number; longitude: number },
-): Promise<{ chatId: string; messageId?: string }> {
+  onToolCall?: (toolName: string) => void,
+): Promise<StreamChatResult> {
   if (IS_AGENT_CONFIGURED && overrideChatId) {
     let streamEstablished = false;
     let streamedAnyChunk = false;
@@ -486,6 +501,7 @@ export async function streamChat(
       let done = false;
       let buffer = "";
       let finalMessageId: string | undefined;
+      let finalUi: StreamChatUi | undefined;
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
@@ -504,8 +520,11 @@ export async function streamChat(
                 // Ignore malformed/incomplete SSE payload lines.
                 continue;
               }
-              if (data.type === "start" || data.type === "tool") {
+              if (data.type === "start") {
                 streamEstablished = true;
+              } else if (data.type === "tool") {
+                streamEstablished = true;
+                if (onToolCall && data.name) onToolCall(data.name);
               } else if (data.type === "chunk") {
                 streamEstablished = true;
                 streamedAnyChunk = true;
@@ -513,6 +532,15 @@ export async function streamChat(
               } else if (data.type === "end") {
                 streamEstablished = true;
                 finalMessageId = data.messageId;
+                if (data.ui) {
+                  finalUi = {
+                    map: Boolean(data.ui.map),
+                    history: Boolean(data.ui.history),
+                    upload: Boolean(data.ui.upload),
+                    mapLat: data.ui.mapLat ?? undefined,
+                    mapLon: data.ui.mapLon ?? undefined,
+                  };
+                }
               } else if (data.type === "error") {
                 throw new Error(data.error);
               }
@@ -520,7 +548,7 @@ export async function streamChat(
           }
         }
       }
-      return { chatId: overrideChatId, messageId: finalMessageId };
+      return { chatId: overrideChatId, messageId: finalMessageId, ui: finalUi };
     } catch {
       // If stream was already established, avoid issuing a second duplicate sync request.
       if (streamEstablished || streamedAnyChunk) {
@@ -728,6 +756,44 @@ export async function deleteGroup(groupId: string): Promise<void> {
   await apiFetch<void>(`/groups/${groupId}`, {
     method: "DELETE",
   });
+}
+
+// ── Fish Weight Estimation ────────────────────────────────────────────────────
+
+export interface FishWeightEstimate {
+  species: string;
+  estimated_weight_range: { min_grams: number; max_grams: number };
+  ml_predicted_weight_grams: number | null;
+  formula_calculated_weight_grams: number;
+  estimated_weight_grams: number;
+  market_price_per_kg: {
+    min_inr: number;
+    max_inr: number;
+    market_reference: string;
+  };
+  estimated_fish_value: { min_inr: number; max_inr: number };
+  quality_grade: string;
+  notes: string;
+}
+
+/**
+ * Estimate fish weight using ML API + scientific formula + Gemini analysis.
+ */
+export async function estimateFishWeight(params: {
+  species: string;
+  length1: number;
+  length3: number;
+  height: number;
+  width: number;
+}): Promise<FishWeightEstimate> {
+  const res = await agentFetch<{ success: boolean; data: FishWeightEstimate }>(
+    "/fish-weight/estimate",
+    {
+      method: "POST",
+      body: JSON.stringify(params),
+    },
+  );
+  return res.data;
 }
 
 // ── Text-to-Speech ────────────────────────────────────────────────────────────

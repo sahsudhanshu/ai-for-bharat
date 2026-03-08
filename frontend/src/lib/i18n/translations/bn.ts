@@ -155,6 +155,16 @@ const bn: TranslationStrings = {
     'capability.analytics': 'বিশ্লেষণ',
     'capability.analyticsDesc': 'আয় এবং ক্যাচ ইতিহাস ট্র্যাক করুন',
     'capability.hint': 'অথবা নীচে আপনার প্রশ্ন টাইপ করুন',
+
+    // Quick action chips
+    'chat.chip.identify': 'মাছের প্রজাতি চিনুন',
+    'chat.chip.seaConditions': 'আজকের সমুদ্রের অবস্থা',
+    'chat.chip.regulations': 'মাছ ধরার নিয়ম',
+    'chat.chip.tellAbout': 'এই মাছ সম্পর্কে বলুন',
+    'chat.chip.marketValue': 'বাজার মূল্য?',
+    'chat.chip.healthy': 'এটি কি সুস্থ?',
+    'chat.chip.cooking': 'রান্নার টিপস',
+    'chat.chip.sustainability': 'টেকসই তথ্য',
 };
 
 export default bn;

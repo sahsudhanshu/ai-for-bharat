@@ -6,6 +6,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import { AuthProvider } from "@/lib/auth-context";
 import { LanguageProvider } from "@/lib/i18n";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "next-themes";
 
 const poppins = Poppins({
   variable: "--font-sans",
@@ -29,19 +30,26 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${poppins.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <Toaster position="top-right" />
-        <LanguageProvider>
-          <AuthProvider>
-            <AppLayout>
-              {children}
-            </AppLayout>
-          </AuthProvider>
-        </LanguageProvider>
-        <VisualEditsMessenger />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="outdoor"
+          themes={["outdoor", "light", "dark"]}
+          enableSystem={false}
+        >
+          <Toaster position="top-right" />
+          <LanguageProvider>
+            <AuthProvider>
+              <AppLayout>
+                {children}
+              </AppLayout>
+            </AuthProvider>
+          </LanguageProvider>
+          <VisualEditsMessenger />
+        </ThemeProvider>
       </body>
     </html>
   );

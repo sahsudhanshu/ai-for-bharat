@@ -69,6 +69,16 @@ const mr: TranslationStrings = {
     'capability.analytics': 'विश्लेषण',
     'capability.analyticsDesc': 'कमाई आणि कॅच इतिहास ट्रॅक करा',
     'capability.hint': 'किंवा खाली तुमचा प्रश्न टाइप करा',
+
+    // Quick action chips
+    'chat.chip.identify': 'माशाची प्रजाती ओळखा',
+    'chat.chip.seaConditions': 'आजची समुद्र स्थिती',
+    'chat.chip.regulations': 'मासेमारी नियम',
+    'chat.chip.tellAbout': 'या माशाबद्दल सांगा',
+    'chat.chip.marketValue': 'बाजार मूल्य?',
+    'chat.chip.healthy': 'हे निरोगी आहे का?',
+    'chat.chip.cooking': 'स्वयंपाक टिप्स',
+    'chat.chip.sustainability': 'शाश्वतता माहिती',
 };
 
 export default mr;

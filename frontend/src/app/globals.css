@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+@custom-variant outdoor (&:is(.outdoor *));
 
 @theme inline {
   --color-background: var(--background);
@@ -48,6 +49,11 @@
   --color-forest-dark: #047857;
   --color-warm-gold: #d97706;
   --color-warm-amber: #f59e0b;
+
+  /* Semantic fishermen colors */
+  --color-status-good: #16a34a;
+  --color-status-bad: #dc2626;
+  --color-status-warn: #eab308;
 }
 
 :root {
@@ -83,6 +89,41 @@
   --sidebar-accent-foreground: #1e40af;
   --sidebar-border: #e2e8f0;
   --sidebar-ring: #1e40af;
+}
+
+/* ── OUTDOOR MODE: High contrast for bright sunlight ──────────────────────── */
+.outdoor {
+  --background: #ffffff;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --secondary: #059669;
+  --secondary-foreground: #ffffff;
+  --muted: #f0f0f0;
+  --muted-foreground: #374151;
+  --accent: #d97706;
+  --accent-foreground: #ffffff;
+  --destructive: #dc2626;
+  --border: #d1d5db;
+  --input: #d1d5db;
+  --ring: #1d4ed8;
+  --chart-1: #1d4ed8;
+  --chart-2: #059669;
+  --chart-3: #d97706;
+  --chart-4: #7c3aed;
+  --chart-5: #0891b2;
+  --sidebar: #f9fafb;
+  --sidebar-foreground: #000000;
+  --sidebar-primary: #1d4ed8;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e5e7eb;
+  --sidebar-accent-foreground: #1d4ed8;
+  --sidebar-border: #d1d5db;
+  --sidebar-ring: #1d4ed8;
 }
 
 .dark {
@@ -149,6 +190,24 @@
   .safe-area-bottom {
     padding-bottom: env(safe-area-inset-bottom, 20px);
   }
+
+  /* ── Semantic status colors for fishermen ─────────────────────────────────── */
+  .status-good { color: var(--color-status-good); }
+  .status-bad  { color: var(--color-status-bad); }
+  .status-warn { color: var(--color-status-warn); }
+  .bg-status-good { background-color: var(--color-status-good); }
+  .bg-status-bad  { background-color: var(--color-status-bad); }
+  .bg-status-warn { background-color: var(--color-status-warn); }
+}
+
+/* ── Outdoor mode glass overrides (light glassmorphism) ────────────────────── */
+.outdoor .glass {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+.outdoor .glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 @layer components {
@@ -209,6 +268,11 @@
   40% { transform: translateY(-6px); }
 }
 
+@keyframes pulse-ring {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
 .animate-fade-in-up {
   animation: fade-in-up 0.5s ease-out both;
 }
@@ -237,12 +301,26 @@
   animation: float 3s ease-in-out infinite;
 }
 
+.animate-pulse-ring {
+  animation: pulse-ring 1.2s ease-out infinite;
+}
+
 .stagger-1 { animation-delay: 0.05s; }
 .stagger-2 { animation-delay: 0.10s; }
 .stagger-3 { animation-delay: 0.15s; }
 .stagger-4 { animation-delay: 0.20s; }
 .stagger-5 { animation-delay: 0.25s; }
 .stagger-6 { animation-delay: 0.30s; }
+
+/* ── Fat-finger touch targets for outdoor/mobile ──────────────────────────── */
+@media (pointer: coarse) {
+  button:not([data-compact]),
+  a:not([data-compact]),
+  [role="button"]:not([data-compact]) {
+    min-height: 48px;
+    min-width: 48px;
+  }
+}
 
 /* ── Smooth transitions for all interactive elements ───────────────────────── */
 button, a, input, [role="button"] {
@@ -285,3 +363,4 @@ nextjs-portal {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--primary) 20%, transparent) transparent;
 }
+.leaflet-control-attribution { display: none !important; }

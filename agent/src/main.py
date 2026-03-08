@@ -186,6 +186,10 @@ app.include_router(fishing_spots_router, prefix="/fishing-spots", tags=["fishing
 from src.routes.telegram_admin import router as telegram_router
 app.include_router(telegram_router, prefix="/telegram", tags=["telegram"])
 
+# Fish weight estimation
+from src.routes.fish_weight import router as fish_weight_router
+app.include_router(fish_weight_router, prefix="/fish-weight", tags=["fish-weight"])
+
 
 @app.get("/health")
 async def health():

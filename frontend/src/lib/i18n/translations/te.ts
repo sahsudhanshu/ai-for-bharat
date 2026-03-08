@@ -69,6 +69,16 @@ const te: TranslationStrings = {
     'capability.analytics': 'విశ్లేషణ',
     'capability.analyticsDesc': 'ఆదాయం మరియు క్యాచ్ చరిత్రను ట్రాక్ చేయండి',
     'capability.hint': 'లేదా క్రింద మీ ప్రశ్నను టైప్ చేయండి',
+
+    // Quick action chips
+    'chat.chip.identify': 'చేప జాతిని గుర్తించండి',
+    'chat.chip.seaConditions': 'ఈ రోజు సముద్ర పరిస్థితులు',
+    'chat.chip.regulations': 'చేపల పట్టు నిబంధనలు',
+    'chat.chip.tellAbout': 'ఈ చేప గురించి చెప్పండి',
+    'chat.chip.marketValue': 'మార్కెట్ విలువ?',
+    'chat.chip.healthy': 'ఇది ఆరోగ్యకరమా?',
+    'chat.chip.cooking': 'వంట చిట్కాలు',
+    'chat.chip.sustainability': 'సుస్థిరత సమాచారం',
 };
 
 export default te;

@@ -172,6 +172,16 @@ const en: TranslationStrings = {
   'capability.analytics': 'Analytics',
   'capability.analyticsDesc': 'Track earnings and catch history',
   'capability.hint': 'Or type your question below',
+
+  // Quick action chips (above input)
+  'chat.chip.identify': 'Identify fish species',
+  'chat.chip.seaConditions': 'Sea conditions today',
+  'chat.chip.regulations': 'Fishing regulations',
+  'chat.chip.tellAbout': 'Tell me about this fish',
+  'chat.chip.marketValue': 'Market value?',
+  'chat.chip.healthy': 'Is it healthy?',
+  'chat.chip.cooking': 'Cooking tips',
+  'chat.chip.sustainability': 'Sustainability info',
 };
 
 export default en;

@@ -27,6 +27,7 @@ interface LanguageContextValue {
     setLocale: (locale: Locale) => void;
     t: (key: TranslationKey) => string;
     speechCode: string;
+    isFirstVisit: boolean;
 }
 
 const LanguageContext = createContext<LanguageContextValue | null>(null);
@@ -35,6 +36,7 @@ const STORAGE_KEY = 'oceanai-locale';
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
     const [locale, setLocaleState] = useState<Locale>('en');
+    const [isFirstVisit, setIsFirstVisit] = useState(false);
 
     // Load saved locale on mount
     useEffect(() => {
@@ -42,6 +44,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
             const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
             if (saved && translations[saved]) {
                 setLocaleState(saved);
+                setIsFirstVisit(false);
+            } else {
+                setIsFirstVisit(true);
             }
         } catch {
             // localStorage may not be available
@@ -50,6 +55,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
 
     const setLocale = useCallback((newLocale: Locale) => {
         setLocaleState(newLocale);
+        setIsFirstVisit(false);
         try {
             localStorage.setItem(STORAGE_KEY, newLocale);
         } catch {
@@ -64,7 +70,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     const speechCode = LANGUAGES.find(l => l.code === locale)?.speechCode ?? 'en-IN';
 
     return (
-        <LanguageContext.Provider value={{ locale, setLocale, t, speechCode }}>
+        <LanguageContext.Provider value={{ locale, setLocale, t, speechCode, isFirstVisit }}>
             {children}
         </LanguageContext.Provider>
     );
@@ -75,3 +81,4 @@ export function useLanguage() {
     if (!ctx) throw new Error('useLanguage must be used within LanguageProvider');
     return ctx;
 }
+

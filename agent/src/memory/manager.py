@@ -128,6 +128,23 @@ async def _summarize_messages(messages: List[Dict]) -> str:
 # Long-term memory: extract and persist facts
 # ─────────────────────────────────────────────────────────────────────────────
 
+_PLACEHOLDER_PHRASES = {
+    "no facts recorded yet", "no facts recorded yet.",
+    "no new facts to record", "no new facts to record.",
+    "no facts available", "no facts available.",
+    "none", "n/a", "none.",
+}
+
+def _is_memory_placeholder(text: str) -> bool:
+    """Return True if `text` is just a placeholder / empty memory string."""
+    if not text:
+        return True
+    normalized = text.strip().lower()
+    # Strip leading bullet markers (* or -)
+    normalized = normalized.lstrip("*- ").strip()
+    return normalized in _PLACEHOLDER_PHRASES
+
+
 async def extract_and_update_long_term_memory(
     user_id: str,
     user_message: str,
@@ -137,7 +154,8 @@ async def extract_and_update_long_term_memory(
     Ask the LLM whether the latest exchange reveals new persistent facts
     about the user. If yes, merge them into existing long-term memory.
     """
-    existing = get_long_term_memory(user_id) or "No facts recorded yet."
+    raw_existing = get_long_term_memory(user_id)
+    existing = raw_existing if raw_existing and not _is_memory_placeholder(raw_existing) else "No facts about this user yet."
 
     prompt = (
         "You are a memory extraction system. Given the EXISTING facts about a fisherman user "
@@ -147,16 +165,11 @@ async def extract_and_update_long_term_memory(
         f"USER MESSAGE:\n{user_message}\n\n"
         f"ASSISTANT RESPONSE:\n{assistant_response}\n\n"
         "If there are new facts, output the COMPLETE updated fact list (merge old + new). "
-        "If nothing new, output the existing facts unchanged. "
+        "If nothing new, output EXACTLY the word NONE and nothing else. "
         "Keep the format as a simple bullet list. Be concise.\n\n"
         "UPDATED FACTS:"
     )
     updated = await _call_bedrock_for_text(prompt)
     # Don't save placeholder/empty text back to DynamoDB
-    if updated.strip():
-        cleaned = updated.strip()
-        if cleaned.lower().replace("- ", "") not in (
-            "no facts recorded yet.", "no facts recorded yet",
-            "no new facts to record.", "no new facts to record",
-        ):
-            update_long_term_memory(user_id, cleaned)
+    if updated.strip() and not _is_memory_placeholder(updated):
+        update_long_term_memory(user_id, updated.strip())

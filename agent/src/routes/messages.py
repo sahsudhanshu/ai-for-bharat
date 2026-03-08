@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 import json
 import asyncio
+import logging
 from pydantic import BaseModel
 from langchain_core.messages import AIMessage, AIMessageChunk
 
@@ -25,6 +26,13 @@ from src.memory.manager import maybe_update_summary
 from src.core.graph import graph, intent_classifier
 
 router = APIRouter()
+
+
+def _message_for_log(message: str) -> str:
+    """Keep logs readable while preserving the exact payload shape."""
+    if len(message) <= 1200:
+        return message
+    return f"{message[:1200]}... [truncated {len(message) - 1200} chars]"
 
 
 def _extract_text(content) -> str:
@@ -87,6 +95,16 @@ async def send_message(
         raise HTTPException(status_code=403, detail="Not your conversation")
 
     language = body.language or conv.get("language", "en")
+
+    logging.info(
+        "[messages] incoming user=%s conversation=%s language=%s lat=%s lon=%s message=%r",
+        user.sub,
+        conversation_id,
+        language,
+        body.latitude,
+        body.longitude,
+        _message_for_log(body.message),
+    )
 
     # ── Persist user message ─────────────────────────────────────────────
     save_message(conversation_id, role="user", content=body.message)
@@ -207,6 +225,16 @@ async def send_message_stream(
 
     language = body.language or conv.get("language", "en")
 
+    logging.info(
+        "[messages/stream] incoming user=%s conversation=%s language=%s lat=%s lon=%s message=%r",
+        user.sub,
+        conversation_id,
+        language,
+        body.latitude,
+        body.longitude,
+        _message_for_log(body.message),
+    )
+
     # ── Persist user message ─────────────────────────────────────────────
     save_message(conversation_id, role="user", content=body.message)
 
@@ -256,6 +284,27 @@ async def send_message_stream(
                     yield f"data: {json.dumps({'type': 'tool', 'name': tool_name})}\n\n"
 
             ai_content = "".join(ai_content_chunks)
+
+            # ── Fallback: if streaming produced no text (can happen with
+            #    non-Latin scripts like Bengali, Tamil, etc.), run the graph
+            #    non-streaming and extract the final AI response. ──────────
+            if not ai_content:
+                logging.warning(
+                    "[stream] Empty stream for conversation=%s, falling back to non-stream invoke",
+                    conversation_id,
+                )
+                try:
+                    result = await graph.ainvoke(initial_state)
+                    for msg in reversed(result.get("messages", [])):
+                        if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
+                            ai_content = _extract_text(msg.content)
+                            if ai_content:
+                                # Send the full response as a single chunk
+                                yield f"data: {json.dumps({'type': 'chunk', 'text': ai_content})}\n\n"
+                                break
+                except Exception as fallback_err:
+                    logging.error("[stream] Fallback invoke also failed: %s", fallback_err)
+
             if not ai_content:
                 ai_content = "I processed your request but couldn't generate a text response."
             ai_content = _sanitise_agent_text(ai_content)

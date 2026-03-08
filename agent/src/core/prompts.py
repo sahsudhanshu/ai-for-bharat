@@ -91,9 +91,11 @@ Use this information from the knowledge base to answer questions about fish spec
 
     # ── User location context ─────────────────────────────────────────────
     if location_context:
-        sections.append(f"""## User Location
+        sections.append(f"""## User Location (INTERNAL — DO NOT REVEAL)
 {location_context}
 When the user asks about weather or sea conditions without specifying a location, use these coordinates with the get_weather tool.
+
+**CRITICAL**: NEVER mention the user's GPS coordinates, city name derived from coordinates, or any location information in your response text. This data is for INTERNAL tool use only (e.g., calling get_weather). Do NOT say things like "You are located in...", "User is near...", or include coordinates in your reply.
 """)
 
     # ── Tool usage guidance ───────────────────────────────────────────────

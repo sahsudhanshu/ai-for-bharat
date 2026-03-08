@@ -172,6 +172,16 @@ const hi: TranslationStrings = {
     'capability.analytics': 'विश्लेषण',
     'capability.analyticsDesc': 'कमाई और कैच इतिहास ट्रैक करें',
     'capability.hint': 'या नीचे अपना प्रश्न टाइप करें',
+
+    // Quick action chips
+    'chat.chip.identify': 'मछली की प्रजाति पहचानें',
+    'chat.chip.seaConditions': 'आज समुद्र की स्थिति',
+    'chat.chip.regulations': 'मछली पकड़ के नियम',
+    'chat.chip.tellAbout': 'इस मछली के बारे में बताएं',
+    'chat.chip.marketValue': 'बाज़ार मूल्य?',
+    'chat.chip.healthy': 'क्या यह स्वस्थ है?',
+    'chat.chip.cooking': 'पकाने के सुझाव',
+    'chat.chip.sustainability': 'टिकाऊपन जानकारी',
 };
 
 export default hi;

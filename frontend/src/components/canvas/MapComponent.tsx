@@ -2,22 +2,22 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  Waves, Thermometer, Fish, Filter, ChevronRight,
+  Waves, Thermometer, Filter, ChevronRight,
   TrendingUp, Calendar, Droplets, Maximize2, Navigation,
   Crosshair, Loader2, MapPin, Wind, X, AlertTriangle,
   Anchor, ArrowUpRight, ArrowDownRight, Minus, Heart,
-  Sun, Moon, CloudRain, Clock, Compass, Target
+  Sun, Moon, CloudRain, Clock, Compass, Target,
+  Sunset, Sparkles
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getMapData, getFishingSpots } from "@/lib/api-client";
 import type { MapMarker, FishingSpot } from "@/lib/api-client";
-import { FISH_SPECIES } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n";
+import { useAgentContext } from '@/lib/stores/agent-context-store';
 import {
   fetchLiveAlerts,
   getActiveAlerts,
@@ -25,8 +25,6 @@ import {
   getSeverityColor,
 } from "@/lib/alerts";
 import type { DisasterAlert } from "@/lib/alerts";
-import { OCEAN_CATCH_DATA, ZONE_INSIGHTS } from "@/lib/ocean-mock-data";
-import type { OceanCatchPoint } from "@/lib/ocean-mock-data";
 import type { PaneMessage } from "@/types/agent-first";
 import {
   MapContainer,
@@ -37,10 +35,18 @@ import {
   ScaleControl,
   ZoomControl,
 } from 'react-leaflet';
+import L from 'leaflet';
 import MapEventsWrapper from '@/components/map/MapEventsWrapper';
 import UserLocationMarker from '@/components/map/UserLocationMarker';
-import SearchThisArea from '@/components/map/SearchThisArea';
 import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icons in Next.js
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 // ── Map Config ────────────────────────────────────────────────────────────────
 const MAP_URL = "https://mt1.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}";
@@ -53,7 +59,6 @@ const INDIA_BOUNDS: [[number, number], [number, number]] = [
 const INDIA_CENTER: [number, number] = [16.0, 76.0];
 
 const OPENWEATHER_LAYER_BY_ACTIVE_LAYER: Record<string, string | null> = {
-  distribution: null,
   temp: "temp_new",
   currents: "wind_new",
   salinity: "pressure_new",
@@ -61,7 +66,6 @@ const OPENWEATHER_LAYER_BY_ACTIVE_LAYER: Record<string, string | null> = {
 
 // ── Weather Scale Configs ─────────────────────────────────────────────────────
 const WEATHER_SCALES: Record<string, { label: string; unit: string; stops: { color: string; value: string }[] } | null> = {
-  distribution: null,
   temp: {
     label: "Temperature", unit: "°C",
     stops: [
@@ -129,35 +133,6 @@ function CatchWeatherPopup({ marker }: { marker: MapMarker }) {
   );
 }
 
-/* ── Ocean catch popup (hides user details) ───────────────────────────────── */
-function OceanCatchPopup({ pt }: { pt: OceanCatchPoint }) {
-  const ageH = Math.round((Date.now() - new Date(pt.timestamp).getTime()) / 3600000);
-  return (
-    <div className="p-2.5 space-y-2 min-w-[220px]">
-      <div className="flex items-center justify-between">
-        <h3 className="font-bold text-sm text-primary flex items-center gap-1.5">
-          <Fish className="w-3.5 h-3.5" /> {pt.species}
-        </h3>
-        <Badge variant="outline" className={cn(
-          "border-none text-[10px] h-5",
-          pt.qualityGrade === "Premium" ? "bg-emerald-500/15 text-emerald-400"
-            : pt.qualityGrade === "Standard" ? "bg-amber-500/15 text-amber-400"
-              : "bg-red-500/15 text-red-400"
-        )}>{pt.qualityGrade}</Badge>
-      </div>
-      <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-        <div className="flex items-center gap-1"><Anchor className="w-3 h-3 text-blue-400" /><span className="text-muted-foreground">Weight:</span><span className="font-bold">{pt.weight_kg} kg</span></div>
-        <div className="flex items-center gap-1"><Droplets className="w-3 h-3 text-cyan-400" /><span className="text-muted-foreground">Depth:</span><span className="font-bold">{pt.depth_m}m</span></div>
-        <div className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-red-400" /><span className="text-muted-foreground">Water:</span><span className="font-bold">{pt.waterTemp}°C</span></div>
-        <div className="flex items-center gap-1"><Heart className="w-3 h-3 text-emerald-400" /><span className="text-muted-foreground">Fresh:</span><span className="font-bold">{pt.freshness}</span></div>
-      </div>
-      <div className="pt-1.5 border-t border-border/50 flex justify-between text-[10px] text-muted-foreground">
-        <span>{pt.catchMethod}</span>
-        <span>{ageH}h ago</span>
-      </div>
-    </div>
-  );
-}
 
 /* ── Weather scale legend ─────────────────────────────────────────────────── */
 function WeatherScaleLegend({ scale }: { scale: { label: string; unit: string; stops: { color: string; value: string }[] } }) {
@@ -181,6 +156,8 @@ export interface MapComponentProps {
   initialCenter?: [number, number];
   initialZoom?: number;
   highlightSpecies?: string;
+  /** When set, the map flies to this location and drops a marker */
+  flyToLocation?: { lat: number; lon: number; _t?: number };
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
@@ -189,14 +166,16 @@ export interface MapComponentProps {
 export default function MapComponent({
   onPaneMessage,
   initialCenter = INDIA_CENTER,
-  initialZoom = 5,
-  highlightSpecies
+  initialZoom = 9,
+  highlightSpecies,
+  flyToLocation
 }: MapComponentProps) {
   const { t } = useLanguage();
-  const [activeLayer, setActiveLayer] = useState('distribution');
-  const [activePanel, setActivePanel] = useState<'controls' | 'tools' | 'insights'>('controls');
-  const [mousePos, setMousePos] = useState({ lat: 16.0, lng: 72.0 });
+  const setMapPointContext = useAgentContext(s => s.setSelectedMapPoint);
+  const setContextPage = useAgentContext(s => s.setCurrentPage);
+  const [activeLayer, setActiveLayer] = useState<keyof typeof OPENWEATHER_LAYER_BY_ACTIVE_LAYER | null>(null);
   const [markers, setMarkers] = useState<MapMarker[]>([]);
+  const [sunTimes, setSunTimes] = useState<{ sunrise: string; sunset: string } | null>(null);
   const [selectedSpecies, setSelectedSpecies] = useState<string>(highlightSpecies || "all");
   const [isLoading, setIsLoading] = useState(true);
   const [clickedWeather, setClickedWeather] = useState<ClickedWeather | null>(null);
@@ -207,9 +186,37 @@ export default function MapComponent({
   const [fishingSpots, setFishingSpots] = useState<FishingSpot[]>([]);
   const [fishingSpotsLoading, setFishingSpotsLoading] = useState(false);
   const [showFishingSpots, setShowFishingSpots] = useState(false);
+  const [locationResolved, setLocationResolved] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const openWeatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHERMAP_API_KEY || "";
+
+  // Ref to hold latest handleMapClick so the flyTo effect can call it safely
+  const handleMapClickRef = useRef<(pos: { lat: number; lng: number }) => void>(undefined);
+
+  // ── Fly to a specific location when flyToLocation prop changes ──────────
+  const prevFlyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!flyToLocation) return;
+    const key = `${flyToLocation.lat},${flyToLocation.lon},${flyToLocation._t ?? 0}`;
+    if (prevFlyRef.current === key) return;
+    prevFlyRef.current = key;
+
+    const fly = () => {
+      if (!mapInstanceRef.current) return;
+      mapInstanceRef.current.flyTo([flyToLocation.lat, flyToLocation.lon], 12, { duration: 1.5 });
+      // Trigger a "click" to fetch weather & show popup marker
+      handleMapClickRef.current?.({ lat: flyToLocation.lat, lng: flyToLocation.lon });
+    };
+
+    // If the map is already ready, fly immediately; otherwise wait a tick
+    if (mapInstanceRef.current) {
+      fly();
+    } else {
+      const timer = setTimeout(fly, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [flyToLocation]); // handleMapClick is stable via useCallback
 
   useEffect(() => {
     setIsClientMounted(true);
@@ -234,6 +241,25 @@ export default function MapComponent({
     return computeSafetyStatus(userLocation.lat, userLocation.lng, activeAlerts);
   }, [userLocation, activeAlerts]);
 
+  // Request user location on mount for centering
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
+          setLocationResolved(true);
+        },
+        (error) => {
+          console.error("Error getting user location:", error);
+          setLocationResolved(true);
+        },
+        { timeout: 5000 }
+      );
+    } else {
+      setLocationResolved(true);
+    }
+  }, []);
+
   // Fetch live alerts on mount
   useEffect(() => {
     if (!openWeatherApiKey) { setAlertsLoading(false); return; }
@@ -246,6 +272,24 @@ export default function MapComponent({
     }, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [openWeatherApiKey]);
+
+  // Fetch sunrise/sunset on mount
+  useEffect(() => {
+    if (!openWeatherApiKey) return;
+    const fetchSunTimes = async () => {
+      try {
+        const lat = userLocation ? userLocation.lat : initialCenter[0];
+        const lon = userLocation ? userLocation.lng : initialCenter[1];
+        const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${openWeatherApiKey}`);
+        const data = await res.json();
+        if (data.sys?.sunrise && data.sys?.sunset) {
+          const formatTime = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          setSunTimes({ sunrise: formatTime(data.sys.sunrise), sunset: formatTime(data.sys.sunset) });
+        }
+      } catch (err) { console.error("Failed to fetch sun times:", err); }
+    };
+    fetchSunTimes();
+  }, [userLocation, initialCenter, openWeatherApiKey]);
 
   // ── Map bounds ──────────────────────────────────────────────────────────────
   const [mapBounds, setMapBounds] = useState<{ north: number; south: number; east: number; west: number } | null>(null);
@@ -264,12 +308,15 @@ export default function MapComponent({
   }, [validMarkers, mapBounds]);
 
   const openWeatherLayer = useMemo(() => {
+    if (!activeLayer || !openWeatherApiKey) return null;
     const layer = OPENWEATHER_LAYER_BY_ACTIVE_LAYER[activeLayer];
-    if (!layer || !openWeatherApiKey) return null;
     return `https://tile.openweathermap.org/map/${layer}/{z}/{x}/{y}.png?appid=${openWeatherApiKey}`;
   }, [activeLayer, openWeatherApiKey]);
 
-  const currentScale = useMemo(() => WEATHER_SCALES[activeLayer], [activeLayer]);
+  const currentScale = useMemo(() => {
+    if (!activeLayer) return null;
+    return WEATHER_SCALES[activeLayer];
+  }, [activeLayer]);
 
   const handleMapReady = useCallback((map: any) => { mapInstanceRef.current = map; }, []);
 
@@ -304,14 +351,24 @@ export default function MapComponent({
     }
   }, [userLocation]);
 
+  const mousePos = useRef({ lat: 16.0, lng: 72.0 });
+  const coordsRef = useRef<HTMLSpanElement>(null);
   const mouseMoveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleMouseMove = useCallback((pos: { lat: number; lng: number }) => {
     if (mouseMoveTimer.current) clearTimeout(mouseMoveTimer.current);
-    mouseMoveTimer.current = setTimeout(() => setMousePos(pos), 50);
+    mouseMoveTimer.current = setTimeout(() => {
+      mousePos.current = pos;
+      if (coordsRef.current) {
+        coordsRef.current.textContent = `${pos.lat.toFixed(4)}°N, ${pos.lng.toFixed(4)}°E`;
+      }
+    }, 50);
   }, []);
 
   // ── PaneMessage dispatch handlers ─────────────────────────────────────────
   const handleMapClick = useCallback(async (pos: { lat: number; lng: number }) => {
+    // Sync map click to agent context
+    setMapPointContext({ lat: pos.lat, lon: pos.lng });
+
     // Dispatch PaneMessage for map click
     onPaneMessage({
       id: `map-click-${Date.now()}`,
@@ -345,6 +402,8 @@ export default function MapComponent({
       });
     } catch { setClickedWeather(null); }
   }, [openWeatherApiKey, onPaneMessage]);
+  // Keep ref in sync for the flyTo effect
+  handleMapClickRef.current = handleMapClick;
 
   const handleMoveEnd = useCallback((bounds: { north: number; south: number; east: number; west: number }) => {
     setMapBounds(bounds);
@@ -388,8 +447,9 @@ export default function MapComponent({
   }, [userLocation]);
 
   // Handle layer change with PaneMessage
-  const handleLayerChange = useCallback((layerId: string) => {
-    setActiveLayer(layerId);
+  const handleLayerChange = useCallback((layerId: keyof typeof OPENWEATHER_LAYER_BY_ACTIVE_LAYER) => {
+    const nextLayer = activeLayer === layerId ? null : layerId;
+    setActiveLayer(nextLayer);
 
     onPaneMessage({
       id: `map-layer-${Date.now()}`,
@@ -397,7 +457,7 @@ export default function MapComponent({
       source: 'map',
       payload: {
         layer: layerId,
-        enabled: true
+        enabled: nextLayer === layerId
       },
       timestamp: Date.now(),
       metadata: {
@@ -405,7 +465,7 @@ export default function MapComponent({
         requiresResponse: false
       }
     });
-  }, [onPaneMessage]);
+  }, [activeLayer, onPaneMessage]);
 
   // Handle marker click with PaneMessage
   const handleMarkerClick = useCallback((marker: MapMarker) => {
@@ -448,48 +508,27 @@ export default function MapComponent({
   };
 
   return (
-    <div className="flex flex-col lg:grid lg:grid-cols-12 gap-3 sm:gap-4 h-full">
+    <div className="flex flex-col gap-3 sm:gap-4 h-full min-h-0">
       {/* ── Sidebar ──────────────────────────────────────────────── */}
-      <div className="lg:col-span-3 xl:col-span-3 flex flex-col gap-3 order-2 lg:order-1 lg:overflow-y-auto lg:max-h-full">
-        <Card className="rounded-2xl border-border/50 bg-card/60 backdrop-blur-sm p-3 sm:p-4 space-y-3">
-          <div className="flex items-center justify-between gap-2">
+      <div className="w-full order-2">
+        <Card className="rounded-2xl border-border/50 bg-card/60 backdrop-blur-sm p-2.5 sm:p-3 space-y-2.5">
+          {/* <div className="flex items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-bold">Map Command Center</h3>
+              <h3 className="text-sm font-bold leading-tight">Map Command Center</h3>
               <p className="text-[10px] text-muted-foreground">Live marine intelligence and catch zones</p>
             </div>
             <Badge variant="outline" className="h-6 rounded-full border-primary/20 bg-primary/5 text-primary text-[10px]">
               {validMarkers.length} catches
             </Badge>
-          </div>
+          </div> */}
 
-          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted/25 p-1">
-            {[
-              { id: 'controls', label: 'Controls' },
-              { id: 'tools', label: 'Tools' },
-              { id: 'insights', label: 'Insights' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActivePanel(tab.id as 'controls' | 'tools' | 'insights')}
-                className={cn(
-                  "h-8 rounded-lg text-[11px] font-semibold transition-all",
-                  activePanel === tab.id
-                    ? "bg-card text-foreground shadow-sm border border-border/40"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {activePanel === 'controls' && (
-            <div className="space-y-3 animate-fade-in">
-              <div className="space-y-2">
+          <div className="space-y-2 animate-fade-in text-xs">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
+              {/* Layers */}
+              <div className="space-y-1.5 lg:col-span-9">
                 <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Layers</h4>
-                <div className="grid grid-cols-2 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                   {[
-                    { id: 'distribution', label: 'Distribution', icon: Fish },
                     { id: 'temp', label: 'Temperature', icon: Thermometer },
                     { id: 'currents', label: 'Currents', icon: Waves },
                     { id: 'salinity', label: 'Salinity', icon: Droplets },
@@ -498,41 +537,28 @@ export default function MapComponent({
                       key={layer.id}
                       variant={activeLayer === layer.id ? "secondary" : "ghost"}
                       className={cn(
-                        "justify-start gap-2 rounded-xl h-9 transition-all text-xs",
+                        "justify-start gap-1.5 rounded-lg h-7 px-2 transition-all text-[11px]",
                         activeLayer === layer.id ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground"
                       )}
-                      onClick={() => handleLayerChange(layer.id)}
+                      onClick={() => handleLayerChange(layer.id as keyof typeof OPENWEATHER_LAYER_BY_ACTIVE_LAYER)}
                     >
-                      <layer.icon className="w-3.5 h-3.5" />
+                      <layer.icon className="w-3 h-3" />
                       <span className="font-semibold truncate">{layer.label}</span>
                     </Button>
                   ))}
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Species Filter</h4>
-                <Select value={selectedSpecies} onValueChange={setSelectedSpecies}>
-                  <SelectTrigger className="h-9 rounded-xl bg-muted/30 border-none text-xs font-semibold">
-                    <Filter className="w-3 h-3 mr-1.5 text-muted-foreground" />
-                    <SelectValue placeholder="All Species" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Species</SelectItem>
-                    {FISH_SPECIES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-
+              {/* Alerts */}
               <Button
                 variant={showAlerts ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full justify-start gap-2 rounded-xl h-9 transition-all text-xs",
+                  "w-full justify-start gap-2 rounded-lg h-7 px-2 transition-all text-[11px] lg:col-span-3",
                   showAlerts ? "bg-red-500/10 text-red-400 border border-red-500/20" : "text-muted-foreground"
                 )}
                 onClick={() => setShowAlerts(!showAlerts)}
               >
-                <AlertTriangle className="w-4 h-4" />
+                <AlertTriangle className="w-3.5 h-3.5" />
                 <span className="font-semibold">Live Alerts</span>
                 {activeAlerts.length > 0 && (
                   <span className={cn(
@@ -544,113 +570,25 @@ export default function MapComponent({
                 )}
               </Button>
             </div>
-          )}
 
-          {activePanel === 'tools' && (
-            <div className="space-y-2.5 animate-fade-in">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2.5 rounded-xl bg-amber-500/8 border border-amber-500/15 space-y-1">
-                  <div className="flex items-center gap-1.5"><Sun className="w-3.5 h-3.5 text-amber-400" /><span className="text-[10px] font-bold text-amber-400">Sunrise</span></div>
-                  <p className="text-xs font-bold text-foreground">06:32 AM</p>
-                  <p className="text-[9px] text-muted-foreground">Sunset 06:18 PM</p>
-                </div>
-                <div className="p-2.5 rounded-xl bg-indigo-500/8 border border-indigo-500/15 space-y-1">
-                  <div className="flex items-center gap-1.5"><Moon className="w-3.5 h-3.5 text-indigo-400" /><span className="text-[10px] font-bold text-indigo-400">Moon</span></div>
-                  <p className="text-xs font-bold text-foreground">Waxing Crescent</p>
-                  <p className="text-[9px] text-muted-foreground">32% illuminated</p>
-                </div>
-                <div className="p-2.5 rounded-xl bg-cyan-500/8 border border-cyan-500/15 space-y-1">
-                  <div className="flex items-center gap-1.5"><Waves className="w-3.5 h-3.5 text-cyan-400" /><span className="text-[10px] font-bold text-cyan-400">Tide</span></div>
-                  <p className="text-xs font-bold text-foreground">High → 2.1m</p>
-                  <p className="text-[9px] text-muted-foreground">Next low: 3:45 PM</p>
-                </div>
-                <div className="p-2.5 rounded-xl bg-emerald-500/8 border border-emerald-500/15 space-y-1">
-                  <div className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-emerald-400" /><span className="text-[10px] font-bold text-emerald-400">Best Time</span></div>
-                  <p className="text-xs font-bold text-foreground">5:30 – 8:00 AM</p>
-                  <p className="text-[9px] text-muted-foreground">High activity window</p>
-                </div>
+            {/* Daily Sun Info */}
+            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
+              <div className="p-2 rounded-lg bg-amber-500/8 border border-amber-500/15 space-y-0.5">
+                <div className="flex items-center gap-1.5"><Sun className="w-3.5 h-3.5 text-amber-400" /><span className="text-[10px] font-bold text-amber-400">Sunrise</span></div>
+                <p className="text-xs font-bold text-foreground">{sunTimes?.sunrise || 'Loading...'}</p>
               </div>
-              <div className="p-2.5 rounded-xl bg-blue-500/8 border border-blue-500/15 flex items-center gap-2.5">
-                <CloudRain className="w-4 h-4 text-blue-400 shrink-0" />
-                <div>
-                  <p className="text-[10px] font-bold text-foreground">Sea State: Moderate</p>
-                  <p className="text-[9px] text-muted-foreground">Wave 1.2m • Wind NW 15 km/h • Visibility 8 km</p>
-                </div>
+              <div className="p-2 rounded-lg bg-amber-500/8 border border-amber-500/15 space-y-0.5">
+                <div className="flex items-center gap-1.5"><Sunset className="w-3.5 h-3.5 text-amber-400" /><span className="text-[10px] font-bold text-amber-400">Sunset</span></div>
+                <p className="text-xs font-bold text-foreground">{sunTimes?.sunset || 'Loading...'}</p>
               </div>
-
-              {/* Fishing Spots Button */}
-              <Button
-                variant={showFishingSpots ? "secondary" : "ghost"}
-                className={cn(
-                  "w-full justify-start gap-2 rounded-xl h-9 transition-all text-xs",
-                  showFishingSpots ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "text-muted-foreground"
-                )}
-                onClick={handleFetchFishingSpots}
-                disabled={fishingSpotsLoading}
-              >
-                {fishingSpotsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
-                <span className="font-semibold">{fishingSpotsLoading ? 'Scanning...' : 'Fishing Spots'}</span>
-                {fishingSpots.length > 0 && !fishingSpotsLoading && (
-                  <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
-                    {fishingSpots.length}
-                  </span>
-                )}
-              </Button>
-              {showFishingSpots && fishingSpots.length > 0 && (
-                <div className="flex items-center gap-3 px-1 text-[9px] text-muted-foreground">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />Good (≥68)</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Fair (45-67)</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Low (&lt;45)</span>
-                </div>
-              )}
             </div>
-          )}
-
-          {activePanel === 'insights' && (
-            <div className="animate-fade-in">
-              <ScrollArea className={cn("pr-1", isMobile ? "h-[220px]" : "h-[360px]") }>
-                <div className="space-y-2.5">
-                  {ZONE_INSIGHTS.map((zone, i) => (
-                    <div key={i} className="p-3 rounded-xl bg-card border border-border/50 space-y-2 hover:border-primary/20 transition-colors">
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="min-w-0">
-                          <h4 className="text-xs font-bold text-foreground truncate">{zone.zone}</h4>
-                          <p className="text-[9px] text-muted-foreground font-mono">{zone.region}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Badge variant="outline" className={cn(
-                            "border-none text-[9px] h-4 px-1.5",
-                            zone.healthStatus === "Healthy" ? "bg-emerald-500/15 text-emerald-400"
-                              : zone.healthStatus === "Moderate" ? "bg-amber-500/15 text-amber-400"
-                                : "bg-red-500/15 text-red-400"
-                          )}>{zone.healthStatus}</Badge>
-                          {zone.trend === "up" ? <ArrowUpRight className="w-3 h-3 text-emerald-500" />
-                            : zone.trend === "down" ? <ArrowDownRight className="w-3 h-3 text-red-500" />
-                              : <Minus className="w-3 h-3 text-muted-foreground" />}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {zone.topSpecies.map(sp => (
-                          <span key={sp} className="px-1.5 py-0.5 rounded-md bg-primary/8 text-primary text-[9px] font-semibold">{sp}</span>
-                        ))}
-                      </div>
-                      <div className="flex gap-3 text-[9px] text-muted-foreground">
-                        <span className="flex items-center gap-0.5"><Thermometer className="w-2.5 h-2.5" />{zone.avgTemp}°C</span>
-                        <span className="flex items-center gap-0.5"><Fish className="w-2.5 h-2.5" />{zone.catchCount} catches</span>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">{zone.advisory}</p>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
+          </div>
         </Card>
       </div>
 
       {/* ── Map ──────────────────────────────────────────────────── */}
-      <div ref={mapContainerRef} className="lg:col-span-9 xl:col-span-9 relative rounded-2xl overflow-hidden border border-border/50 bg-muted/20 shadow-2xl h-[46vh] sm:h-[56vh] lg:h-full order-1 lg:order-2 min-h-[320px]">
-        {!isClientMounted ? (
+      <div ref={mapContainerRef} className="relative rounded-2xl overflow-hidden border border-border/50 bg-muted/20 shadow-2xl h-[48vh] sm:h-[58vh] lg:h-[66vh] xl:h-[72vh] order-1 min-h-[320px] w-full">
+        {!isClientMounted || !locationResolved || isLoading ? (
           <div className="absolute inset-0 z-30 flex items-center justify-center bg-background/30 backdrop-blur-sm rounded-2xl">
             <div className="flex flex-col items-center gap-2">
               <Loader2 className="w-6 h-6 text-primary animate-spin" />
@@ -658,193 +596,182 @@ export default function MapComponent({
             </div>
           </div>
         ) : (
-        <MapContainer
-          center={initialCenter}
-          zoom={initialZoom}
-          zoomControl={false}
-          maxBounds={INDIA_BOUNDS}
-          maxBoundsViscosity={0.8}
-          minZoom={4}
-          className="w-full h-full z-10"
-          style={{ background: '#0a1628' }}
-        >
-          <TileLayer attribution="&copy; Google Maps" url={MAP_URL} maxZoom={20} />
-          <ZoomControl position="bottomright" />
-          <ScaleControl position="bottomright" />
-          <MapEventsWrapper onMouseMove={handleMouseMove} onClick={handleMapClick} onMapReady={handleMapReady} onMoveEnd={handleMoveEnd} />
-          <UserLocationMarker onLocationFound={handleLocationFound} showRadius={true} autoCenter={false} />
-          <SearchThisArea />
+          <MapContainer
+            center={userLocation ? [userLocation.lat, userLocation.lng] : initialCenter}
+            zoom={initialZoom}
+            zoomControl={false}
+            maxBounds={INDIA_BOUNDS}
+            maxBoundsViscosity={0.8}
+            minZoom={4}
+            preferCanvas={true}
+            className="w-full h-full z-10"
+            style={{ background: '#0a1628' }}
+          >
+            <TileLayer
+              attribution="&copy; Google Maps"
+              url={MAP_URL}
+              maxZoom={20}
+              updateWhenIdle={true}
+              updateWhenZooming={false}
+              keepBuffer={3}
+              detectRetina={false}
+            />
+            <ZoomControl position="bottomright" />
+            <ScaleControl position="bottomright" />
+            <MapEventsWrapper onMouseMove={handleMouseMove} onClick={handleMapClick} onMapReady={handleMapReady} onMoveEnd={handleMoveEnd} />
+            <UserLocationMarker onLocationFound={handleLocationFound} showRadius={false} autoCenter={true} />
 
-          {/* Disaster Alert Zones */}
-          {showAlerts && activeAlerts.map(alert => (
-            <Circle key={alert.id} center={[alert.lat, alert.lng]} radius={alert.radiusKm * 1000}
-              pathOptions={{ fillColor: getSeverityColor(alert.severity), fillOpacity: 0.12, color: getSeverityColor(alert.severity), weight: 2, opacity: 0.6, dashArray: "6 4" }}>
-              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
-                <div className="p-3 space-y-1.5 min-w-[200px]">
-                  <h3 className="font-bold text-sm">{alert.title}</h3>
-                  <p className="text-xs text-muted-foreground">{alert.description}</p>
-                  <div className="flex gap-2 text-[10px] font-bold">
-                    <span className="px-2 py-0.5 rounded-full" style={{ backgroundColor: getSeverityColor(alert.severity) + "20", color: getSeverityColor(alert.severity) }}>
-                      {alert.severity === "red" ? "🔴 High" : alert.severity === "orange" ? "🟠 Moderate" : "🟡 Advisory"}
-                    </span>
-                    <span className="text-muted-foreground">{alert.radiusKm}km</span>
-                  </div>
-                </div>
-              </Popup>
-            </Circle>
-          ))}
-
-          {/* ── Ocean Catch Points (always show all) ────────────── */}
-          {OCEAN_CATCH_DATA.map(pt => (
-            <Circle key={pt.id} center={[pt.latitude, pt.longitude]} radius={20000}
-              pathOptions={{
-                fillColor: getMarkerColor(pt.qualityGrade), fillOpacity: 0.7,
-                color: getMarkerColor(pt.qualityGrade), weight: 2, opacity: 1,
-              }}>
-              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
-                <OceanCatchPopup pt={pt} />
-              </Popup>
-            </Circle>
-          ))}
-
-          {/* ── Fishing Spots (scored, color-coded) ─────────── */}
-          {showFishingSpots && fishingSpots.map((spot, i) => (
-            <Circle
-              key={`spot-${i}`}
-              center={[spot.latitude, spot.longitude]}
-              radius={4000}
-              pathOptions={{
-                fillColor: spot.color,
-                fillOpacity: 0.55,
-                color: spot.color,
-                weight: 2,
-                opacity: 0.9,
-              }}
-            >
-              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
-                <div className="p-3 space-y-2.5 min-w-[240px]">
-                  {/* Header: name + type */}
-                  <div>
-                    <h3 className="font-bold text-sm text-primary leading-tight">{spot.name}</h3>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{spot.type} • {spot.distance_km} km away</p>
-                  </div>
-
-                  {/* Confidence score — large, prominent */}
-                  <div className="rounded-lg p-2 border" style={{ borderColor: spot.color + '55', background: spot.color + '12' }}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
-                      <span className="text-xl font-extrabold" style={{ color: spot.color }}>{spot.confidence}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
-                    </div>
-                    <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: `${spot.confidence}%`, background: spot.color }} />
+            {/* Disaster Alert Zones */}
+            {showAlerts && activeAlerts.map(alert => (
+              <Circle key={alert.id} center={[alert.lat, alert.lng]} radius={alert.radiusKm * 1000}
+                pathOptions={{ fillColor: getSeverityColor(alert.severity), fillOpacity: 0.12, color: getSeverityColor(alert.severity), weight: 2, opacity: 0.6, dashArray: "6 4" }}>
+                <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
+                  <div className="p-3 space-y-1.5 min-w-[200px]">
+                    <h3 className="font-bold text-sm">{alert.title}</h3>
+                    <p className="text-xs text-muted-foreground">{alert.description}</p>
+                    <div className="flex gap-2 text-[10px] font-bold">
+                      <span className="px-2 py-0.5 rounded-full" style={{ backgroundColor: getSeverityColor(alert.severity) + "20", color: getSeverityColor(alert.severity) }}>
+                        {alert.severity === "red" ? "🔴 High" : alert.severity === "orange" ? "🟠 Moderate" : "🟡 Advisory"}
+                      </span>
+                      <span className="text-muted-foreground">{alert.radiusKm}km</span>
                     </div>
                   </div>
+                </Popup>
+              </Circle>
+            ))}
 
-                  {/* Fish Density — primary metric */}
-                  <div className="rounded-lg p-2 border border-cyan-500/30 bg-cyan-500/8">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wide">🐟 Fish Density</span>
-                      <span className="text-lg font-extrabold text-cyan-300">{spot.fish_density_score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
-                    </div>
-                    <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-                      <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${spot.fish_density_score}%` }} />
-                    </div>
-                    {spot.chlorophyll_available && (
-                      <p className="text-[9px] text-cyan-400 mt-1">🌊 Chlorophyll data included</p>
-                    )}
-                    {spot.gemini_web_score !== null && spot.gemini_web_score !== undefined && (
-                      <p className="text-[9px] text-violet-400 mt-0.5">🤖 Web search: {spot.gemini_web_score}/100</p>
-                    )}
-                  </div>
 
-                  {/* Secondary stats: Weather + Transport */}
-                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-border/50">
-                    <div className="text-center">
-                      <p className="text-[9px] text-muted-foreground">☁️ Weather</p>
-                      <p className="text-xs font-bold text-foreground">{spot.weather_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
+            {/* ── Fishing Spots (scored, color-coded) ─────────── */}
+            {showFishingSpots && fishingSpots.map((spot, i) => (
+              <Circle
+                key={`spot-${i}`}
+                center={[spot.latitude, spot.longitude]}
+                radius={500}
+                pathOptions={{
+                  fillColor: spot.color,
+                  fillOpacity: 0.55,
+                  color: spot.color,
+                  weight: 2,
+                  opacity: 0.9,
+                }}
+              >
+                <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
+                  <div className="p-3 space-y-2.5 min-w-[240px]">
+                    {/* Header: name + type */}
+                    <div>
+                      <h3 className="font-bold text-sm text-primary leading-tight">{spot.name}</h3>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{spot.type} • {spot.distance_km} km away</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-[9px] text-muted-foreground">📍 Transport</p>
-                      <p className="text-xs font-bold text-foreground">{spot.transport_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
-                    </div>
-                  </div>
-                </div>
-              </Popup>
-            </Circle>
-          ))}
 
-          {/* User's own catch markers with click handler */}
-          {visibleMarkers.map(marker => (
-            <Circle
-              key={marker.imageId}
-              center={[Number(marker.latitude), Number(marker.longitude)]}
-              radius={25000}
-              pathOptions={{ fillColor: getMarkerColor(marker.qualityGrade), fillOpacity: 0.6, color: getMarkerColor(marker.qualityGrade), weight: 2, opacity: 1 }}
-              eventHandlers={{
-                click: () => handleMarkerClick(marker)
-              }}
-            >
-              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
-                <CatchWeatherPopup marker={marker} />
-              </Popup>
-            </Circle>
-          ))}
-
-          {/* Clicked Weather Pin */}
-          {clickedWeather && (
-            <Marker position={[clickedWeather.lat, clickedWeather.lng]}>
-              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
-                <div className="p-3 space-y-2 min-w-[220px]">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-bold text-sm text-primary flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />Weather at Point</h3>
-                    <button onClick={() => setClickedWeather(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
-                  </div>
-                  <p className="text-[10px] text-muted-foreground font-mono">{clickedWeather.lat.toFixed(4)}°N, {clickedWeather.lng.toFixed(4)}°E</p>
-                  {clickedWeather.loading ? (
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="w-3 h-3 animate-spin" /> Fetching weather...</div>
-                  ) : (
-                    <div className="space-y-1.5 pt-1 border-t border-border/50">
-                      {clickedWeather.icon && (
-                        <div className="flex items-center gap-2">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={`https://openweathermap.org/img/wn/${clickedWeather.icon}@2x.png`} alt="" className="w-8 h-8" />
-                          <span className="text-xs capitalize text-foreground font-semibold">{clickedWeather.description}</span>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-1.5 text-[11px]">
-                        <div className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-red-400" /><span className="text-muted-foreground">Temp:</span><span className="font-bold text-foreground">{clickedWeather.temp?.toFixed(1)}°C</span></div>
-                        <div className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-orange-400" /><span className="text-muted-foreground">Feels:</span><span className="font-bold text-foreground">{clickedWeather.feelsLike?.toFixed(1)}°C</span></div>
-                        <div className="flex items-center gap-1"><Wind className="w-3 h-3 text-blue-400" /><span className="text-muted-foreground">Wind:</span><span className="font-bold text-foreground">{clickedWeather.wind} m/s</span></div>
-                        <div className="flex items-center gap-1"><Droplets className="w-3 h-3 text-cyan-400" /><span className="text-muted-foreground">Humidity:</span><span className="font-bold text-foreground">{clickedWeather.humidity}%</span></div>
+                    {/* Confidence score — large, prominent */}
+                    <div className="rounded-lg p-2 border" style={{ borderColor: spot.color + '55', background: spot.color + '12' }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
+                        <span className="text-xl font-extrabold" style={{ color: spot.color }}>{spot.confidence}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+                      </div>
+                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${spot.confidence}%`, background: spot.color }} />
                       </div>
                     </div>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          )}
 
-          {openWeatherLayer && (
-            <TileLayer key={`owm-${activeLayer}`} attribution='&copy; OpenWeatherMap' url={openWeatherLayer} opacity={0.85} />
-          )}
-        </MapContainer>
+                    {/* Fish Density — primary metric */}
+                    <div className="rounded-lg p-2 border border-cyan-500/30 bg-cyan-500/8">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wide">🐟 Fish Density</span>
+                        <span className="text-lg font-extrabold text-cyan-300">{spot.fish_density_score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${spot.fish_density_score}%` }} />
+                      </div>
+                      {spot.chlorophyll_available && (
+                        <p className="text-[9px] text-cyan-400 mt-1">🌊 Chlorophyll data included</p>
+                      )}
+                      {spot.gemini_web_score !== null && spot.gemini_web_score !== undefined && (
+                        <p className="text-[9px] text-violet-400 mt-0.5">🤖 Web search: {spot.gemini_web_score}/100</p>
+                      )}
+                    </div>
+
+                    {/* Secondary stats: Weather + Transport */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-border/50">
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted-foreground">☁️ Weather</p>
+                        <p className="text-xs font-bold text-foreground">{spot.weather_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[9px] text-muted-foreground">📍 Transport</p>
+                        <p className="text-xs font-bold text-foreground">{spot.transport_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
+                      </div>
+                    </div>
+                  </div>
+                </Popup>
+              </Circle>
+            ))}
+
+
+            {/* Clicked Weather Pin */}
+            {clickedWeather && (
+              <Marker position={[clickedWeather.lat, clickedWeather.lng]}>
+                <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
+                  <div className="p-3 space-y-2 min-w-[220px]">
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-bold text-sm text-primary flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />Weather at Point</h3>
+                      <button onClick={() => setClickedWeather(null)} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-mono">{clickedWeather.lat.toFixed(4)}°N, {clickedWeather.lng.toFixed(4)}°E</p>
+                    {clickedWeather.loading ? (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="w-3 h-3 animate-spin" /> Fetching weather...</div>
+                    ) : (
+                      <div className="space-y-1.5 pt-1 border-t border-border/50">
+                        {clickedWeather.icon && (
+                          <div className="flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`https://openweathermap.org/img/wn/${clickedWeather.icon}@2x.png`} alt="" className="w-8 h-8" />
+                            <span className="text-xs capitalize text-foreground font-semibold">{clickedWeather.description}</span>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                          <div className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-red-400" /><span className="text-muted-foreground">Temp:</span><span className="font-bold text-foreground">{clickedWeather.temp?.toFixed(1)}°C</span></div>
+                          <div className="flex items-center gap-1"><Thermometer className="w-3 h-3 text-orange-400" /><span className="text-muted-foreground">Feels:</span><span className="font-bold text-foreground">{clickedWeather.feelsLike?.toFixed(1)}°C</span></div>
+                          <div className="flex items-center gap-1"><Wind className="w-3 h-3 text-blue-400" /><span className="text-muted-foreground">Wind:</span><span className="font-bold text-foreground">{clickedWeather.wind} m/s</span></div>
+                          <div className="flex items-center gap-1"><Droplets className="w-3 h-3 text-cyan-400" /><span className="text-muted-foreground">Humidity:</span><span className="font-bold text-foreground">{clickedWeather.humidity}%</span></div>
+                        </div>
+                        {/* Ask AI about this location */}
+                        <button
+                          onClick={() => {
+                            setMapPointContext({ lat: clickedWeather.lat, lon: clickedWeather.lng });
+                            setContextPage('map');
+                            const prompt = `Tell me about fishing conditions, weather forecast, and expected catch near coordinates ${clickedWeather.lat.toFixed(4)}°N, ${clickedWeather.lng.toFixed(4)}°E. Current weather: ${clickedWeather.description ?? 'unknown'}, temp ${clickedWeather.temp?.toFixed(1) ?? '?'}°C, wind ${clickedWeather.wind ?? '?'} m/s.`;
+                            (window as any).__agentChatInject?.(prompt);
+                          }}
+                          className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors"
+                        >
+                          <Sparkles className="w-3 h-3" />
+                          Ask AI about this area
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            )}
+
+            {openWeatherLayer && (
+              <TileLayer
+                key={`owm-${activeLayer}`}
+                attribution='&copy; OpenWeatherMap'
+                url={openWeatherLayer}
+                opacity={0.85}
+                updateWhenIdle={true}
+                updateWhenZooming={false}
+                keepBuffer={2}
+                detectRetina={false}
+              />
+            )}
+          </MapContainer>
         )}
 
         {/* ── Floating UI ──────────────────────────────────────── */}
         <div className="absolute top-3 sm:top-4 right-3 sm:right-4 z-20 space-y-3 pointer-events-none max-w-[180px] sm:max-w-[240px]">
-          <Card className="hidden lg:block p-3 sm:p-4 rounded-2xl bg-card/80 backdrop-blur-xl border-border/50 shadow-2xl pointer-events-auto w-full">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="p-1.5 bg-emerald-500/20 rounded-lg text-emerald-500"><TrendingUp className="w-3.5 h-3.5" /></div>
-              <h4 className="font-bold text-xs sm:text-sm">Recommended Zone</h4>
-            </div>
-            <p className="text-[10px] sm:text-xs text-muted-foreground mb-3 leading-relaxed">
-              High skipjack tuna migration in <strong>Malabar Basin</strong>. Optimal for next 6h.
-            </p>
-            <Button size="sm" className="w-full rounded-xl bg-primary font-bold h-8 text-xs">
-              Get Coordinates <ChevronRight className="ml-1 w-3 h-3" />
-            </Button>
-          </Card>
-
           <div className="flex flex-col gap-1.5 pointer-events-auto items-end">
             <Button size="icon" className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-card/80 backdrop-blur-xl border border-border/50 text-foreground hover:bg-muted shadow-xl" onClick={handleFullscreen} title="Fullscreen">
               <Maximize2 className="w-4 h-4" />
@@ -865,49 +792,67 @@ export default function MapComponent({
         <div className="absolute top-3 left-3 z-20 pointer-events-none hidden sm:block">
           <div className="px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/10 text-[9px] sm:text-[10px] font-mono text-white flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
-            {mousePos.lat.toFixed(4)}°N, {mousePos.lng.toFixed(4)}°E
+            <span ref={coordsRef}>{mousePos.current.lat.toFixed(4)}°N, {mousePos.current.lng.toFixed(4)}°E</span>
           </div>
         </div>
 
         {/* ── Legend + Weather Scale ──────────────────────────── */}
         {showLegend && (
-        <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 z-[1000] pointer-events-auto max-w-[380px]">
-          <div className="flex flex-col gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/15 shadow-2xl">
-            <div className="flex items-center gap-3 sm:gap-5">
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Quality</span>
-                <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Premium</span>
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Standard</span>
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Low</span>
+          <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 z-[1000] pointer-events-auto max-w-[380px]">
+            <div className="flex flex-col gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/15 shadow-2xl">
+              {/* <div className="flex items-center gap-3 sm:gap-5">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Quality</span>
+                  <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Premium</span>
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Standard</span>
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Low</span>
+                  </div>
+                </div>
+
+              </div> */}
+              {showAlerts && activeAlerts.length > 0 && (
+                <div className="flex items-center gap-2 pt-1.5 border-t border-white/10">
+                  <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Alerts</span>
+                  <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />High</span>
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-500" />Mod</span>
+                    <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />Adv</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Fishing Spots Inline Toggle */}
+              <div className={`${showAlerts && activeAlerts.length > 0 ? "pt-2 border-t border-white/10" : ""}`}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    {/* <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest flex items-center gap-1"><Target className="w-3 h-3" /> API Scan</span> */}
+                    {showFishingSpots && fishingSpots.length > 0 && (
+                      <div className="flex items-center gap-1.5 text-[8px] text-white/80 font-bold">
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Gd</span>
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Fr</span>
+                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Lw</span>
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    className={cn("w-full h-7 text-[10px] rounded-lg font-bold transition-all", showFishingSpots ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30" : "bg-white/10 text-white hover:bg-white/20")}
+                    onClick={handleFetchFishingSpots}
+                    disabled={fishingSpotsLoading}
+                  >
+                    {fishingSpotsLoading ? <Loader2 className="mr-1.5 w-3 h-3 animate-spin" /> : null}
+                    {showFishingSpots ? "Rescan Fishing Zones" : "Scan Fishing Zones"}
+                  </Button>
                 </div>
               </div>
-              <div className="hidden sm:block h-6 w-[1px] bg-white/20" />
-              <div className="hidden sm:flex flex-col gap-0.5">
-                <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Catches</span>
-                <span className="text-xs font-bold text-white flex items-center gap-1">
-                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  {OCEAN_CATCH_DATA.length + validMarkers.length}
-                </span>
-              </div>
+              {currentScale && (
+                <div className="pt-1.5 border-t border-white/10">
+                  <WeatherScaleLegend scale={currentScale} />
+                </div>
+              )}
             </div>
-            {showAlerts && activeAlerts.length > 0 && (
-              <div className="flex items-center gap-2 pt-1.5 border-t border-white/10">
-                <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Alerts</span>
-                <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />High</span>
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-orange-500" />Mod</span>
-                  <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-yellow-500" />Adv</span>
-                </div>
-              </div>
-            )}
-            {currentScale && (
-              <div className="pt-1.5 border-t border-white/10">
-                <WeatherScaleLegend scale={currentScale} />
-              </div>
-            )}
           </div>
-        </div>
         )}
 
         {/* Loading overlay */}

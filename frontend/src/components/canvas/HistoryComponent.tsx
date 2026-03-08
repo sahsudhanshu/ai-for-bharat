@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Eye, Images, Trash2, Download } from "lucide-react";
+import { Loader2, Eye, Images, Trash2, Download, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getGroups, deleteGroup, type GroupRecord } from "@/lib/api-client";
@@ -292,6 +292,18 @@ export default function HistoryComponent() {
                           onClick={() => handleDelete(group.groupId)}
                         >
                           <Trash2 className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="rounded-lg text-primary hover:bg-primary/10"
+                          onClick={() => {
+                            const summary = `Group ${group.groupId.slice(0, 8)}, ${group.imageCount} images, status: ${group.status}, created ${new Date(group.createdAt).toLocaleDateString()}`;
+                            (window as any).__agentChatInject?.(`Analyze my catch scan: ${summary}. What species were detected? Any diseases? Give me insights.`);
+                          }}
+                        >
+                          <Sparkles className="w-4 h-4 mr-1" />
+                          <span className="hidden sm:inline">Ask AI</span>
                         </Button>
                         <Button
                           variant="outline"

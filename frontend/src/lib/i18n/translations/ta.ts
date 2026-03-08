@@ -70,6 +70,16 @@ const ta: TranslationStrings = {
     'capability.analytics': 'பகுப்பாய்வு',
     'capability.analyticsDesc': 'வருவாய் மற்றும் பிடி வரலாற்றைக் கண்காணிக்கவும்',
     'capability.hint': 'அல்லது கீழே உங்கள் கேள்வியை தட்டச்சு செய்யவும்',
+
+    // Quick action chips
+    'chat.chip.identify': 'மீன் இனத்தை அடையாளம் காணுங்கள்',
+    'chat.chip.seaConditions': 'இன்றைய கடல் நிலை',
+    'chat.chip.regulations': 'மீன்பிடி விதிகள்',
+    'chat.chip.tellAbout': 'இந்த மீனைப் பற்றி சொல்லுங்கள்',
+    'chat.chip.marketValue': 'சந்தை மதிப்பு?',
+    'chat.chip.healthy': 'இது ஆரோக்கியமா?',
+    'chat.chip.cooking': 'சமையல் குறிப்புகள்',
+    'chat.chip.sustainability': 'நிலைத்தன்மை தகவல்',
 };
 
 export default ta;
