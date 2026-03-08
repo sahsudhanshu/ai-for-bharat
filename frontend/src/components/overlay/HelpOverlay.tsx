@@ -28,14 +28,14 @@ const FAQ_ITEMS = [
             { q: "How accurate is species identification?", a: "Over 90% accuracy for common Indian coastal species including Pomfret, Rohu, Catla, Hilsa, and Mackerel." },
             { q: "How is weight estimated?", a: "Computer vision analyzes length, girth, and shape. Results typically within ±10% of actual weight." },
             { q: "What does freshness mean?", a: "Classified from 'Very Fresh' to 'Not Fresh' based on eye clarity, gill color, and skin texture — helping determine market pricing." },
-            { q: "What is group analysis?", a: "Analyze multiple fish at once for aggregate stats: total count, species distribution, combined weight, and quality grade." },
+            { q: "What is group analysis?", a: "Analyze multiple fish at once for aggregate stats: total count, species distribution, combined weight." },
         ],
     },
     {
         category: "Analytics", icon: BarChart2, color: "text-indigo-500", bg: "bg-indigo-500/10",
         questions: [
             { q: "How do I generate a PDF report?", a: "Go to Analytics → Generate Report. Includes summary stats, species breakdown, earnings trends, and full history." },
-            { q: "How are earnings estimated?", a: "Based on species, weight, and quality grade cross-referenced with typical market rates for your region." },
+            { q: "How are earnings estimated?", a: "Based on species, weight cross-referenced with typical market rates for your region." },
             { q: "Can I export data as CSV?", a: "Yes! Settings → Data & Privacy → Export Catch Data for full history with all analysis details." },
         ],
     },

@@ -18,6 +18,16 @@
 import { AGENT_BASE_URL, IS_AGENT_CONFIGURED } from "./constants";
 import { ApiError } from "./api-client";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { handleUnauthorizedError } from "./error-handler";
+
+/** UI action hints returned by the agent */
+export interface AgentUIActions {
+  map: boolean;
+  history: boolean;
+  upload: boolean;
+  mapLat?: number | null;
+  mapLon?: number | null;
+}
 
 export interface StreamOptions {
   conversationId?: string;
@@ -30,7 +40,8 @@ export interface StreamOptions {
   replyToMessageId?: string;
   analysisId?: string;
   onToken?: (token: string) => void;
-  onComplete?: () => void;
+  onToolCall?: (toolName: string) => void;
+  onComplete?: (ui?: AgentUIActions) => void;
   onError?: (error: Error) => void;
 }
 
@@ -62,6 +73,7 @@ class ChatStreamClient {
       language,
       location,
       onToken,
+      onToolCall,
       onComplete,
       onError,
     } = options;
@@ -97,11 +109,24 @@ class ChatStreamClient {
           if (!line.startsWith("data: ")) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            if (data.type === "chunk" && data.text) {
+            if (data.type === "start") {
+              // Stream started — ignore, just an initial flush event
+            } else if (data.type === "chunk" && data.text) {
               onToken?.(data.text);
+            } else if (data.type === "tool" && data.name) {
+              onToolCall?.(data.name);
             } else if (data.type === "end") {
               this.isStreaming = false;
-              onComplete?.();
+              const ui: AgentUIActions | undefined = data.ui
+                ? {
+                    map: Boolean(data.ui.map),
+                    history: Boolean(data.ui.history),
+                    upload: Boolean(data.ui.upload),
+                    mapLat: data.ui.mapLat ?? null,
+                    mapLon: data.ui.mapLon ?? null,
+                  }
+                : undefined;
+              onComplete?.(ui);
               resolve();
             } else if (data.type === "error") {
               const err = new Error(data.error || "Stream error");
@@ -159,23 +184,33 @@ class ChatStreamClient {
         resolve(); // user-initiated stop, not an error
       };
 
-      if ((xhr.status !== 0 && xhr.status < 200) || xhr.status >= 300) {
-        this.isStreaming = false;
-        const err = new ApiError(
-          xhr.status,
-          `Stream request failed: ${xhr.status}`,
-        );
-        onError?.(err);
-        reject(err);
-        return;
-      }
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
+          if (xhr.status === 401) {
+            this.isStreaming = false;
+            handleUnauthorizedError();
+            const err = new ApiError(401, "Unauthorized");
+            onError?.(err);
+            reject(err);
+            xhr.abort();
+            return;
+          }
+          if ((xhr.status !== 0 && xhr.status < 200) || xhr.status >= 300) {
+            this.isStreaming = false;
+            const err = new ApiError(
+              xhr.status,
+              `Stream request failed: ${xhr.status}`,
+            );
+            onError?.(err);
+            reject(err);
+            xhr.abort();
+          }
+        }
+      };
 
-      console.log("----------------------------------------");
-      console.log("🚀 SENDING PROMPT TO AGENT:");
-      console.log(`💬 Message: ${message}`);
-      console.log(`🌐 Language: ${language}`);
-      console.log(`📍 Location: ${location?.latitude}, ${location?.longitude}`);
-      console.log(`🆔 Conv ID: ${conversationId}`);
+      console.log(
+        `[stream] POST ${url} | msg="${message.slice(0, 40)}" lang=${language}`,
+      );
 
       const requestBody = {
         message,
@@ -183,9 +218,6 @@ class ChatStreamClient {
         latitude: location?.latitude,
         longitude: location?.longitude,
       };
-      console.log("📦 JSON Body:", JSON.stringify(requestBody, null, 2));
-      console.log("----------------------------------------");
-
       xhr.send(JSON.stringify(requestBody));
     });
   }
@@ -201,6 +233,64 @@ class ChatStreamClient {
   getIsStreaming(): boolean {
     return this.isStreaming;
   }
+}
+
+/**
+ * Strip __UI__ sentinel lines, leaked JSON UI-action blobs, and memory-system
+ * noise from agent text.
+ *
+ * The agent appends a line like:
+ *   __UI__{"map":true,"map_lat":23.09,"map_lon":72.59,"history":false,"upload":false}
+ * at the very end of every response. The server strips it before saving and
+ * before emitting the SSE `end` event, but the raw tokens arrive as `chunk`
+ * events during streaming, so we also strip it here on the client side.
+ *
+ * We use lastIndexOf("__UI") rather than a regex so partial tokens that arrive
+ * mid-stream ("__UI_", "__UI__", "__UI__{", etc.) are caught *before* the
+ * markdown renderer turns the leading "__" into bold formatting.
+ */
+export function sanitiseAgentText(raw: string): string {
+  let text = raw;
+
+  // Cut everything from the last occurrence of "__UI" to end-of-string.
+  // This handles all streaming states: partial (__UI_), complete header
+  // (__UI__), and full line (__UI__{...}).
+  const uiIdx = text.lastIndexOf("__UI");
+  if (uiIdx !== -1) text = text.slice(0, uiIdx).trimEnd();
+
+  // Strip legacy stray JSON blobs that may appear in error-path responses
+  text = text.replace(
+    /\{\s*["']?(?:map|history|upload|map_lat|map_lon)["']?\s*:[^}]*\}/g,
+    "",
+  );
+
+  // Strip memory-system noise that may leak from internal LLM calls
+  const noisePatterns = [
+    /No facts recorded yet\.?/gi,
+    /No new facts to record\.?/gi,
+    /No facts recorded\.?/gi,
+    /UPDATED FACTS:\s*/gi,
+    /- No facts recorded yet\.?/gi,
+  ];
+  for (const pattern of noisePatterns) {
+    text = text.replace(pattern, "");
+  }
+
+  return text.trim();
+}
+
+/**
+ * Strip bracket context tags from a stored user message for display.
+ * Tags like [page:map], [userLoc:...], [mapPin:...], [lang:...], etc. are
+ * prepended by the app before sending to the agent but should never be shown.
+ */
+export function stripContextTags(raw: string): string {
+  return raw
+    .replace(
+      /\[(?:page|lang|userLoc|groupId|species|imgIdx|mapPin|mapZoom|scan|offline|group|image):[^\]]*\]\s*/gi,
+      "",
+    )
+    .trim();
 }
 
 export const chatStreamClient = new ChatStreamClient();

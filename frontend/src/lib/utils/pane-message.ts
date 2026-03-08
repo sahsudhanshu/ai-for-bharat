@@ -173,7 +173,7 @@ export function createMapLayerChangeMessage(
 // ── Analytics Component Message Helpers ───────────────────────────────────────
 
 export function createAnalyticsChartClickMessage(
-  chartType: 'earnings' | 'species' | 'quality',
+  chartType: 'earnings' | 'species',
   dataPoint: { label: string; value: number; date?: string }
 ): PaneMessage {
   return createPaneMessage(

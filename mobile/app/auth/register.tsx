@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -110,257 +110,253 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <KeyboardAwareScrollView
         style={styles.keyboardView}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header */}
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.backBtn}
-            >
-              <Text style={styles.backBtnText}>← Back</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backBtn}
+          >
+            <Text style={styles.backBtnText}>← Back</Text>
+          </TouchableOpacity>
+        </View>
 
-          {/* Hero */}
-          <View style={styles.hero}>
-            <View style={styles.logoContainer}>
-              <Ionicons
-                name="water-outline"
-                size={28}
-                color={COLORS.primaryLight}
-              />
-            </View>
-            <Text style={styles.title}>Create Your Account</Text>
-            <Text style={styles.subtitle}>
-              Join thousands of fishermen modernizing their operations
+        {/* Hero */}
+        <View style={styles.hero}>
+          <View style={styles.logoContainer}>
+            <Ionicons
+              name="water-outline"
+              size={28}
+              color={COLORS.primaryLight}
+            />
+          </View>
+          <Text style={styles.title}>Create Your Account</Text>
+          <Text style={styles.subtitle}>
+            Join thousands of fishermen modernizing their operations
+          </Text>
+        </View>
+
+        {/* Form Card */}
+        <View style={styles.card}>
+          <View style={styles.formGroup}>
+            <Input
+              label="Full Name *"
+              placeholder="Rajan Kumar"
+              value={name}
+              onChangeText={setName}
+              autoCapitalize="words"
+            />
+          </View>
+          <View style={styles.formGroup}>
+            <Input
+              label="Email Address *"
+              placeholder="rajan@example.com"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <View style={styles.formGroup}>
+            <Input
+              label="Phone Number (optional)"
+              placeholder="+91 9876543210"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+            />
+            <Text style={styles.helperText}>
+              Include country code (e.g., +91 for India)
             </Text>
           </View>
-
-          {/* Form Card */}
-          <View style={styles.card}>
-            <View style={styles.formGroup}>
-              <Input
-                label="Full Name *"
-                placeholder="Rajan Kumar"
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-              />
-            </View>
-            <View style={styles.formGroup}>
-              <Input
-                label="Email Address *"
-                placeholder="rajan@example.com"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-            <View style={styles.formGroup}>
-              <Input
-                label="Phone Number (optional)"
-                placeholder="+91 9876543210"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-              />
-              <Text style={styles.helperText}>
-                Include country code (e.g., +91 for India)
-              </Text>
-            </View>
-            <View style={styles.formGroup}>
-              <Input
-                label="Password *"
-                placeholder="Create a secure password"
-                value={password}
-                onChangeText={handlePasswordChange}
-                secureTextEntry
-                showPasswordToggle
-              />
-              {password.length > 0 && (
-                <View style={styles.passwordRequirements}>
-                  <Text style={styles.requirementsTitle}>
-                    Password Requirements:
-                  </Text>
-                  <View style={styles.requirementItem}>
-                    <Ionicons
-                      name={
-                        passwordRequirements.minLength
-                          ? "checkmark-circle"
-                          : "close-circle"
-                      }
-                      size={16}
-                      color={
-                        passwordRequirements.minLength
-                          ? COLORS.success
-                          : COLORS.textMuted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.requirementText,
-                        passwordRequirements.minLength && styles.requirementMet,
-                      ]}
-                    >
-                      At least 8 characters
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <Ionicons
-                      name={
-                        passwordRequirements.hasUppercase
-                          ? "checkmark-circle"
-                          : "close-circle"
-                      }
-                      size={16}
-                      color={
-                        passwordRequirements.hasUppercase
-                          ? COLORS.success
-                          : COLORS.textMuted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.requirementText,
-                        passwordRequirements.hasUppercase &&
-                          styles.requirementMet,
-                      ]}
-                    >
-                      One uppercase letter (A-Z)
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <Ionicons
-                      name={
-                        passwordRequirements.hasLowercase
-                          ? "checkmark-circle"
-                          : "close-circle"
-                      }
-                      size={16}
-                      color={
-                        passwordRequirements.hasLowercase
-                          ? COLORS.success
-                          : COLORS.textMuted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.requirementText,
-                        passwordRequirements.hasLowercase &&
-                          styles.requirementMet,
-                      ]}
-                    >
-                      One lowercase letter (a-z)
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <Ionicons
-                      name={
-                        passwordRequirements.hasNumber
-                          ? "checkmark-circle"
-                          : "close-circle"
-                      }
-                      size={16}
-                      color={
-                        passwordRequirements.hasNumber
-                          ? COLORS.success
-                          : COLORS.textMuted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.requirementText,
-                        passwordRequirements.hasNumber && styles.requirementMet,
-                      ]}
-                    >
-                      One number (0-9)
-                    </Text>
-                  </View>
-                  <View style={styles.requirementItem}>
-                    <Ionicons
-                      name={
-                        passwordRequirements.hasSpecial
-                          ? "checkmark-circle"
-                          : "close-circle"
-                      }
-                      size={16}
-                      color={
-                        passwordRequirements.hasSpecial
-                          ? COLORS.success
-                          : COLORS.textMuted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.requirementText,
-                        passwordRequirements.hasSpecial &&
-                          styles.requirementMet,
-                      ]}
-                    >
-                      One special character (!@#$%^&*)
-                    </Text>
-                  </View>
-                </View>
-              )}
-            </View>
-
-            <Button
-              label={loading ? "Creating Account..." : "Create Account"}
-              onPress={handleRegister}
-              loading={loading}
-              fullWidth
-              size="lg"
-              style={styles.registerBtn}
+          <View style={styles.formGroup}>
+            <Input
+              label="Password *"
+              placeholder="Create a secure password"
+              value={password}
+              onChangeText={handlePasswordChange}
+              secureTextEntry
+              showPasswordToggle
             />
-
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Already have an account? </Text>
-              <TouchableOpacity onPress={() => router.push("/auth/login")}>
-                <Text style={styles.footerLink}>Sign In</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Benefits */}
-          <View style={styles.benefits}>
-            <Text style={styles.benefitsTitle}>Why OceanAI?</Text>
-            {[
-              "Instant AI fish species identification",
-              "Accurate weight & market price estimates",
-              "Real-time ocean data & fishing zones",
-              "24/7 AI fisherman assistant",
-              "Catch history & earnings analytics",
-            ].map((b) => (
-              <View
-                key={b}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 6,
-                }}
-              >
-                <Ionicons
-                  name="checkmark-circle"
-                  size={16}
-                  color={COLORS.success}
-                />
-                <Text style={styles.benefitItem}>{b}</Text>
+            {password.length > 0 && (
+              <View style={styles.passwordRequirements}>
+                <Text style={styles.requirementsTitle}>
+                  Password Requirements:
+                </Text>
+                <View style={styles.requirementItem}>
+                  <Ionicons
+                    name={
+                      passwordRequirements.minLength
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={
+                      passwordRequirements.minLength
+                        ? COLORS.success
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      passwordRequirements.minLength && styles.requirementMet,
+                    ]}
+                  >
+                    At least 8 characters
+                  </Text>
+                </View>
+                <View style={styles.requirementItem}>
+                  <Ionicons
+                    name={
+                      passwordRequirements.hasUppercase
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={
+                      passwordRequirements.hasUppercase
+                        ? COLORS.success
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      passwordRequirements.hasUppercase &&
+                        styles.requirementMet,
+                    ]}
+                  >
+                    One uppercase letter (A-Z)
+                  </Text>
+                </View>
+                <View style={styles.requirementItem}>
+                  <Ionicons
+                    name={
+                      passwordRequirements.hasLowercase
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={
+                      passwordRequirements.hasLowercase
+                        ? COLORS.success
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      passwordRequirements.hasLowercase &&
+                        styles.requirementMet,
+                    ]}
+                  >
+                    One lowercase letter (a-z)
+                  </Text>
+                </View>
+                <View style={styles.requirementItem}>
+                  <Ionicons
+                    name={
+                      passwordRequirements.hasNumber
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={
+                      passwordRequirements.hasNumber
+                        ? COLORS.success
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      passwordRequirements.hasNumber && styles.requirementMet,
+                    ]}
+                  >
+                    One number (0-9)
+                  </Text>
+                </View>
+                <View style={styles.requirementItem}>
+                  <Ionicons
+                    name={
+                      passwordRequirements.hasSpecial
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={
+                      passwordRequirements.hasSpecial
+                        ? COLORS.success
+                        : COLORS.textMuted
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.requirementText,
+                      passwordRequirements.hasSpecial && styles.requirementMet,
+                    ]}
+                  >
+                    One special character (!@#$%^&*)
+                  </Text>
+                </View>
               </View>
-            ))}
+            )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+
+          <Button
+            label={loading ? "Creating Account..." : "Create Account"}
+            onPress={handleRegister}
+            loading={loading}
+            fullWidth
+            size="lg"
+            style={styles.registerBtn}
+          />
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Already have an account? </Text>
+            <TouchableOpacity onPress={() => router.push("/auth/login")}>
+              <Text style={styles.footerLink}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Benefits */}
+        <View style={styles.benefits}>
+          <Text style={styles.benefitsTitle}>Why OceanAI?</Text>
+          {[
+            "Instant AI fish species identification",
+            "Accurate weight & market price estimates",
+            "Real-time ocean data & fishing zones",
+            "24/7 AI fisherman assistant",
+            "Catch history & earnings analytics",
+          ].map((b) => (
+            <View
+              key={b}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 6,
+              }}
+            >
+              <Ionicons
+                name="checkmark-circle"
+                size={16}
+                color={COLORS.success}
+              />
+              <Text style={styles.benefitItem}>{b}</Text>
+            </View>
+          ))}
+        </View>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

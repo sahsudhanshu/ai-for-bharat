@@ -49,6 +49,7 @@ import {
   analyzeGroup,
   getGroups,
   estimateFishWeight,
+  saveWeightEstimate,
   type GroupRecord,
   type FishWeightEstimate,
 } from "@/lib/api-client";
@@ -64,8 +65,8 @@ export interface UploadComponentProps {
   /** Callback to dispatch PaneMessage to AgentInterface */
   onPaneMessage?: (message: {
     id: string;
-    type: 'info' | 'action' | 'data' | 'error' | 'query';
-    source: 'upload';
+    type: "info" | "action" | "data" | "error" | "query";
+    source: "upload";
     payload: Record<string, any>;
     timestamp: number;
     metadata?: {
@@ -88,7 +89,7 @@ export default function UploadComponent({
   className,
 }: UploadComponentProps) {
   const router = useRouter();
-  const setActiveComponent = useAgentFirstStore(s => s.setActiveComponent);
+  const setActiveComponent = useAgentFirstStore((s) => s.setActiveComponent);
   const { t } = useLanguage();
 
   // Multi-file state
@@ -98,7 +99,9 @@ export default function UploadComponent({
 
   // Upload & analysis state
   const [step, setStep] = useState<UploadStep>("idle");
-  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
+  const [uploadProgress, setUploadProgress] = useState<Record<number, number>>(
+    {},
+  );
   const [analysisProgress, setAnalysisProgress] = useState(0);
 
   // Results state
@@ -107,7 +110,9 @@ export default function UploadComponent({
 
   // UI state
   const [dragActive, setDragActive] = useState(false);
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
   const [showCamera, setShowCamera] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
@@ -118,20 +123,40 @@ export default function UploadComponent({
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   // Weight estimation state
-  const [weightFormOpen, setWeightFormOpen] = useState<Record<string, boolean>>({});
-  const [weightInputs, setWeightInputs] = useState<Record<string, { length1: string; length3: string; height: string; width: string }>>({});
-  const [weightLoading, setWeightLoading] = useState<Record<string, boolean>>({});
-  const [weightResults, setWeightResults] = useState<Record<string, FishWeightEstimate>>({});
+  const [weightFormOpen, setWeightFormOpen] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [weightInputs, setWeightInputs] = useState<
+    Record<
+      string,
+      { length1: string; length3: string; height: string; width: string }
+    >
+  >({});
+  const [weightLoading, setWeightLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [weightResults, setWeightResults] = useState<
+    Record<string, FishWeightEstimate>
+  >({});
   const [weightErrors, setWeightErrors] = useState<Record<string, string>>({});
 
   const handleWeightEstimate = async (cropKey: string, species: string) => {
     const inputs = weightInputs[cropKey];
-    if (!inputs || !inputs.length1 || !inputs.length3 || !inputs.height || !inputs.width) {
-      setWeightErrors(prev => ({ ...prev, [cropKey]: "Please fill all measurement fields" }));
+    if (
+      !inputs ||
+      !inputs.length1 ||
+      !inputs.length3 ||
+      !inputs.height ||
+      !inputs.width
+    ) {
+      setWeightErrors((prev) => ({
+        ...prev,
+        [cropKey]: "Please fill all measurement fields",
+      }));
       return;
     }
-    setWeightLoading(prev => ({ ...prev, [cropKey]: true }));
-    setWeightErrors(prev => ({ ...prev, [cropKey]: "" }));
+    setWeightLoading((prev) => ({ ...prev, [cropKey]: true }));
+    setWeightErrors((prev) => ({ ...prev, [cropKey]: "" }));
     try {
       const result = await estimateFishWeight({
         species,
@@ -140,12 +165,85 @@ export default function UploadComponent({
         height: parseFloat(inputs.height),
         width: parseFloat(inputs.width),
       });
-      setWeightResults(prev => ({ ...prev, [cropKey]: result }));
-      setWeightFormOpen(prev => ({ ...prev, [cropKey]: false }));
+      setWeightResults((prev) => ({ ...prev, [cropKey]: result }));
+      setWeightFormOpen((prev) => ({ ...prev, [cropKey]: false }));
+
+      // Update local history visually to reflect the new weight vs the old "mock/estimated" weight
+      if (currentGroupId) {
+        const fishIndex = parseInt(cropKey.replace(/\D/g, ""), 10) || 0;
+
+        // Background sync to backend
+        saveWeightEstimate({
+          groupId: currentGroupId,
+          imageIndex: currentResultIndex,
+          fishIndex,
+          species,
+          weightG: result.estimated_weight_grams,
+          fullEstimate: result,
+        }).catch((e) => console.warn("Failed to save weight estimate", e));
+
+        // Update local history array so sidebar/aggregate reflect new correct estimates immediately
+        setHistory((prevHistory) =>
+          prevHistory.map((group) => {
+            if (group.groupId !== currentGroupId || !group.analysisResult)
+              return group;
+
+            // Estimate differences to adjust the aggregate (or recalculate them completely)
+            let oldWeightVal = 0,
+              oldPriceVal = 0;
+
+            if (weightResults[cropKey]) {
+              oldWeightVal =
+                weightResults[cropKey].estimated_weight_grams / 1000;
+              oldPriceVal =
+                (weightResults[cropKey].estimated_fish_value.min_inr +
+                  weightResults[cropKey].estimated_fish_value.max_inr) /
+                2;
+            } else {
+              // Subtract initial mock values that were generated during initial aggregateStats calculation
+              const mock = generateMockSupplement(species, fishIndex);
+              oldWeightVal = mock.weight_kg;
+              oldPriceVal = mock.estimatedValue;
+            }
+
+            const newWeightVal = result.estimated_weight_grams / 1000;
+            const weightDiff = newWeightVal - oldWeightVal;
+
+            const newPriceVal =
+              (result.estimated_fish_value.min_inr +
+                result.estimated_fish_value.max_inr) /
+              2;
+            const priceDiff = newPriceVal - oldPriceVal;
+
+            return {
+              ...group,
+              analysisResult: {
+                ...group.analysisResult,
+                aggregateStats: {
+                  ...group.analysisResult.aggregateStats,
+                  totalEstimatedWeight: Math.max(
+                    0,
+                    group.analysisResult.aggregateStats.totalEstimatedWeight +
+                      weightDiff,
+                  ),
+                  totalEstimatedValue: Math.max(
+                    0,
+                    group.analysisResult.aggregateStats.totalEstimatedValue +
+                      priceDiff,
+                  ),
+                },
+              },
+            };
+          }),
+        );
+      }
     } catch (err) {
-      setWeightErrors(prev => ({ ...prev, [cropKey]: err instanceof Error ? err.message : "Estimation failed" }));
+      setWeightErrors((prev) => ({
+        ...prev,
+        [cropKey]: err instanceof Error ? err.message : "Estimation failed",
+      }));
     } finally {
-      setWeightLoading(prev => ({ ...prev, [cropKey]: false }));
+      setWeightLoading((prev) => ({ ...prev, [cropKey]: false }));
     }
   };
 
@@ -155,20 +253,18 @@ export default function UploadComponent({
   // Current ML result being displayed
   const currentMlResult = mlResults[currentResultIndex] || null;
 
-  const YOLO_CONFIDENCE_THRESHOLD = 0.30;
+  const YOLO_CONFIDENCE_THRESHOLD = 0.3;
 
   const cropEntries = useMemo(() => {
     if (!currentMlResult?.crops) return [];
     return Object.entries(currentMlResult.crops)
       .filter(([, crop]) => crop.yolo_confidence >= YOLO_CONFIDENCE_THRESHOLD)
-      .sort(
-        (a, b) => b[1].species.confidence - a[1].species.confidence,
-      );
+      .sort((a, b) => b[1].species.confidence - a[1].species.confidence);
   }, [currentMlResult]);
 
   // Get top species name for context
   const topSpeciesName = useMemo(() => {
-    if (cropEntries.length === 0) return '';
+    if (cropEntries.length === 0) return "";
     return cropEntries[0][1].species.label;
   }, [cropEntries]);
 
@@ -222,7 +318,7 @@ export default function UploadComponent({
   }, []);
 
   const handleFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter(f => f.type.startsWith("image/"));
+    const validFiles = newFiles.filter((f) => f.type.startsWith("image/"));
     if (validFiles.length !== newFiles.length) {
       toast.error("Some files were skipped (only images allowed)");
     }
@@ -231,11 +327,12 @@ export default function UploadComponent({
       return;
     }
 
-    setFiles(prev => [...prev, ...validFiles]);
+    setFiles((prev) => [...prev, ...validFiles]);
 
-    validFiles.forEach(file => {
+    validFiles.forEach((file) => {
       const reader = new FileReader();
-      reader.onload = () => setPreviews(prev => [...prev, reader.result as string]);
+      reader.onload = () =>
+        setPreviews((prev) => [...prev, reader.result as string]);
       reader.readAsDataURL(file);
     });
 
@@ -251,20 +348,21 @@ export default function UploadComponent({
 
     if ("geolocation" in navigator && files.length === 0) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        (pos) =>
+          setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => setLocation(null),
       );
     }
   };
 
   const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-    setPreviews(prev => prev.filter((_, i) => i !== index));
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setPreviews((prev) => prev.filter((_, i) => i !== index));
 
     if (selectedPreviewIndex >= files.length - 1) {
       setSelectedPreviewIndex(Math.max(0, files.length - 2));
     } else if (selectedPreviewIndex > index) {
-      setSelectedPreviewIndex(prev => prev - 1);
+      setSelectedPreviewIndex((prev) => prev - 1);
     }
   };
 
@@ -311,10 +409,10 @@ export default function UploadComponent({
       if (onPaneMessage) {
         onPaneMessage({
           id: `msg_${Date.now()}`,
-          type: 'info',
-          source: 'upload',
+          type: "info",
+          source: "upload",
           payload: {
-            event: 'upload:started',
+            event: "upload:started",
             imageCount: files.length,
           },
           timestamp: Date.now(),
@@ -322,22 +420,31 @@ export default function UploadComponent({
         });
       }
 
-      const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
-      const { groupId, presignedUrls } = await createGroupPresignedUrls(fileMetadata);
+      const fileMetadata = files.map((f) => ({
+        fileName: f.name,
+        fileType: f.type,
+      }));
+      const { groupId, presignedUrls } =
+        await createGroupPresignedUrls(fileMetadata);
       setCurrentGroupId(groupId);
 
       await uploadGroupToS3(presignedUrls, files, (index, pct) => {
-        setUploadProgress(prev => ({ ...prev, [index]: pct }));
+        setUploadProgress((prev) => ({ ...prev, [index]: pct }));
 
         // Dispatch upload:progress PaneMessage
         if (onPaneMessage && pct === 100) {
           onPaneMessage({
             id: `msg_${Date.now()}_${index}`,
-            type: 'info',
-            source: 'upload',
+            type: "info",
+            source: "upload",
             payload: {
-              event: 'upload:progress',
-              progress: Math.round(Object.values({ ...uploadProgress, [index]: pct }).reduce((a, b) => a + b, 0) / files.length),
+              event: "upload:progress",
+              progress: Math.round(
+                Object.values({ ...uploadProgress, [index]: pct }).reduce(
+                  (a, b) => a + b,
+                  0,
+                ) / files.length,
+              ),
             },
             timestamp: Date.now(),
             metadata: { userInitiated: false, requiresResponse: false },
@@ -349,10 +456,10 @@ export default function UploadComponent({
       if (onPaneMessage) {
         onPaneMessage({
           id: `msg_${Date.now()}`,
-          type: 'data',
-          source: 'upload',
+          type: "data",
+          source: "upload",
           payload: {
-            event: 'upload:complete',
+            event: "upload:complete",
             groupId,
             imageCount: files.length,
           },
@@ -363,16 +470,28 @@ export default function UploadComponent({
 
       setStep("processing");
       setAnalysisProgress(0);
-      const progressInterval = setInterval(() => {
+      let isAnalysisComplete = false;
+      const simulateProgress = () => {
+        if (isAnalysisComplete) return;
         setAnalysisProgress((prev) => {
-          if (prev >= 85) { clearInterval(progressInterval); return prev; }
-          return prev + 8;
+          // If we're already high, slow down drastically
+          if (prev >= 95) return prev;
+
+          let increment;
+          if (prev < 40) increment = Math.floor(Math.random() * 15) + 5;
+          else if (prev < 75) increment = Math.floor(Math.random() * 8) + 2;
+          else increment = Math.floor(Math.random() * 3) + 1;
+
+          return Math.min(prev + increment, 95);
         });
-      }, 300);
+        const nextDelay = Math.floor(Math.random() * 400) + 200;
+        setTimeout(simulateProgress, nextDelay);
+      };
+      simulateProgress();
 
       const { analysisResult } = await analyzeGroup(groupId, files.length);
 
-      clearInterval(progressInterval);
+      isAnalysisComplete = true;
       setAnalysisProgress(100);
 
       setMlResults(analysisResult.images as any);
@@ -387,10 +506,10 @@ export default function UploadComponent({
       if (onPaneMessage) {
         onPaneMessage({
           id: `msg_${Date.now()}`,
-          type: 'data',
-          source: 'upload',
+          type: "data",
+          source: "upload",
           payload: {
-            event: 'analysis:complete',
+            event: "analysis:complete",
             groupId,
             imageCount: files.length,
             fishCount: totalFish,
@@ -402,25 +521,30 @@ export default function UploadComponent({
         });
       }
 
-      toast.success(`Analysis complete! ${totalFish} fish detected across ${files.length} images.`);
+      toast.success(
+        `Analysis complete! ${totalFish} fish detected across ${files.length} images.`,
+      );
 
       // Sync scan summary to agent context
-      useAgentContext.getState().setScanSummary(
-        `${files.length} images, ${totalFish} fish, top species: ${topSpeciesName ?? 'unknown'}`
-      );
+      useAgentContext
+        .getState()
+        .setScanSummary(
+          `${files.length} images, ${totalFish} fish, top species: ${topSpeciesName ?? "unknown"}`,
+        );
     } catch (err) {
       setStep("error");
-      const errorMessage = err instanceof Error ? err.message : t("upload.error");
+      const errorMessage =
+        err instanceof Error ? err.message : t("upload.error");
       toast.error(errorMessage);
 
       // Dispatch error PaneMessage
       if (onPaneMessage) {
         onPaneMessage({
           id: `msg_${Date.now()}`,
-          type: 'error',
-          source: 'upload',
+          type: "error",
+          source: "upload",
           payload: {
-            event: 'upload:error',
+            event: "upload:error",
             error: errorMessage,
           },
           timestamp: Date.now(),
@@ -449,29 +573,45 @@ export default function UploadComponent({
     mlResults.forEach((result, imgIdx) => {
       const cropList = Object.entries(result.crops ?? {});
       totalFish += cropList.length;
-      if (cursorY > 250) { doc.addPage(); cursorY = 20; }
+      if (cursorY > 250) {
+        doc.addPage();
+        cursorY = 20;
+      }
       doc.setFontSize(14);
-      doc.text(`Image ${imgIdx + 1} - ${cropList.length} fish detected`, 14, cursorY);
+      doc.text(
+        `Image ${imgIdx + 1} - ${cropList.length} fish detected`,
+        14,
+        cursorY,
+      );
       cursorY += 10;
       cropList.forEach(([key, crop], idx) => {
         const supplement = generateMockSupplement(crop.species.label, idx);
-        if (cursorY > 260) { doc.addPage(); cursorY = 20; }
+        if (cursorY > 260) {
+          doc.addPage();
+          cursorY = 20;
+        }
         doc.setFontSize(11);
         doc.text(`  Fish #${idx + 1}: ${crop.species.label}`, 18, cursorY);
         cursorY += 6;
         doc.setFontSize(9);
-        [`    Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`,
-        `    Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`,
-        `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "—"} KG`,
-        `    Quality: ${supplement?.qualityGrade ?? "—"}`,
-        ].forEach((line) => { doc.text(line, 18, cursorY); cursorY += 5; });
+        [
+          `    Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`,
+          `    Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`,
+          `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "—"} KG`,
+        ].forEach((line) => {
+          doc.text(line, 18, cursorY);
+          cursorY += 5;
+        });
         cursorY += 3;
       });
       cursorY += 5;
     });
 
     doc.setFontSize(12);
-    if (cursorY > 260) { doc.addPage(); cursorY = 20; }
+    if (cursorY > 260) {
+      doc.addPage();
+      cursorY = 20;
+    }
     doc.text(`Total Fish Detected: ${totalFish}`, 14, cursorY);
     doc.save(`oceanai-group-${Date.now()}.pdf`);
     toast.success("PDF exported successfully.");
@@ -503,9 +643,9 @@ export default function UploadComponent({
   const hasResults = mlResults.length > 0;
 
   // Sync image navigation between carousel and results
-  const navigateImage = (direction: 'prev' | 'next') => {
+  const navigateImage = (direction: "prev" | "next") => {
     const maxIdx = Math.max(files.length - 1, mlResults.length - 1);
-    if (direction === 'prev') {
+    if (direction === "prev") {
       const idx = Math.max(0, selectedPreviewIndex - 1);
       setSelectedPreviewIndex(idx);
       if (hasResults) setCurrentResultIndex(idx);
@@ -529,9 +669,12 @@ export default function UploadComponent({
               <Sparkles className="w-4.5 h-4.5 text-primary" />
             </div>
             <div>
-              <h1 className="text-lg sm:text-xl font-bold leading-tight">Analysis Complete</h1>
+              <h1 className="text-lg sm:text-xl font-bold leading-tight">
+                Analysis Complete
+              </h1>
               <p className="text-xs text-muted-foreground/60">
-                {mlResults.length} {mlResults.length === 1 ? 'image' : 'images'} analyzed · {cropEntries.length} fish in current view
+                {mlResults.length} {mlResults.length === 1 ? "image" : "images"}{" "}
+                analyzed · {cropEntries.length} fish in current view
               </p>
             </div>
           </div>
@@ -548,7 +691,12 @@ export default function UploadComponent({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => currentGroupId && setActiveComponent('history', { selectedGroupId: currentGroupId })}
+              onClick={() =>
+                currentGroupId &&
+                setActiveComponent("history", {
+                  selectedGroupId: currentGroupId,
+                })
+              }
               className="h-8 rounded-xl border-border/20 text-xs font-medium hover:bg-muted/20"
             >
               <Eye className="w-3.5 h-3.5 mr-1.5" />
@@ -559,15 +707,12 @@ export default function UploadComponent({
               size="sm"
               onClick={() => {
                 const summary = `Scan complete: ${mlResults.length} images, ${cropEntries.length} fish detected.`;
-                (window as any).__agentChatInject?.(
-                  'Analyze scan results',
-                  {
-                    label: 'Analyze scan results',
-                    detail: `${mlResults.length} images · ${cropEntries.length} fish`,
-                    icon: 'upload' as const,
-                    backendText: `${summary} Analyze these results — what species were found, any diseases, and recommendations?`,
-                  }
-                );
+                (window as any).__agentChatInject?.("Analyze scan results", {
+                  label: "Analyze scan results",
+                  detail: `${mlResults.length} images · ${cropEntries.length} fish`,
+                  icon: "upload" as const,
+                  backendText: `${summary} Analyze these results — what species were found, any diseases, and recommendations?`,
+                });
               }}
               className="h-8 rounded-xl border-primary/30 text-primary text-xs font-medium hover:bg-primary/10"
             >
@@ -587,11 +732,13 @@ export default function UploadComponent({
 
         {/* ── Full-width analysis view ── */}
         <div className="flex-1 grid grid-cols-1 gap-4 min-h-0">
-
           {/* ── Image carousel + Analysis ── */}
           <div className="flex flex-col min-h-0 gap-3">
             {/* Image viewer */}
-            <div className="relative rounded-2xl overflow-hidden border border-border/15 bg-card/30 backdrop-blur-sm flex-shrink-0 animate-slide-in-left" style={{ animationDuration: '0.5s' }}>
+            <div
+              className="relative rounded-2xl overflow-hidden border border-border/15 bg-card/30 backdrop-blur-sm flex-shrink-0 animate-slide-in-left"
+              style={{ animationDuration: "0.5s" }}
+            >
               <img
                 src={previews[selectedPreviewIndex]}
                 alt="Analysis"
@@ -601,14 +748,14 @@ export default function UploadComponent({
               {files.length > 1 && (
                 <>
                   <button
-                    onClick={() => navigateImage('prev')}
+                    onClick={() => navigateImage("prev")}
                     disabled={selectedPreviewIndex === 0}
                     className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/60 transition-all disabled:opacity-20"
                   >
                     <ChevronLeft className="w-4 h-4" />
                   </button>
                   <button
-                    onClick={() => navigateImage('next')}
+                    onClick={() => navigateImage("next")}
                     disabled={selectedPreviewIndex >= files.length - 1}
                     className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm text-white flex items-center justify-center hover:bg-black/60 transition-all disabled:opacity-20"
                   >
@@ -622,12 +769,15 @@ export default function UploadComponent({
                   {files.map((_, idx) => (
                     <button
                       key={idx}
-                      onClick={() => { setSelectedPreviewIndex(idx); if (hasResults) setCurrentResultIndex(idx); }}
+                      onClick={() => {
+                        setSelectedPreviewIndex(idx);
+                        if (hasResults) setCurrentResultIndex(idx);
+                      }}
                       className={cn(
                         "h-1.5 rounded-full transition-all duration-300",
                         selectedPreviewIndex === idx
                           ? "w-6 bg-white"
-                          : "w-1.5 bg-white/40 hover:bg-white/60"
+                          : "w-1.5 bg-white/40 hover:bg-white/60",
                       )}
                     />
                   ))}
@@ -647,40 +797,57 @@ export default function UploadComponent({
                 {previews.map((preview, idx) => (
                   <button
                     key={idx}
-                    onClick={() => { setSelectedPreviewIndex(idx); if (hasResults) setCurrentResultIndex(idx); }}
+                    onClick={() => {
+                      setSelectedPreviewIndex(idx);
+                      if (hasResults) setCurrentResultIndex(idx);
+                    }}
                     className={cn(
                       "shrink-0 rounded-lg overflow-hidden border-2 transition-all duration-200",
                       selectedPreviewIndex === idx
                         ? "border-primary ring-1 ring-primary/20 scale-105"
-                        : "border-transparent opacity-60 hover:opacity-90"
+                        : "border-transparent opacity-60 hover:opacity-90",
                     )}
                   >
-                    <img src={preview} alt="" className="w-12 h-12 object-cover" />
+                    <img
+                      src={preview}
+                      alt=""
+                      className="w-12 h-12 object-cover"
+                    />
                   </button>
                 ))}
               </div>
             )}
 
             {/* ── Fish detection results ── */}
-            <div className="flex-1 overflow-y-auto min-h-0 space-y-2 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+            <div
+              className="flex-1 overflow-y-auto min-h-0 space-y-4 animate-fade-in-up"
+              style={{ animationDelay: "0.1s" }}
+            >
               {/* YOLO overview */}
               {currentMlResult?.yolo_image_url && (
-                <div className="rounded-xl border border-border/15 overflow-hidden bg-card/20">
+                <div className="rounded-xl border border-border/40 overflow-hidden bg-background mb-4 shadow-sm">
                   <button
-                    onClick={() => toggleCropExpand('yolo_overview')}
-                    className="w-full flex items-center justify-between p-3 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={() => toggleCropExpand("yolo_overview")}
+                    className="w-full flex items-center justify-between p-3.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
                   >
-                    <span className="flex items-center gap-1.5">
-                      <Eye className="w-3 h-3" /> YOLO Detection View
+                    <span className="flex items-center gap-2">
+                      <Eye className="w-4 h-4 text-muted-foreground" /> YOLO
+                      Detection View
                     </span>
-                    {expandedCrops.has('yolo_overview') ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    {expandedCrops.has("yolo_overview") ? (
+                      <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
+                    )}
                   </button>
-                  {expandedCrops.has('yolo_overview') && (
-                    <img
-                      src={resolveMLUrl(currentMlResult.yolo_image_url)}
-                      alt="YOLO"
-                      className="w-full object-contain max-h-[200px] border-t border-border/10"
-                    />
+                  {expandedCrops.has("yolo_overview") && (
+                    <div className="p-3 border-t border-border/40 bg-black/5">
+                      <img
+                        src={resolveMLUrl(currentMlResult.yolo_image_url)}
+                        alt="YOLO"
+                        className="w-full object-contain max-h-[250px] rounded-lg border border-border/20 bg-background/50"
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -691,35 +858,55 @@ export default function UploadComponent({
                   {cropEntries.map(([key, crop], idx) => {
                     const isExpanded = expandedCrops.has(key);
                     const hasCropImg = !!crop.crop_url;
-                    const hasGradcam = !!crop.species.gradcam_url || !!crop.disease.gradcam_url;
-                    const diseaseIsHealthy = crop.disease.label.toLowerCase() === "healthy" || crop.disease.label.toLowerCase() === "healthy fish";
+                    const hasGradcam =
+                      !!crop.species.gradcam_url || !!crop.disease.gradcam_url;
+                    const diseaseIsHealthy =
+                      crop.disease.label.toLowerCase() === "healthy" ||
+                      crop.disease.label.toLowerCase() === "healthy fish";
 
                     return (
-                      <div key={key} className="rounded-xl border border-border/15 bg-card/20 overflow-hidden transition-all">
-                        <div className="p-3 space-y-2">
-                          <div className="flex gap-2.5">
+                      <div
+                        key={key}
+                        className="rounded-xl border border-border/40 bg-card overflow-hidden transition-all mb-4 shadow-sm"
+                      >
+                        <div className="p-4 space-y-4">
+                          <div className="flex gap-4">
                             {hasCropImg ? (
-                              <img src={resolveMLUrl(crop.crop_url)} alt={crop.species.label}
-                                className="w-14 h-14 rounded-lg border border-border/10 object-cover bg-black/10 shrink-0" />
+                              <img
+                                src={resolveMLUrl(crop.crop_url)}
+                                alt={crop.species.label}
+                                className="w-20 h-20 rounded-xl border border-border/20 object-cover bg-black/10 shrink-0"
+                              />
                             ) : (
-                              <div className="w-14 h-14 rounded-lg border border-border/10 bg-primary/5 flex items-center justify-center shrink-0">
-                                <span className="text-xl">🐟</span>
+                              <div className="w-20 h-20 rounded-xl border border-border/20 bg-primary/5 flex items-center justify-center shrink-0">
+                                <span className="text-2xl">🐟</span>
                               </div>
                             )}
-                            <div className="flex-1 min-w-0 space-y-0.5">
+                            <div className="flex-1 min-w-0 space-y-1">
                               <div className="flex items-start justify-between gap-2">
                                 <div>
-                                  <p className="text-[10px] text-muted-foreground/50 font-medium">Fish #{idx + 1}</p>
-                                  <h3 className="text-sm font-bold text-primary leading-tight truncate">{crop.species.label}</h3>
+                                  <p className="text-xs text-muted-foreground/60 font-medium">
+                                    Fish #{idx + 1}
+                                  </p>
+                                  <h3 className="text-lg font-bold text-primary leading-tight truncate">
+                                    {crop.species.label}
+                                  </h3>
                                 </div>
-                                <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-primary/20 text-primary/80 font-bold">
+                                <Badge
+                                  variant="outline"
+                                  className="text-xs px-2 py-0.5 shrink-0 border-primary/20 text-primary/80 font-bold bg-primary/5"
+                                >
                                   {(crop.species.confidence * 100).toFixed(0)}%
                                 </Badge>
                               </div>
-                              <div className={cn(
-                                "inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium",
-                                diseaseIsHealthy ? "bg-emerald-500/8 text-emerald-500" : "bg-amber-500/8 text-amber-500",
-                              )}>
+                              <div
+                                className={cn(
+                                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold mt-1",
+                                  diseaseIsHealthy
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                                    : "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+                                )}
+                              >
                                 <span>{diseaseIsHealthy ? "✓" : "⚠"}</span>
                                 {crop.disease.label}
                               </div>
@@ -727,76 +914,173 @@ export default function UploadComponent({
                           </div>
 
                           {/* Weight Estimation Section */}
-                          {weightResults[key] ? (
+                          {weightResults[key] && !weightFormOpen[key] ? (
                             /* ── Show results ── */
-                            <div className="space-y-1.5 pt-1">
-                              <div className="grid grid-cols-3 gap-2">
-                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Est. Weight</p>
-                                  <p className="text-xs font-bold">{(weightResults[key].estimated_weight_grams / 1000).toFixed(2)} kg</p>
+                            <div className="space-y-3 pt-2">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="text-center p-2 rounded-xl bg-muted/10">
+                                  <p className="text-xs text-muted-foreground/50 font-medium mb-1">
+                                    Est. Weight
+                                  </p>
+                                  <p className="text-sm font-bold">
+                                    {(
+                                      weightResults[key]
+                                        .estimated_weight_grams / 1000
+                                    ).toFixed(2)}{" "}
+                                    kg
+                                  </p>
                                 </div>
-                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Quality</p>
-                                  <p className={cn("text-xs font-bold", weightResults[key].quality_grade === "Premium" ? "text-emerald-500" : weightResults[key].quality_grade === "Standard" ? "text-amber-500" : "text-red-500")}>{weightResults[key].quality_grade}</p>
-                                </div>
-                                <div className="text-center p-1.5 rounded-lg bg-muted/10">
-                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Value</p>
-                                  <p className="text-xs font-bold">₹{weightResults[key].estimated_fish_value.min_inr}–{weightResults[key].estimated_fish_value.max_inr}</p>
+                                <div className="text-center p-2 rounded-xl bg-muted/10">
+                                  <p className="text-xs text-muted-foreground/50 font-medium mb-1">
+                                    Value
+                                  </p>
+                                  <p className="text-sm font-bold">
+                                    ₹
+                                    {
+                                      weightResults[key].estimated_fish_value
+                                        .min_inr
+                                    }
+                                    –
+                                    {
+                                      weightResults[key].estimated_fish_value
+                                        .max_inr
+                                    }
+                                  </p>
                                 </div>
                               </div>
-                              <div className="grid grid-cols-2 gap-2">
-                                <div className="text-center p-1.5 rounded-lg bg-primary/5">
-                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Weight Range</p>
-                                  <p className="text-[10px] font-bold">{(weightResults[key].estimated_weight_range.min_grams / 1000).toFixed(2)}–{(weightResults[key].estimated_weight_range.max_grams / 1000).toFixed(2)} kg</p>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="text-center p-2 rounded-xl bg-primary/5">
+                                  <p className="text-[11px] text-muted-foreground/50 font-medium mb-0.5">
+                                    Weight Range
+                                  </p>
+                                  <p className="text-xs font-bold">
+                                    {(
+                                      weightResults[key].estimated_weight_range
+                                        .min_grams / 1000
+                                    ).toFixed(2)}
+                                    –
+                                    {(
+                                      weightResults[key].estimated_weight_range
+                                        .max_grams / 1000
+                                    ).toFixed(2)}{" "}
+                                    kg
+                                  </p>
                                 </div>
-                                <div className="text-center p-1.5 rounded-lg bg-primary/5">
-                                  <p className="text-[9px] text-muted-foreground/50 font-medium">Market Price</p>
-                                  <p className="text-[10px] font-bold">₹{weightResults[key].market_price_per_kg.min_inr}–{weightResults[key].market_price_per_kg.max_inr}/kg</p>
+                                <div className="text-center p-2 rounded-xl bg-primary/5">
+                                  <p className="text-[11px] text-muted-foreground/50 font-medium mb-0.5">
+                                    Market Price
+                                  </p>
+                                  <p className="text-xs font-bold">
+                                    ₹
+                                    {
+                                      weightResults[key].market_price_per_kg
+                                        .min_inr
+                                    }
+                                    –
+                                    {
+                                      weightResults[key].market_price_per_kg
+                                        .max_inr
+                                    }
+                                    /kg
+                                  </p>
                                 </div>
                               </div>
                               {weightResults[key].notes && (
-                                <p className="text-[9px] text-muted-foreground/40 italic px-1">{weightResults[key].notes}</p>
+                                <p className="text-[11px] text-muted-foreground/40 italic px-1">
+                                  {weightResults[key].notes}
+                                </p>
                               )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full h-8 text-[11px] rounded-lg border-primary/20 text-primary hover:bg-primary/5 mt-1"
+                                onClick={() =>
+                                  setWeightFormOpen((prev) => ({
+                                    ...prev,
+                                    [key]: true,
+                                  }))
+                                }
+                              >
+                                Recalculate Weight
+                              </Button>
                             </div>
                           ) : weightFormOpen[key] ? (
                             /* ── Show measurement form ── */
-                            <div className="space-y-2 pt-1">
-                              <div className="grid grid-cols-2 gap-1.5">
-                                {(["length1", "length3", "height", "width"] as const).map((field) => (
+                            <div className="space-y-3 pt-2">
+                              <div className="grid grid-cols-2 gap-2.5">
+                                {(
+                                  [
+                                    "length1",
+                                    "length3",
+                                    "height",
+                                    "width",
+                                  ] as const
+                                ).map((field) => (
                                   <div key={field}>
-                                    <label className="text-[9px] text-muted-foreground/50 font-medium block mb-0.5">
-                                      {field === "length1" ? "Length 1 (cm)" : field === "length3" ? "Total Length (cm)" : field === "height" ? "Height (cm)" : "Width (cm)"}
+                                    <label className="text-xs text-muted-foreground/60 font-medium block mb-1">
+                                      {field === "length1"
+                                        ? "Length 1 (cm)"
+                                        : field === "length3"
+                                          ? "Total Length (cm)"
+                                          : field === "height"
+                                            ? "Height (cm)"
+                                            : "Width (cm)"}
                                     </label>
                                     <input
                                       type="number"
                                       step="0.01"
                                       placeholder="0.00"
-                                      className="w-full px-2 py-1.5 text-xs rounded-lg border border-border/20 bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                      className="w-full px-3 py-2 text-sm rounded-lg border border-border/40 bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/40"
                                       value={weightInputs[key]?.[field] || ""}
-                                      onChange={(e) => setWeightInputs(prev => ({ ...prev, [key]: { ...prev[key], [field]: e.target.value } }))}
+                                      onChange={(e) =>
+                                        setWeightInputs((prev) => ({
+                                          ...prev,
+                                          [key]: {
+                                            ...prev[key],
+                                            [field]: e.target.value,
+                                          },
+                                        }))
+                                      }
                                     />
                                   </div>
                                 ))}
                               </div>
                               {weightErrors[key] && (
-                                <p className="text-[9px] text-red-500 font-medium">{weightErrors[key]}</p>
+                                <p className="text-xs text-red-500 font-medium">
+                                  {weightErrors[key]}
+                                </p>
                               )}
-                              <div className="flex gap-1.5">
+                              <div className="flex gap-2">
                                 <Button
                                   size="sm"
-                                  className="flex-1 h-7 text-[10px] rounded-lg bg-primary font-semibold"
-                                  onClick={() => handleWeightEstimate(key, crop.species.label)}
+                                  className="flex-1 h-9 text-xs rounded-lg bg-primary font-semibold"
+                                  onClick={() =>
+                                    handleWeightEstimate(
+                                      key,
+                                      crop.species.label,
+                                    )
+                                  }
                                   disabled={weightLoading[key]}
                                 >
                                   {weightLoading[key] ? (
-                                    <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Estimating...</>
-                                  ) : "Calculate Weight"}
+                                    <>
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                                      Estimating...
+                                    </>
+                                  ) : (
+                                    "Calculate Weight"
+                                  )}
                                 </Button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  className="h-7 text-[10px] rounded-lg text-muted-foreground"
-                                  onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: false }))}
+                                  className="h-9 text-xs rounded-lg text-muted-foreground"
+                                  onClick={() =>
+                                    setWeightFormOpen((prev) => ({
+                                      ...prev,
+                                      [key]: false,
+                                    }))
+                                  }
                                 >
                                   Cancel
                                 </Button>
@@ -807,35 +1091,63 @@ export default function UploadComponent({
                             <Button
                               variant="outline"
                               size="sm"
-                              className="w-full h-7 text-[10px] rounded-lg border-primary/20 text-primary hover:bg-primary/5 font-medium mt-1"
-                              onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: true }))}
+                              className="w-full h-9 text-xs rounded-lg border-primary/30 text-primary hover:bg-primary/5 font-semibold mt-2"
+                              onClick={() =>
+                                setWeightFormOpen((prev) => ({
+                                  ...prev,
+                                  [key]: true,
+                                }))
+                              }
                             >
-                              <Zap className="w-3 h-3 mr-1" />
+                              <Zap className="w-3.5 h-3.5 mr-1.5" />
                               Get Estimated Weight
                             </Button>
                           )}
 
                           {/* Grad-CAM toggle */}
                           {hasGradcam && (
-                            <Button variant="ghost" size="sm" className="w-full h-7 text-[10px] text-muted-foreground/50 hover:text-foreground" onClick={() => toggleCropExpand(key)}>
-                              <Bug className="w-2.5 h-2.5 mr-1" /> Grad-CAM
-                              {isExpanded ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
-                            </Button>
+                            <div className="pt-3 mt-3 border-t border-border/10">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="w-full h-9 text-xs font-medium text-muted-foreground hover:text-foreground border-border/40 shadow-sm"
+                                onClick={() => toggleCropExpand(key)}
+                              >
+                                <Bug className="w-3.5 h-3.5 mr-1.5" /> Grad-CAM
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 ml-auto" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 ml-auto" />
+                                )}
+                              </Button>
+                            </div>
                           )}
                         </div>
 
                         {isExpanded && hasGradcam && (
-                          <div className="px-3 pb-3 grid grid-cols-2 gap-2">
+                          <div className="px-4 pb-4 pt-1 grid grid-cols-2 gap-3">
                             {crop.species.gradcam_url && (
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-medium text-muted-foreground/50">Species</p>
-                                <img src={resolveMLUrl(crop.species.gradcam_url)} alt="Species Grad-CAM" className="w-full rounded-lg border border-border/10 object-contain bg-black/10 max-h-[120px]" />
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-semibold text-muted-foreground/70">
+                                  Species
+                                </p>
+                                <img
+                                  src={resolveMLUrl(crop.species.gradcam_url)}
+                                  alt="Species Grad-CAM"
+                                  className="w-full rounded-xl border border-border/30 shadow-sm object-contain bg-black/5 max-h-[160px]"
+                                />
                               </div>
                             )}
                             {crop.disease.gradcam_url && (
-                              <div className="space-y-1">
-                                <p className="text-[9px] font-medium text-muted-foreground/50">Disease</p>
-                                <img src={resolveMLUrl(crop.disease.gradcam_url)} alt="Disease Grad-CAM" className="w-full rounded-lg border border-border/10 object-contain bg-black/10 max-h-[120px]" />
+                              <div className="space-y-1.5">
+                                <p className="text-xs font-semibold text-muted-foreground/70">
+                                  Disease
+                                </p>
+                                <img
+                                  src={resolveMLUrl(crop.disease.gradcam_url)}
+                                  alt="Disease Grad-CAM"
+                                  className="w-full rounded-xl border border-border/30 shadow-sm object-contain bg-black/5 max-h-[160px]"
+                                />
                               </div>
                             )}
                           </div>
@@ -848,12 +1160,14 @@ export default function UploadComponent({
                 <div className="flex flex-col items-center justify-center text-center py-10 opacity-40">
                   <Eye className="w-10 h-10 mb-3" />
                   <p className="text-sm font-bold">No Fish Detected</p>
-                  <p className="text-xs text-muted-foreground">Below {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}% threshold</p>
+                  <p className="text-xs text-muted-foreground">
+                    Below {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}%
+                    threshold
+                  </p>
                 </div>
               ) : null}
             </div>
           </div>
-
         </div>
       </div>
     );
@@ -863,7 +1177,13 @@ export default function UploadComponent({
   // ── UPLOAD MODE (before analysis) ────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className={cn("max-w-5xl mx-auto space-y-6 pb-10 animate-fade-in-up", className)} style={{ animationDuration: '0.4s' }}>
+    <div
+      className={cn(
+        "max-w-5xl mx-auto space-y-6 pb-10 animate-fade-in-up",
+        className,
+      )}
+      style={{ animationDuration: "0.4s" }}
+    >
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
@@ -904,9 +1224,13 @@ export default function UploadComponent({
                 {dragActive ? t("upload.dropHere") : "Upload Fish Images"}
               </h3>
               <p className="text-xs text-muted-foreground/50 mb-6 max-w-[280px] mx-auto">
-                Drag & drop or browse for single or multiple fish photos for AI analysis
+                Drag & drop or browse for single or multiple fish photos for AI
+                analysis
               </p>
-              <div className="flex flex-wrap items-center justify-center gap-3" onClick={(e) => e.stopPropagation()}>
+              <div
+                className="flex flex-wrap items-center justify-center gap-3"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   className="rounded-xl h-10 px-5 bg-primary font-semibold text-xs"
@@ -922,12 +1246,33 @@ export default function UploadComponent({
                   {t("upload.camera")}
                 </Button>
               </div>
-              <input type="file" ref={fileInputRef} className="hidden"
-                onChange={(e) => { if (e.target.files) { handleFiles(Array.from(e.target.files)); e.target.value = ''; } }}
-                accept="image/*" multiple />
-              <input type="file" ref={mobileFileInputRef} className="hidden"
-                onChange={(e) => { if (e.target.files) { handleFiles(Array.from(e.target.files)); e.target.value = ''; } }}
-                accept="image/*" capture="environment" multiple />
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) {
+                    handleFiles(Array.from(e.target.files));
+                    e.target.value = "";
+                  }
+                }}
+                accept="image/*"
+                multiple
+              />
+              <input
+                type="file"
+                ref={mobileFileInputRef}
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) {
+                    handleFiles(Array.from(e.target.files));
+                    e.target.value = "";
+                  }
+                }}
+                accept="image/*"
+                capture="environment"
+                multiple
+              />
             </div>
           ) : (
             <div>
@@ -939,10 +1284,20 @@ export default function UploadComponent({
                   className="w-full h-auto max-h-[350px] object-contain rounded-t-2xl bg-black/10 transition-all duration-300"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-6 gap-3">
-                  <Button variant="secondary" className="rounded-xl font-semibold bg-white/90 text-black text-xs h-9" onClick={() => fileInputRef.current?.click()} disabled={isDisabled}>
+                  <Button
+                    variant="secondary"
+                    className="rounded-xl font-semibold bg-white/90 text-black text-xs h-9"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isDisabled}
+                  >
                     Add More
                   </Button>
-                  <Button variant="destructive" className="rounded-xl font-semibold text-xs h-9" onClick={reset} disabled={isDisabled}>
+                  <Button
+                    variant="destructive"
+                    className="rounded-xl font-semibold text-xs h-9"
+                    onClick={reset}
+                    disabled={isDisabled}
+                  >
                     <Trash2 className="mr-1.5 w-3.5 h-3.5" /> Clear
                   </Button>
                 </div>
@@ -971,14 +1326,21 @@ export default function UploadComponent({
                           "relative shrink-0 rounded-lg overflow-hidden border-2 transition-all duration-200",
                           selectedPreviewIndex === idx
                             ? "border-primary ring-1 ring-primary/15"
-                            : "border-transparent opacity-50 hover:opacity-80"
+                            : "border-transparent opacity-50 hover:opacity-80",
                         )}
                         onClick={() => setSelectedPreviewIndex(idx)}
                       >
-                        <img src={preview} alt="" className="w-14 h-14 object-cover" />
+                        <img
+                          src={preview}
+                          alt=""
+                          className="w-14 h-14 object-cover"
+                        />
                         {step === "idle" && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); removeFile(idx); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeFile(idx);
+                            }}
                             className="absolute top-0.5 right-0.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <X className="w-2.5 h-2.5" />
@@ -1018,9 +1380,14 @@ export default function UploadComponent({
               <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
               Uploading {files.length} {files.length === 1 ? "image" : "images"}
             </span>
-            <span className="text-primary font-bold text-sm">{overallUploadProgress}%</span>
+            <span className="text-primary font-bold text-sm">
+              {overallUploadProgress}%
+            </span>
           </div>
-          <Progress value={overallUploadProgress} className="h-2 rounded-full bg-primary/5" />
+          <Progress
+            value={overallUploadProgress}
+            className="h-2 rounded-full bg-primary/5"
+          />
         </Card>
       )}
 
@@ -1031,24 +1398,35 @@ export default function UploadComponent({
               <Sparkles className="w-3.5 h-3.5 text-primary animate-gentle-pulse" />
               Analyzing with AI
             </span>
-            <span className="text-primary font-bold text-sm">{analysisProgress}%</span>
+            <span className="text-primary font-bold text-sm">
+              {analysisProgress}%
+            </span>
           </div>
-          <Progress value={analysisProgress} className="h-2 rounded-full bg-primary/5" />
+          <Progress
+            value={analysisProgress}
+            className="h-2 rounded-full bg-primary/5"
+          />
           <p className="text-[10px] text-muted-foreground/40 text-center">
-            Running species identification, disease detection, and weight estimation...
+            Running species identification, disease detection, and weight
+            estimation...
           </p>
         </Card>
       )}
 
       {/* Tips */}
       {step !== "processing" && step !== "uploading" && (
-        <div className="rounded-2xl bg-muted/30 border border-border/40 p-4 sm:p-5 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+        <div
+          className="rounded-2xl bg-muted/30 border border-border/40 p-4 sm:p-5 animate-fade-in"
+          style={{ animationDelay: "0.2s" }}
+        >
           <div className="flex gap-3 sm:gap-4">
             <div className="p-2 bg-primary/10 rounded-xl text-primary h-fit shrink-0">
               <Info className="w-5 h-5" />
             </div>
             <div className="space-y-1.5">
-              <h4 className="font-semibold text-sm sm:text-[15px] text-foreground/90">{t("upload.tips")}</h4>
+              <h4 className="font-semibold text-sm sm:text-[15px] text-foreground/90">
+                {t("upload.tips")}
+              </h4>
               <ul className="text-xs sm:text-[13px] text-muted-foreground leading-relaxed space-y-1">
                 <li>• {t("upload.tip2")}</li>
                 <li>• {t("upload.tip3")}</li>
@@ -1061,17 +1439,27 @@ export default function UploadComponent({
 
       {/* Recent History */}
       {history.length > 0 && (
-        <div className="space-y-3 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
-          <h2 className="text-sm font-bold text-muted-foreground/50">Recent Analyses</h2>
+        <div
+          className="space-y-3 animate-fade-in-up"
+          style={{ animationDelay: "0.3s" }}
+        >
+          <h2 className="text-sm font-bold text-muted-foreground/50">
+            Recent Analyses
+          </h2>
           <div className="space-y-2">
             {history.slice(0, 5).map((group) => {
               const stats = group.analysisResult?.aggregateStats;
               const fishCount = stats?.totalFishCount ?? 0;
 
               return (
-                <div key={group.groupId}
+                <div
+                  key={group.groupId}
                   className="rounded-xl border border-border/15 bg-card/15 p-3 flex items-center justify-between gap-3 hover:bg-card/30 transition-colors duration-200 cursor-pointer"
-                  onClick={() => setActiveComponent('history', { selectedGroupId: group.groupId })}
+                  onClick={() =>
+                    setActiveComponent("history", {
+                      selectedGroupId: group.groupId,
+                    })
+                  }
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-lg border border-border/10 bg-primary/5 flex items-center justify-center text-primary">
@@ -1079,21 +1467,36 @@ export default function UploadComponent({
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-semibold truncate">
-                        {group.imageCount} {group.imageCount === 1 ? "Image" : "Images"}
-                        {fishCount > 0 && <span className="text-muted-foreground/40 ml-1.5">· {fishCount} fish</span>}
+                        {group.imageCount}{" "}
+                        {group.imageCount === 1 ? "Image" : "Images"}
+                        {fishCount > 0 && (
+                          <span className="text-muted-foreground/40 ml-1.5">
+                            · {fishCount} fish
+                          </span>
+                        )}
                       </p>
                       <p className="text-[10px] text-muted-foreground/40">
-                        {new Date(group.createdAt).toLocaleDateString("en-IN", { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {new Date(group.createdAt).toLocaleDateString("en-IN", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant="secondary" className={cn(
-                      "text-[9px] px-2 py-0.5 font-semibold border-none",
-                      group.status === "completed" ? "bg-emerald-500/10 text-emerald-500"
-                        : group.status === "failed" ? "bg-red-500/10 text-red-500"
-                          : "bg-amber-500/10 text-amber-500"
-                    )}>
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "text-[9px] px-2 py-0.5 font-semibold border-none",
+                        group.status === "completed"
+                          ? "bg-emerald-500/10 text-emerald-500"
+                          : group.status === "failed"
+                            ? "bg-red-500/10 text-red-500"
+                            : "bg-amber-500/10 text-amber-500",
+                      )}
+                    >
                       {group.status}
                     </Badge>
                   </div>
@@ -1105,7 +1508,11 @@ export default function UploadComponent({
       )}
 
       {/* Camera Modal */}
-      <CameraModal isOpen={showCamera} onClose={() => setShowCamera(false)} onCapture={handleCameraCapture} />
+      <CameraModal
+        isOpen={showCamera}
+        onClose={() => setShowCamera(false)}
+        onCapture={handleCameraCapture}
+      />
     </div>
   );
 }

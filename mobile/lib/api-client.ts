@@ -154,6 +154,7 @@ export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  metadata?: any;
 }
 
 export interface UnifiedMessage {
@@ -161,6 +162,7 @@ export interface UnifiedMessage {
   role: "user" | "assistant";
   text: string;
   timestamp: string;
+  uiActions?: any;
 }
 
 export interface ImageRecord {
@@ -631,6 +633,7 @@ export async function getChatHistory(
           role: m.role,
           text: m.content,
           timestamp: m.timestamp,
+          uiActions: m.metadata?.ui,
         }));
       }
 

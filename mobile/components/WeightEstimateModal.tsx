@@ -19,11 +19,11 @@ import {
   Text,
   StyleSheet,
   ActivityIndicator,
-  ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import { Modal } from "./ui/Modal";
 import { Input } from "./ui/Input";
@@ -173,91 +173,84 @@ export function WeightEstimateModal({
       title={`Estimate Weight — Fish #${fishIndex + 1}`}
       size="lg"
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <KeyboardAwareScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* ── Species badge ── */}
-          <View style={styles.speciesBadge}>
-            <Text style={styles.speciesBadgeLabel}>Detected Species</Text>
-            <Text style={styles.speciesBadgeValue}>{species}</Text>
+        {/* ── Species badge ── */}
+        <View style={styles.speciesBadge}>
+          <Text style={styles.speciesBadgeLabel}>Detected Species</Text>
+          <Text style={styles.speciesBadgeValue}>{species}</Text>
+        </View>
+
+        {/* ── Input phase ── */}
+        {phase === "input" && (
+          <>
+            <Text style={styles.instruction}>
+              Enter the fish measurements below. All values should be in
+              centimetres (cm).
+            </Text>
+
+            {FIELDS.map((field) => (
+              <View key={field.key} style={styles.fieldBlock}>
+                <Input
+                  label={field.label}
+                  placeholder={field.placeholder}
+                  value={values[field.key]}
+                  onChangeText={(v) => {
+                    setValues((prev) => ({ ...prev, [field.key]: v }));
+                    if (errors[field.key]) {
+                      setErrors((prev) => ({ ...prev, [field.key]: "" }));
+                    }
+                  }}
+                  keyboardType="decimal-pad"
+                  error={errors[field.key]}
+                />
+                <Text style={styles.hint}>{field.hint}</Text>
+              </View>
+            ))}
+
+            <Button
+              label="Estimate Weight"
+              onPress={handleSubmit}
+              variant="primary"
+              style={styles.submitBtn}
+            />
+          </>
+        )}
+
+        {/* ── Loading phase ── */}
+        {phase === "loading" && (
+          <View style={styles.centeredSection}>
+            <ActivityIndicator
+              size="large"
+              color={COLORS.primaryLight}
+              style={styles.spinner}
+            />
+            <Text style={styles.loadingText}>Running on-device model…</Text>
+            <Text style={styles.loadingSubtext}>
+              XGBoost regression · LWR formula
+            </Text>
           </View>
+        )}
 
-          {/* ── Input phase ── */}
-          {phase === "input" && (
-            <>
-              <Text style={styles.instruction}>
-                Enter the fish measurements below. All values should be in
-                centimetres (cm).
-              </Text>
-
-              {FIELDS.map((field) => (
-                <View key={field.key} style={styles.fieldBlock}>
-                  <Input
-                    label={field.label}
-                    placeholder={field.placeholder}
-                    value={values[field.key]}
-                    onChangeText={(v) => {
-                      setValues((prev) => ({ ...prev, [field.key]: v }));
-                      if (errors[field.key]) {
-                        setErrors((prev) => ({ ...prev, [field.key]: "" }));
-                      }
-                    }}
-                    keyboardType="decimal-pad"
-                    error={errors[field.key]}
-                  />
-                  <Text style={styles.hint}>{field.hint}</Text>
-                </View>
-              ))}
-
-              <Button
-                label="Estimate Weight"
-                onPress={handleSubmit}
-                variant="primary"
-                style={styles.submitBtn}
-              />
-            </>
-          )}
-
-          {/* ── Loading phase ── */}
-          {phase === "loading" && (
-            <View style={styles.centeredSection}>
-              <ActivityIndicator
-                size="large"
-                color={COLORS.primaryLight}
-                style={styles.spinner}
-              />
-              <Text style={styles.loadingText}>Running on-device model…</Text>
-              <Text style={styles.loadingSubtext}>
-                XGBoost regression · LWR formula
-              </Text>
-            </View>
-          )}
-
-          {/* ── Error phase ── */}
-          {phase === "error" && (
-            <View style={styles.centeredSection}>
-              <Ionicons
-                name="warning-outline"
-                size={40}
-                color={COLORS.warning}
-              />
-              <Text style={styles.errorTitle}>Inference Failed</Text>
-              <Text style={styles.errorMsg}>{errorMsg}</Text>
-              <Button
-                label="Try Again"
-                onPress={handleTryAgain}
-                variant="outline"
-                style={styles.retryBtn}
-              />
-            </View>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        {/* ── Error phase ── */}
+        {phase === "error" && (
+          <View style={styles.centeredSection}>
+            <Ionicons name="warning-outline" size={40} color={COLORS.warning} />
+            <Text style={styles.errorTitle}>Inference Failed</Text>
+            <Text style={styles.errorMsg}>{errorMsg}</Text>
+            <Button
+              label="Try Again"
+              onPress={handleTryAgain}
+              variant="outline"
+              style={styles.retryBtn}
+            />
+          </View>
+        )}
+      </KeyboardAwareScrollView>
     </Modal>
   );
 }

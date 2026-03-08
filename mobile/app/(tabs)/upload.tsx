@@ -72,7 +72,6 @@ import {
   updateLocalDetectionWeight,
 } from "../../lib/local-history";
 import { SyncService } from "../../lib/sync-service";
-import { WeightEstimateModal } from "../../components/WeightEstimateModal";
 import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
 const YOLO_CONFIDENCE_THRESHOLD = 0.3;
@@ -143,9 +142,6 @@ export default function UploadScreen() {
   const [tfliteLoading, setTfliteLoading] = useState(false);
   const [tfliteError, setTfliteError] = useState<string | null>(null);
 
-  // ── Weight estimation state ──
-  const [weightModalVisible, setWeightModalVisible] = useState(false);
-  const [weightSpecies, setWeightSpecies] = useState("Tilapia");
   const [uploadGroupId, setUploadGroupId] = useState<string | null>(null);
 
   const refreshModelStatus = () => {
@@ -201,21 +197,75 @@ export default function UploadScreen() {
       .finally(() => setTfliteLoading(false));
   }, []);
 
-  // Trigger weight modal after species detection
+  // After scan completes → navigate directly to chat with full scan context
   useEffect(() => {
-    if (step === "done" && groupAnalysis) {
-      // Check if we have species detected
-      const firstDetection = groupAnalysis.detections?.[0];
+    if (step !== "done") return;
 
-      if (firstDetection?.species) {
-        setWeightSpecies(firstDetection.species);
-        // Small delay to let the UI settle
-        setTimeout(() => {
-          setWeightModalVisible(true);
-        }, 500);
+    const navigateToChat = () => {
+      if (groupAnalysis) {
+        // Online analysis
+        const speciesList = Object.keys(
+          groupAnalysis.aggregateStats.speciesDistribution,
+        ).join(", ");
+        const detections = groupAnalysis.detections ?? [];
+        const fishSummary = detections
+          .map(
+            (d, i) =>
+              `Fish #${i + 1}: ${d.species} (${(d.confidence * 100).toFixed(0)}% conf, ${d.diseaseStatus})`,
+          )
+          .join("; ");
+
+        const prompt = [
+          `I just scanned ${groupAnalysis.aggregateStats.totalFishCount} fish across ${groupAnalysis.images.length} image(s).`,
+          `Species: ${speciesList}.`,
+          fishSummary ? `Details: ${fishSummary}.` : "",
+          groupAnalysis.aggregateStats.diseaseDetected
+            ? "⚠️ Some fish show signs of disease!"
+            : "All fish appear healthy.",
+          "Please give me a detailed summary with species info, health assessment, and market recommendations.",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        router.push({
+          pathname: "/(tabs)/chat",
+          params: {
+            scanComplete: "true",
+            groupId: uploadGroupId || "",
+            scanMode: "online",
+            initialMessage: prompt,
+          },
+        });
+      } else if (offlineResults.length > 0) {
+        // Offline analysis
+        const fishSummary = offlineResults
+          .map(
+            (d, i) =>
+              `Fish #${i + 1}: ${d.species} (${(d.speciesConfidence * 100).toFixed(0)}% conf, ${d.disease})`,
+          )
+          .join("; ");
+
+        const prompt = [
+          `I just scanned ${offlineResults.length} fish using on-device inference.`,
+          `Details: ${fishSummary}.`,
+          "Please give me a detailed summary with species info, health assessment, and market recommendations.",
+        ].join(" ");
+
+        router.push({
+          pathname: "/(tabs)/chat",
+          params: {
+            scanComplete: "true",
+            scanMode: "offline",
+            initialMessage: prompt,
+          },
+        });
       }
-    }
-  }, [step, groupAnalysis]);
+    };
+
+    // Small delay to let UI settle before navigation
+    const timer = setTimeout(navigateToChat, 800);
+    return () => clearTimeout(timer);
+  }, [step, groupAnalysis, offlineResults, uploadGroupId]);
 
   const handleReloadModel = async () => {
     setIsReloadingModel(true);
@@ -515,9 +565,18 @@ export default function UploadScreen() {
         setStep("processing");
         animateProgress(0);
         console.log("[Upload] 🧠 Requesting group analysis…");
-        const interval = setInterval(() => {
+        let isAnalysisComplete = false;
+        const simulateProgress = () => {
+          if (isAnalysisComplete) return;
           setProgress((prev) => {
-            const next = Math.min(prev + 8, 85);
+            if (prev >= 95) return prev;
+
+            let increment;
+            if (prev < 40) increment = Math.floor(Math.random() * 15) + 5;
+            else if (prev < 75) increment = Math.floor(Math.random() * 8) + 2;
+            else increment = Math.floor(Math.random() * 3) + 1;
+
+            const next = Math.min(prev + increment, 95);
             Animated.timing(progressAnim, {
               toValue: next,
               duration: 250,
@@ -525,10 +584,13 @@ export default function UploadScreen() {
             }).start();
             return next;
           });
-        }, 400);
+          const nextDelay = Math.floor(Math.random() * 400) + 200;
+          setTimeout(simulateProgress, nextDelay);
+        };
+        simulateProgress();
 
         const { analysisResult } = await analyzeGroup(groupId);
-        clearInterval(interval);
+        isAnalysisComplete = true;
         animateProgress(100);
 
         // Print raw JSON response
@@ -614,9 +676,18 @@ export default function UploadScreen() {
         setStep("processing");
         animateProgress(0);
         console.log("[Upload] 🧠 Requesting cloud analysis (group API)…");
-        const interval = setInterval(() => {
+        let isAnalysisComplete = false;
+        const simulateProgress = () => {
+          if (isAnalysisComplete) return;
           setProgress((prev) => {
-            const next = Math.min(prev + 12, 85);
+            if (prev >= 95) return prev;
+
+            let increment;
+            if (prev < 40) increment = Math.floor(Math.random() * 15) + 5;
+            else if (prev < 75) increment = Math.floor(Math.random() * 8) + 2;
+            else increment = Math.floor(Math.random() * 3) + 1;
+
+            const next = Math.min(prev + increment, 95);
             Animated.timing(progressAnim, {
               toValue: next,
               duration: 250,
@@ -624,9 +695,12 @@ export default function UploadScreen() {
             }).start();
             return next;
           });
-        }, 300);
+          const nextDelay = Math.floor(Math.random() * 400) + 200;
+          setTimeout(simulateProgress, nextDelay);
+        };
+        simulateProgress();
         const { analysisResult } = await analyzeGroup(groupId);
-        clearInterval(interval);
+        isAnalysisComplete = true;
         animateProgress(100);
 
         // Print raw JSON response
@@ -808,46 +882,6 @@ export default function UploadScreen() {
       : result?.qualityGrade === "Standard"
         ? COLORS.warning
         : COLORS.error;
-
-  // Weight modal handlers
-  const handleWeightComplete = (weightG: number) => {
-    setWeightModalVisible(false);
-
-    // Navigate to chat with analysis context
-    const firstImage = groupAnalysis?.images?.[0];
-    const firstDetection = groupAnalysis?.detections?.[0];
-    const imageUrl =
-      firstImage?.yolo_image_url || imageUris[0] || imageUri || "";
-
-    router.push({
-      pathname: "/(tabs)/chat",
-      params: {
-        analysisId: uploadGroupId || "unknown",
-        species: firstDetection?.species || weightSpecies,
-        imageUrl,
-        weight: weightG.toString(),
-      },
-    });
-  };
-
-  const handleWeightCancel = () => {
-    setWeightModalVisible(false);
-
-    // Navigate to chat without weight
-    const firstImage = groupAnalysis?.images?.[0];
-    const firstDetection = groupAnalysis?.detections?.[0];
-    const imageUrl =
-      firstImage?.yolo_image_url || imageUris[0] || imageUri || "";
-
-    router.push({
-      pathname: "/(tabs)/chat",
-      params: {
-        analysisId: uploadGroupId || "unknown",
-        species: firstDetection?.species || weightSpecies,
-        imageUrl,
-      },
-    });
-  };
 
   if (!isLoaded) return null;
 
@@ -1189,6 +1223,37 @@ export default function UploadScreen() {
         {/* ═══ GROUP ANALYSIS RESULTS ═══ */}
         {groupAnalysis && (
           <View style={styles.groupSection}>
+            {/* Agent Takeover Card */}
+            <TouchableOpacity
+              style={styles.agentTakeoverCard}
+              onPress={() => {
+                const prompt = `I just scanned ${groupAnalysis.aggregateStats.totalFishCount} fish across ${groupAnalysis.images.length} images. Species found: ${Object.keys(groupAnalysis.aggregateStats.speciesDistribution).join(", ")}. Total weight: ${groupAnalysis.aggregateStats.totalEstimatedWeight.toFixed(2)} kg, estimated value: ₹${groupAnalysis.aggregateStats.totalEstimatedValue}. ${groupAnalysis.aggregateStats.diseaseDetected ? "Some fish show signs of disease!" : "Fish appear healthy."} Please give me a detailed analysis with market recommendations.`;
+                router.push({
+                  pathname: "/(tabs)/chat",
+                  params: { initialMessage: prompt },
+                });
+              }}
+              activeOpacity={0.85}
+            >
+              <View style={styles.agentTakeoverIcon}>
+                <Ionicons name="chatbubble" size={20} color="#fff" />
+              </View>
+              <View style={styles.agentTakeoverContent}>
+                <Text style={styles.agentTakeoverTitle}>
+                  SagarMitra has insights for you
+                </Text>
+                <Text style={styles.agentTakeoverSub}>
+                  Get market prices, disease analysis, and selling
+                  recommendations
+                </Text>
+              </View>
+              <Ionicons
+                name="arrow-forward"
+                size={18}
+                color="rgba(255,255,255,0.7)"
+              />
+            </TouchableOpacity>
+
             {/* Aggregate Statistics Card */}
             <View
               style={{
@@ -1815,15 +1880,6 @@ export default function UploadScreen() {
             );
           })()}
       </ScrollView>
-
-      {/* Weight Estimation Modal */}
-      <WeightEstimateModal
-        visible={weightModalVisible}
-        onClose={handleWeightCancel}
-        onConfirm={handleWeightComplete}
-        species={weightSpecies}
-        fishIndex={0}
-      />
     </SafeAreaView>
   );
 }
@@ -2389,6 +2445,38 @@ const styles = StyleSheet.create({
   // ── Group analysis styles ──
   groupSection: {
     marginTop: SPACING.xl,
+  },
+  agentTakeoverCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.md,
+    marginBottom: SPACING.lg,
+    gap: 12,
+    overflow: "hidden",
+  },
+  agentTakeoverIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  agentTakeoverContent: {
+    flex: 1,
+  },
+  agentTakeoverTitle: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: "#fff",
+    marginBottom: 2,
+  },
+  agentTakeoverSub: {
+    fontSize: FONTS.sizes.xs,
+    color: "rgba(255,255,255,0.7)",
+    lineHeight: 16,
   },
   aggregateCard: {
     marginBottom: SPACING.md,

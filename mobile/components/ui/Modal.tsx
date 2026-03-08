@@ -5,11 +5,11 @@ import {
   Modal as RNModal,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Dimensions,
   Animated,
   TouchableWithoutFeedback,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
@@ -113,14 +113,15 @@ export function Modal({
               </View>
 
               {/* Content */}
-              <ScrollView
+              <KeyboardAwareScrollView
                 style={styles.content}
                 contentContainerStyle={styles.contentContainer}
                 showsVerticalScrollIndicator={false}
                 bounces={false}
+                enableOnAndroid={true}
               >
                 {children}
-              </ScrollView>
+              </KeyboardAwareScrollView>
 
               {/* Footer */}
               {footer && <View style={styles.footer}>{footer}</View>}

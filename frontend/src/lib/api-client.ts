@@ -773,7 +773,6 @@ export interface FishWeightEstimate {
     market_reference: string;
   };
   estimated_fish_value: { min_inr: number; max_inr: number };
-  quality_grade: string;
   notes: string;
 }
 

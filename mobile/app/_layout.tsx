@@ -7,28 +7,53 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "../lib/auth-context";
 import { LanguageProvider, useLanguage } from "../lib/i18n";
 import { NetworkProvider } from "../lib/network-context";
+import { AgentContextProvider } from "../lib/agent-context";
 import { ToastProvider } from "../components/providers/ToastProvider";
 import { NetworkStatusBanner } from "../components/ui/NetworkStatusBanner";
 import { COLORS } from "../lib/constants";
 import { runStartupChecks } from "../lib/startup-check";
+import {
+  AgentOnboarding,
+  shouldShowOnboarding,
+} from "../components/onboarding/AgentOnboarding";
 
 function RootLayoutNav() {
   const { user, isLoading } = useAuth();
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
 
   useEffect(() => {
-    if (isLoading) return;
+    shouldShowOnboarding().then((show) => {
+      setShowOnboarding(show);
+      setOnboardingChecked(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (isLoading || !onboardingChecked || showOnboarding) return;
     if (user) {
       router.replace("/(tabs)");
     } else {
       router.replace("/auth/login");
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, onboardingChecked, showOnboarding]);
 
-  if (isLoading) {
+  if (isLoading || !onboardingChecked) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color={COLORS.primary} />
       </View>
+    );
+  }
+
+  if (showOnboarding && user) {
+    return (
+      <AgentOnboarding
+        onComplete={() => {
+          setShowOnboarding(false);
+          router.replace("/(tabs)");
+        }}
+      />
     );
   }
 
@@ -117,12 +142,14 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <NetworkProvider>
             <LanguageProvider>
-              <AuthProvider>
-                <ToastProvider>
-                  <StatusBar style="light" backgroundColor={COLORS.bgDark} />
-                  <AppWithNetworkBanner />
-                </ToastProvider>
-              </AuthProvider>
+              <AgentContextProvider>
+                <AuthProvider>
+                  <ToastProvider>
+                    <StatusBar style="light" backgroundColor={COLORS.bgDark} />
+                    <AppWithNetworkBanner />
+                  </ToastProvider>
+                </AuthProvider>
+              </AgentContextProvider>
             </LanguageProvider>
           </NetworkProvider>
         </SafeAreaProvider>

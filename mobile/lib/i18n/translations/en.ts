@@ -114,7 +114,7 @@ const en = {
   "chat.subtitle": "Expert maritime guidance powered by AI.",
   "chat.reset": "Reset",
   "chat.exportChat": "Export",
-  "chat.placeholder": "Ask your maritime assistant...",
+  "chat.placeholder": "Ask your AI Agent...",
   "chat.welcome":
     "Namaste! I'm your OceanAI Fisherman Assistant 🐟. I can help with fish identification, ocean conditions, market prices, and fishing regulations. What can I assist you with today?",
   "chat.cleared": "Chat cleared. How can I help you with your fishing today?",

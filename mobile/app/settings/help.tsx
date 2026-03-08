@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   TextInput,
   Linking,
   Alert,
   Platform,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -141,10 +141,11 @@ export default function HelpScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -397,7 +398,7 @@ export default function HelpScreen() {
             Bharat Challenge
           </Text>
         </Card>
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }

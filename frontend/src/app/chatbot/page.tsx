@@ -109,7 +109,7 @@ export default function ChatbotPage() {
     { label: t('chat.action.weather'), icon: CloudRain, query: "What are the sea conditions today?", color: "text-cyan-500 bg-cyan-500/10" },
     { label: t('chat.action.ocean'), icon: Waves, query: "What are the current ocean conditions?", color: "text-emerald-500 bg-emerald-500/10" },
     { label: t('chat.action.regulations'), icon: BookOpen, query: "What are the fishing regulations?", color: "text-amber-500 bg-amber-500/10" },
-    { label: t('chat.action.tips'), icon: HelpCircle, query: "Give me tips to improve my catch quality", color: "text-purple-500 bg-purple-500/10" },
+    { label: t('chat.action.tips'), icon: HelpCircle, query: "Give me tips to improve my catch", color: "text-purple-500 bg-purple-500/10" },
   ];
 
   // ═════════════════════════════════════════════════════════════════════════

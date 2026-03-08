@@ -3,13 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   Switch,
   Alert,
   Modal,
   ActivityIndicator,
+  ScrollView,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -37,6 +38,8 @@ import {
   generatePublicSlug,
   getUserPreferences,
   updateUserPreferences,
+  getConversationsList,
+  deleteConversation,
 } from "../../lib/api-client";
 import { ShareService } from "../../lib/share-service";
 import type { PublicProfile, UserPreferences } from "../../lib/types";
@@ -203,10 +206,11 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -382,6 +386,78 @@ export default function SettingsScreen() {
           />
         </Card>
 
+        {/* AI Agent */}
+        <Text style={styles.sectionLabel}>AI Agent</Text>
+        <Card padding={0} style={styles.menuCard}>
+          <PreferenceRow
+            label="Agent Memory"
+            type="action"
+            value="View conversation history"
+            onPress={async () => {
+              try {
+                const list = await getConversationsList();
+                Alert.alert(
+                  "Agent Memory",
+                  list.length === 0
+                    ? "No conversations stored yet. Start chatting to build your history."
+                    : `You have ${list.length} stored conversation${list.length !== 1 ? "s" : ""}. Open the chat and tap the menu icon to browse and manage them.`,
+                  [
+                    { text: "OK" },
+                    {
+                      text: "Open Chat",
+                      onPress: () => router.push("/(tabs)/chat"),
+                    },
+                  ],
+                );
+              } catch {
+                Alert.alert("Error", "Could not fetch conversation history.");
+              }
+            }}
+          />
+          <PreferenceRow
+            label="Clear Agent Memory"
+            type="action"
+            value="Delete all conversations"
+            onPress={() => {
+              Alert.alert(
+                "Clear Agent Memory",
+                "This will permanently delete all your conversations from the server. This cannot be undone.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete All",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        const list = await getConversationsList();
+                        if (list.length === 0) {
+                          Alert.alert(
+                            "Nothing to Delete",
+                            "You have no stored conversations.",
+                          );
+                          return;
+                        }
+                        await Promise.all(
+                          list.map((c) => deleteConversation(c.conversationId)),
+                        );
+                        Alert.alert(
+                          "Done",
+                          `Deleted ${list.length} conversation${list.length !== 1 ? "s" : ""} successfully.`,
+                        );
+                      } catch {
+                        Alert.alert(
+                          "Error",
+                          "Failed to delete some conversations. Please try again.",
+                        );
+                      }
+                    },
+                  },
+                ],
+              );
+            }}
+          />
+        </Card>
+
         {/* Help */}
         <Text style={styles.sectionLabel}>{t("settings.help")}</Text>
         <Card padding={0} style={styles.menuCard}>
@@ -416,7 +492,7 @@ export default function SettingsScreen() {
         <Text style={styles.appInfo}>
           OceanAI v1.0.0 · AWS AI for Bharat Challenge
         </Text>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Language Modal */}
       <Modal

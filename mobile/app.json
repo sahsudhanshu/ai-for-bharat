@@ -35,6 +35,7 @@
         "android.permission.POST_NOTIFICATIONS"
       ],
       "package": "com.aiforbharat.oceanai",
+      "softwareKeyboardLayoutMode": "pan",
       "config": {
         "googleMaps": {
           "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"

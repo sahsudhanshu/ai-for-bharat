@@ -32,14 +32,15 @@ const HISTORY_CACHE_KEY = "ocean_ai_history_cache";
 
 /** Convert a local offline record to the GroupRecord shape HistoryCard expects */
 function localToGroupRecord(r: LocalHistoryRecord): GroupRecord {
-  const allDetections = r.sessionType === "group" 
-    ? (r.images?.flatMap(img => img.detections) || [])
-    : (r.detections || []);
+  const allDetections =
+    r.sessionType === "group"
+      ? r.images?.flatMap((img) => img.detections) || []
+      : r.detections || [];
 
   return {
     groupId: `local_${r.id}`,
     userId: "",
-    imageCount: r.sessionType === "group" ? (r.images?.length || 0) : 1,
+    imageCount: r.sessionType === "group" ? r.images?.length || 0 : 1,
     s3Keys: [],
     status: r.syncStatus === "syncing" ? "processing" : "completed",
     createdAt: r.createdAt,
@@ -180,15 +181,21 @@ export default function HistoryScreen() {
   };
 
   const handleViewLocalDetails = (record: LocalHistoryRecord) => {
+    const rawDetections =
+      record.sessionType === "group"
+        ? record.images?.[0]?.detections || []
+        : record.detections || [];
     setAnalysisData({
       mode: "offline",
-      offlineResults: record.sessionType === "group" 
-        ? (record.images?.[0]?.detections || []) // For now, show first image details if it's a group
-        : (record.detections || []),
+      offlineResults: rawDetections.map((d) => ({
+        ...d,
+        weightUserEntered: (d?.weightG ?? 0) > 0,
+      })),
       processingTime: record.processingTime,
-      imageUri: record.sessionType === "group"
-        ? (record.images?.[0]?.imageUri || "")
-        : (record.imageUri || ""),
+      imageUri:
+        record.sessionType === "group"
+          ? record.images?.[0]?.imageUri || ""
+          : record.imageUri || "",
       location: record.location,
     });
     router.push("/analysis/detail");
@@ -213,7 +220,20 @@ export default function HistoryScreen() {
   };
 
   const handleAskAI = (groupId: string) => {
-    router.push({ pathname: "/(tabs)/chat", params: { groupId } });
+    const group = groups.find((g) => g.groupId === groupId);
+    if (group?.analysisResult) {
+      const stats = group.analysisResult.aggregateStats;
+      const species = stats.speciesDistribution
+        ? Object.keys(stats.speciesDistribution).join(", ")
+        : "unknown";
+      const prompt = `I'm looking at my catch from ${new Date(group.createdAt).toLocaleDateString()}. ${stats.totalFishCount} fish detected (${species}), total weight ~${stats.totalEstimatedWeight.toFixed(1)}kg, estimated value ₹${stats.totalEstimatedValue}. Can you give me current market insights and recommendations?`;
+      router.push({
+        pathname: "/(tabs)/chat",
+        params: { initialMessage: prompt },
+      });
+    } else {
+      router.push({ pathname: "/(tabs)/chat", params: { groupId } });
+    }
   };
 
   const handleExportPDF = (groupId: string) => {

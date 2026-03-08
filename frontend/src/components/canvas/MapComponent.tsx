@@ -116,7 +116,6 @@ function CatchWeatherPopup({ marker }: { marker: MapMarker }) {
     <div className="p-2 space-y-2 min-w-[200px]">
       <h3 className="font-bold text-base text-primary mr-2">{marker.species ?? "Unknown Species"}</h3>
       <div className="flex gap-2 text-xs">
-        <Badge variant="outline" className="border-none bg-primary/10 text-primary">{marker.qualityGrade ?? "Standard"}</Badge>
         {marker.weight_g && <Badge variant="outline" className="border-none bg-muted">{`${(marker.weight_g / 1000).toFixed(2)} kg`}</Badge>}
       </div>
       {weather?.main ? (

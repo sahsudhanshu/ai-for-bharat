@@ -55,6 +55,7 @@ import { getAnalytics, getGroups } from "@/lib/api-client";
 import type { AnalyticsResponse, GroupRecord } from "@/lib/api-client";
 import { toast } from "sonner";
 import type { PaneMessage } from "@/types/agent-first";
+import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
 
 const PIE_COLORS = ["#3b82f6", "#065f46", "#d97706", "#334155"];
 
@@ -97,6 +98,7 @@ export default function AnalyticsComponent({
   highlightSpecies,
   className,
 }: AnalyticsComponentProps) {
+  const setActiveComponent = useAgentFirstStore((s) => s.setActiveComponent);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(true);
@@ -118,14 +120,16 @@ export default function AnalyticsComponent({
         if (analyticsData) {
           onPaneMessage({
             id: `analytics-loaded-${Date.now()}`,
-            type: 'info',
-            source: 'analytics',
+            type: "info",
+            source: "analytics",
             payload: {
-              event: 'analytics:data_loaded',
+              event: "analytics:data_loaded",
               totalCatches: analyticsData.totalCatches,
               totalEarnings: analyticsData.totalEarnings,
               dateRange: {
-                from: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+                from: new Date(
+                  Date.now() - 30 * 24 * 60 * 60 * 1000,
+                ).toISOString(),
                 to: new Date().toISOString(),
               },
             },
@@ -156,7 +160,9 @@ export default function AnalyticsComponent({
       // Search in aggregate stats if analysis is complete
       if (group.analysisResult) {
         const stats = group.analysisResult.aggregateStats;
-        const speciesNames = Object.keys(stats.speciesDistribution).join(" ").toLowerCase();
+        const speciesNames = Object.keys(stats.speciesDistribution)
+          .join(" ")
+          .toLowerCase();
         if (speciesNames.includes(q)) return true;
         if (stats.diseaseDetected && "disease".includes(q)) return true;
       }
@@ -177,53 +183,53 @@ export default function AnalyticsComponent({
 
   const summaryStats = analytics
     ? [
-      {
-        label: "Monthly Earnings",
-        value: `₹${analytics.totalEarnings.toLocaleString("en-IN")}`,
-        trend: "+12.5%",
-        icon: DollarSign,
-        color: "text-emerald-500",
-        bg: "bg-emerald-500/10",
-      },
-      {
-        label: "Total Catch",
-        value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
-        trend: "+5.2%",
-        icon: Scale,
-        color: "text-blue-500",
-        bg: "bg-blue-500/10",
-      },
-      {
-        label: "Top Species",
-        value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
-        trend: "Trending",
-        icon: Fish,
-        color: "text-amber-500",
-        bg: "bg-amber-500/10",
-      },
-      {
-        label: "Total Catches",
-        value: `${analytics.totalCatches}`,
-        trend: "+2.1%",
-        icon: Anchor,
-        color: "text-purple-500",
-        bg: "bg-purple-500/10",
-      },
-    ]
+        {
+          label: "Total Catch",
+          value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
+          trend: "+5.2%",
+          icon: Scale,
+          color: "text-blue-500",
+          bg: "bg-blue-500/10",
+        },
+        {
+          label: "Top Species",
+          value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
+          trend: "Trending",
+          icon: Fish,
+          color: "text-amber-500",
+          bg: "bg-amber-500/10",
+        },
+        {
+          label: "Total Catches",
+          value: `${analytics.totalCatches}`,
+          trend: "+2.1%",
+          icon: Anchor,
+          color: "text-purple-500",
+          bg: "bg-purple-500/10",
+        },
+      ]
     : [];
 
   // Handle chart click
-  const handleChartClick = (chartType: 'earnings' | 'species', dataPoint: any) => {
+  const handleChartClick = (
+    chartType: "earnings" | "species",
+    dataPoint: any,
+  ) => {
     onPaneMessage({
       id: `analytics-chart-${Date.now()}`,
-      type: 'query',
-      source: 'analytics',
+      type: "query",
+      source: "analytics",
       payload: {
-        event: 'analytics:chart_click',
+        event: "analytics:chart_click",
         chartType,
         dataPoint: {
-          label: dataPoint.name || dataPoint.date || 'Unknown',
-          value: dataPoint.value || dataPoint.earnings || dataPoint.catches || dataPoint.count || 0,
+          label: dataPoint.name || dataPoint.date || "Unknown",
+          value:
+            dataPoint.value ||
+            dataPoint.earnings ||
+            dataPoint.catches ||
+            dataPoint.count ||
+            0,
           date: dataPoint.date,
         },
       },
@@ -241,10 +247,10 @@ export default function AnalyticsComponent({
 
     onPaneMessage({
       id: `analytics-filter-${Date.now()}`,
-      type: 'action',
-      source: 'analytics',
+      type: "action",
+      source: "analytics",
       payload: {
-        event: 'analytics:filter_change',
+        event: "analytics:filter_change",
         species: query || undefined,
       },
       timestamp: Date.now(),
@@ -259,10 +265,10 @@ export default function AnalyticsComponent({
   const handleExportRequest = () => {
     onPaneMessage({
       id: `analytics-export-${Date.now()}`,
-      type: 'action',
-      source: 'analytics',
+      type: "action",
+      source: "analytics",
       payload: {
-        event: 'analytics:export_request',
+        event: "analytics:export_request",
       },
       timestamp: Date.now(),
       metadata: {
@@ -307,32 +313,36 @@ export default function AnalyticsComponent({
         {isLoadingAnalytics
           ? Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
           : summaryStats.map((stat, i) => (
-            <Card
-              key={i}
-              className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
-            >
-              <CardContent className="p-3 sm:p-4 lg:p-5">
-                <div className="flex justify-between items-start mb-4">
-                  <div className={`${stat.bg} p-2 sm:p-2.5 rounded-xl ${stat.color}`}>
-                    <stat.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+              <Card
+                key={i}
+                className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
+              >
+                <CardContent className="p-3 sm:p-4 lg:p-5">
+                  <div className="flex justify-between items-start mb-4">
+                    <div
+                      className={`${stat.bg} p-2 sm:p-2.5 rounded-xl ${stat.color}`}
+                    >
+                      <stat.icon className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </div>
+                    <Badge
+                      variant="secondary"
+                      className="bg-emerald-500/10 text-emerald-500 border-none"
+                    >
+                      {stat.trend}
+                      <ArrowUpRight className="ml-1 w-3 h-3" />
+                    </Badge>
                   </div>
-                  <Badge
-                    variant="secondary"
-                    className="bg-emerald-500/10 text-emerald-500 border-none"
-                  >
-                    {stat.trend}
-                    <ArrowUpRight className="ml-1 w-3 h-3" />
-                  </Badge>
-                </div>
-                <div className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
-                    {stat.label}
-                  </p>
-                  <p className="text-lg sm:text-xl lg:text-2xl font-bold">{stat.value}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+                      {stat.label}
+                    </p>
+                    <p className="text-lg sm:text-xl lg:text-2xl font-bold">
+                      {stat.value}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
       </div>
 
       {/* Charts Row */}
@@ -419,8 +429,8 @@ export default function AnalyticsComponent({
                     strokeWidth={4}
                     fillOpacity={1}
                     fill="url(#colorMain)"
-                    onClick={(data) => handleChartClick('earnings', data)}
-                    style={{ cursor: 'pointer' }}
+                    onClick={(data) => handleChartClick("earnings", data)}
+                    style={{ cursor: "pointer" }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -451,8 +461,8 @@ export default function AnalyticsComponent({
                       outerRadius={95}
                       paddingAngle={8}
                       dataKey="count"
-                      onClick={(data) => handleChartClick('species', data)}
-                      style={{ cursor: 'pointer' }}
+                      onClick={(data) => handleChartClick("species", data)}
+                      style={{ cursor: "pointer" }}
                     >
                       {pieData.map((entry, index) => (
                         <Cell
@@ -507,7 +517,9 @@ export default function AnalyticsComponent({
         <CardHeader className="p-6 sm:p-8 pb-4">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
-              <CardTitle className="text-base sm:text-lg font-bold">Analysis History</CardTitle>
+              <CardTitle className="text-base sm:text-lg font-bold">
+                Analysis History
+              </CardTitle>
               <CardDescription>
                 Review your group analysis results
               </CardDescription>
@@ -583,15 +595,23 @@ export default function AnalyticsComponent({
                       filteredGroups.map((group) => {
                         const stats = group.analysisResult?.aggregateStats;
                         const fishCount = stats?.totalFishCount ?? 0;
-                        const speciesCount = stats ? Object.keys(stats.speciesDistribution).length : 0;
-                        const topSpecies = stats ? Object.keys(stats.speciesDistribution)[0] : "—";
+                        const speciesCount = stats
+                          ? Object.keys(stats.speciesDistribution).length
+                          : 0;
+                        const topSpecies = stats
+                          ? Object.keys(stats.speciesDistribution)[0]
+                          : "—";
                         const hasDisease = stats?.diseaseDetected ?? false;
 
                         return (
                           <TableRow
                             key={group.groupId}
                             className="border-border/50 hover:bg-muted/10 group transition-colors cursor-pointer"
-                            onClick={() => window.location.href = `/history/${group.groupId}`}
+                            onClick={() =>
+                              setActiveComponent("history", {
+                                selectedGroupId: group.groupId,
+                              })
+                            }
                           >
                             <TableCell className="pl-8 py-5">
                               <div className="flex items-center gap-3">
@@ -600,7 +620,10 @@ export default function AnalyticsComponent({
                                 </div>
                                 <div>
                                   <p className="font-bold text-base">
-                                    {group.imageCount} {group.imageCount === 1 ? "Image" : "Images"}
+                                    {group.imageCount}{" "}
+                                    {group.imageCount === 1
+                                      ? "Image"
+                                      : "Images"}
                                   </p>
                                   <p className="text-[10px] text-muted-foreground">
                                     Group ID: {group.groupId.slice(0, 8)}...
@@ -613,7 +636,9 @@ export default function AnalyticsComponent({
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1">
-                                <span className="font-bold text-sm">{topSpecies}</span>
+                                <span className="font-bold text-sm">
+                                  {topSpecies}
+                                </span>
                                 {speciesCount > 1 && (
                                   <span className="text-[10px] text-muted-foreground">
                                     +{speciesCount - 1} more

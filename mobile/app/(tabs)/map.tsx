@@ -1018,6 +1018,44 @@ export default function MapScreen() {
                     </View>
                   )}
 
+                <View style={{ height: SPACING.md }} />
+                {/* Ask Agent about this location */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    backgroundColor: COLORS.primary,
+                    borderRadius: RADIUS.lg,
+                    paddingVertical: 12,
+                    gap: 8,
+                  }}
+                  onPress={() => {
+                    const locName =
+                      tappedWeather.location ||
+                      `${tappedWeather.latitude.toFixed(4)}, ${tappedWeather.longitude.toFixed(4)}`;
+                    const weather = tappedWeather.current;
+                    const prompt = `Tell me about fishing conditions at ${locName}. Current weather: ${weather?.temperature.toFixed(1)}°C, ${weather?.conditions}, wind ${weather?.windSpeed.toFixed(0)} km/h. What species should I target and is it safe to fish?`;
+                    setTappedWeather(null);
+                    router.push({
+                      pathname: "/(tabs)/chat",
+                      params: { initialMessage: prompt },
+                    });
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="chatbubble" size={16} color="#fff" />
+                  <Text
+                    style={{
+                      color: "#fff",
+                      fontSize: FONTS.sizes.sm,
+                      fontWeight: FONTS.weights.semibold,
+                    }}
+                  >
+                    Ask Agent About This Location
+                  </Text>
+                </TouchableOpacity>
+
                 <View style={{ height: SPACING.xl }} />
               </ScrollView>
             ) : null}

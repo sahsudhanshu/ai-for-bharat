@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -13,6 +14,7 @@ import { useAuth } from "../../lib/auth-context";
 import { getAnalytics } from "../../lib/api-client";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
+import { useAgentContext } from "../../lib/agent-context";
 import { Card, StatCard } from "../../components/ui/Card";
 import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
@@ -23,12 +25,28 @@ type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 export default function HomeScreen() {
   const { user } = useAuth();
   const { t, isLoaded } = useLanguage();
+  const agentCtx = useAgentContext();
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
+    agentCtx.updateScreen("home");
     getAnalytics()
       .then(setAnalytics)
       .catch(() => {});
+    // Entrance animation
+    const entranceAnimation = Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+    ]);
+
+    entranceAnimation.start();
+
+    return () => {
+      entranceAnimation.stop();
+    };
   }, []);
 
   const hour = new Date().getHours();
@@ -113,6 +131,15 @@ export default function HomeScreen() {
     },
   ];
 
+  // Proactive greeting based on time and context
+  const getProactiveGreeting = () => {
+    if (hour < 6) return "Early start today! Here's what I've prepared for your trip.";
+    if (hour < 10) return "Good morning! I've checked the weather and tides for you.";
+    if (hour < 14) return "How's the catch going? I can check market prices for you.";
+    if (hour < 18) return "Afternoon update ready — market prices and tomorrow's forecast.";
+    return "Great day on the water! Let me help you log your catch.";
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -129,50 +156,35 @@ export default function HomeScreen() {
           <ProfileMenu size={36} />
         </View>
 
-        {/* Agent Hero Banner */}
-        <TouchableOpacity
-          style={styles.agentBanner}
-          onPress={() => router.push("/(tabs)/chat")}
-          activeOpacity={0.85}
-        >
-          <View style={styles.agentBannerContent}>
-            <View style={styles.agentBannerIcon}>
-              <Ionicons name="chatbubble" size={22} color="#fff" />
+        {/* Proactive Agent Greeting Bubble */}
+        <Animated.View style={[styles.agentGreeting, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <TouchableOpacity
+            style={styles.agentGreetingInner}
+            onPress={() => router.push("/(tabs)/chat")}
+            activeOpacity={0.85}
+          >
+            <View style={styles.agentAvatarWrap}>
+              <View style={styles.agentAvatar}>
+                <Ionicons name="chatbubble" size={18} color="#fff" />
+              </View>
+              <View style={styles.agentOnlineDot} />
             </View>
-            <View style={styles.agentBannerText}>
-              <View style={styles.agentBadgeRow}>
-                <View style={styles.agentLiveBadge}>
-                  <View style={styles.agentLiveDot} />
-                  <Text style={styles.agentLiveBadgeText}>AI AGENT</Text>
+            <View style={styles.agentGreetingContent}>
+              <View style={styles.agentNameRow}>
+                <Text style={styles.agentName}>SagarMitra</Text>
+                <View style={styles.aiTag}>
+                  <Text style={styles.aiTagText}>AI</Text>
                 </View>
               </View>
-              <Text style={styles.agentBannerTitle}>
-                Your Fishing Assistant
-              </Text>
-              <Text style={styles.agentBannerSub}>
-                Ask about weather, market prices, catch analysis, safety alerts
-                & more
-              </Text>
+              <Text style={styles.agentMessage}>{getProactiveGreeting()}</Text>
+              <Text style={styles.agentTapHint}>Tap to continue →</Text>
             </View>
-          </View>
-          <View style={styles.agentBannerArrow}>
-            <Ionicons
-              name="chevron-forward"
-              size={20}
-              color="rgba(255,255,255,0.7)"
-            />
-          </View>
-          <View style={styles.decoCircle1} />
-          <View style={styles.decoCircle2} />
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </Animated.View>
 
-        {/* Quick Ask Agent Prompts */}
-        <Text style={styles.sectionTitle}>Ask the Agent</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.promptRow}
-        >
+        {/* Quick Ask Agent Prompts — Conversation starters */}
+        <Text style={styles.sectionTitle}>What can I help with?</Text>
+        <View style={styles.promptGrid}>
           {QUICK_PROMPTS.map((p) => (
             <TouchableOpacity
               key={p.label}
@@ -188,49 +200,88 @@ export default function HomeScreen() {
               <View
                 style={[styles.promptIcon, { backgroundColor: p.color + "18" }]}
               >
-                <Ionicons name={p.icon} size={16} color={p.color} />
+                <Ionicons name={p.icon} size={18} color={p.color} />
               </View>
-              <Text style={styles.promptLabel}>{p.label}</Text>
+              <View style={styles.promptTextWrap}>
+                <Text style={styles.promptLabel}>{p.label}</Text>
+                <Text style={styles.promptDesc} numberOfLines={1}>{p.prompt.split("?")[0]}?</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={COLORS.textMuted} />
             </TouchableOpacity>
           ))}
-        </ScrollView>
-
-        {/* Stats */}
-        <Text style={styles.sectionTitle}>{t("home.overview")}</Text>
-        <View style={styles.statsGrid}>
-          <StatCard
-            label={t("home.statEarnings")}
-            value={
-              analytics
-                ? `₹${(analytics.totalEarnings / 1000).toFixed(0)}K`
-                : "—"
-            }
-            icon={<Ionicons name="cash" size={20} color={COLORS.secondary} />}
-            accentColor={COLORS.secondary}
-            style={styles.statCard}
-          />
-          <StatCard
-            label={t("home.statCatches")}
-            value={analytics ? `${analytics.totalCatches}` : "—"}
-            icon={<Ionicons name="fish" size={20} color={COLORS.primary} />}
-            accentColor={COLORS.primary}
-            style={styles.statCard}
-          />
-          <StatCard
-            label={t("home.statZones")}
-            value="12"
-            icon={<Ionicons name="boat" size={20} color={COLORS.accent} />}
-            accentColor={COLORS.accent}
-            style={styles.statCard}
-          />
-          <StatCard
-            label={t("home.statEco")}
-            value="88/100"
-            icon={<Ionicons name="leaf" size={20} color="#06b6d4" />}
-            accentColor="#06b6d4"
-            style={styles.statCard}
-          />
         </View>
+
+        {/* Stats — Collapsible */}
+        <TouchableOpacity
+          style={styles.statsToggle}
+          onPress={() => setShowStats(!showStats)}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.sectionTitle}>{t("home.overview")}</Text>
+          <Ionicons name={showStats ? "chevron-up" : "chevron-down"} size={16} color={COLORS.textMuted} />
+        </TouchableOpacity>
+
+        {showStats && (
+          <View style={styles.statsGrid}>
+            <StatCard
+              label={t("home.statEarnings")}
+              value={
+                analytics
+                  ? `₹${(analytics.totalEarnings / 1000).toFixed(0)}K`
+                  : "—"
+              }
+              icon={<Ionicons name="cash" size={20} color={COLORS.secondary} />}
+              accentColor={COLORS.secondary}
+              style={styles.statCard}
+            />
+            <StatCard
+              label={t("home.statCatches")}
+              value={analytics ? `${analytics.totalCatches}` : "—"}
+              icon={<Ionicons name="fish" size={20} color={COLORS.primary} />}
+              accentColor={COLORS.primary}
+              style={styles.statCard}
+            />
+            <StatCard
+              label={t("home.statZones")}
+              value="12"
+              icon={<Ionicons name="boat" size={20} color={COLORS.accent} />}
+              accentColor={COLORS.accent}
+              style={styles.statCard}
+            />
+            <StatCard
+              label={t("home.statEco")}
+              value="88/100"
+              icon={<Ionicons name="leaf" size={20} color="#06b6d4" />}
+              accentColor="#06b6d4"
+              style={styles.statCard}
+            />
+          </View>
+        )}
+
+        {/* Compact stats when collapsed */}
+        {!showStats && analytics && (
+          <View style={styles.statsStrip}>
+            <View style={styles.stripItem}>
+              <Ionicons name="cash" size={14} color={COLORS.secondary} />
+              <Text style={styles.stripValue}>₹{(analytics.totalEarnings / 1000).toFixed(0)}K</Text>
+            </View>
+            <View style={styles.stripDivider} />
+            <View style={styles.stripItem}>
+              <Ionicons name="fish" size={14} color={COLORS.primary} />
+              <Text style={styles.stripValue}>{analytics.totalCatches}</Text>
+            </View>
+            <View style={styles.stripDivider} />
+            <View style={styles.stripItem}>
+              <Ionicons name="boat" size={14} color={COLORS.accent} />
+              <Text style={styles.stripValue}>12</Text>
+            </View>
+            <View style={styles.stripDivider} />
+            <View style={styles.stripItem}>
+              <Ionicons name="leaf" size={14} color="#06b6d4" />
+              <Text style={styles.stripValue}>88</Text>
+            </View>
+          </View>
+        )}
 
         {/* Tools */}
         <Text style={styles.sectionTitle}>{t("home.tools")}</Text>
@@ -296,21 +347,6 @@ export default function HomeScreen() {
             </View>
           ))}
         </Card>
-
-        {/* Bottom CTA */}
-        <TouchableOpacity
-          style={styles.bottomCta}
-          onPress={() => router.push("/(tabs)/chat")}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="chatbubble" size={18} color="#fff" />
-          <Text style={styles.bottomCtaText}>Talk to AI Agent</Text>
-          <Ionicons
-            name="arrow-forward"
-            size={16}
-            color="rgba(255,255,255,0.7)"
-          />
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -351,123 +387,154 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.weights.bold,
   },
 
-  /* Agent Banner */
-  agentBanner: {
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.xl,
-    padding: SPACING.md,
+  /* Agent Proactive Greeting */
+  agentGreeting: {
     marginBottom: SPACING.lg,
-    overflow: "hidden",
+  },
+  agentGreetingInner: {
+    flexDirection: "row",
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight + "25",
+    padding: SPACING.md,
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  agentAvatarWrap: {
     position: "relative",
-    flexDirection: "row",
-    alignItems: "center",
   },
-  agentBannerContent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    zIndex: 2,
-  },
-  agentBannerIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.18)",
+  agentAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: COLORS.primaryLight + "40",
   },
-  agentBannerText: {
+  agentOnlineDot: {
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#4ade80",
+    borderWidth: 2,
+    borderColor: COLORS.bgCard,
+  },
+  agentGreetingContent: {
     flex: 1,
   },
-  agentBadgeRow: {
-    flexDirection: "row",
-    marginBottom: 3,
-  },
-  agentLiveBadge: {
+  agentNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    borderRadius: RADIUS.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    gap: 4,
+    gap: 6,
+    marginBottom: 4,
   },
-  agentLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#4ade80",
-  },
-  agentLiveBadgeText: {
-    fontSize: 9,
+  agentName: {
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.bold,
-    color: "rgba(255,255,255,0.9)",
+    color: COLORS.primaryLight,
+  },
+  aiTag: {
+    backgroundColor: COLORS.primaryLight + "20",
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  aiTagText: {
+    fontSize: 8,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.primaryLight,
     letterSpacing: 0.5,
   },
-  agentBannerTitle: {
-    fontSize: FONTS.sizes.md,
-    fontWeight: FONTS.weights.bold,
-    color: "#fff",
-    marginBottom: 2,
+  agentMessage: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+    marginBottom: 4,
   },
-  agentBannerSub: {
+  agentTapHint: {
     fontSize: FONTS.sizes.xs,
-    color: "rgba(255,255,255,0.7)",
-    lineHeight: 16,
-  },
-  agentBannerArrow: {
-    zIndex: 2,
-    marginLeft: 8,
-  },
-  decoCircle1: {
-    position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    right: -20,
-    top: -20,
-  },
-  decoCircle2: {
-    position: "absolute",
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    right: 50,
-    bottom: -15,
+    color: COLORS.primaryLight + "80",
+    fontWeight: FONTS.weights.medium,
   },
 
-  /* Quick ask prompts */
-  promptRow: {
-    gap: 10,
-    paddingBottom: 4,
+  /* Quick ask prompts — vertical list style */
+  promptGrid: {
+    gap: 8,
     marginBottom: SPACING.lg,
   },
   promptCard: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
     paddingVertical: 12,
     paddingHorizontal: 14,
-    alignItems: "center",
-    gap: 6,
-    minWidth: 90,
+    gap: 12,
   },
   promptIcon: {
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
+  promptTextWrap: {
+    flex: 1,
+  },
   promptLabel: {
-    fontSize: FONTS.sizes.xs,
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.semibold,
-    color: COLORS.textSecondary,
-    textAlign: "center",
+    color: COLORS.textPrimary,
+  },
+  promptDesc: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+
+  /* Stats toggle */
+  statsToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  /* Stats strip (collapsed) */
+  statsStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 10,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  stripItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  stripValue: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  stripDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: COLORS.border,
   },
 
   sectionTitle: {
@@ -538,23 +605,5 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.textPrimary,
     fontWeight: FONTS.weights.semibold,
-  },
-
-  /* Bottom CTA */
-  bottomCta: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
-    paddingVertical: 14,
-    gap: 8,
-    marginTop: SPACING.xs,
-  },
-  bottomCtaText: {
-    color: "#fff",
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.semibold,
-    letterSpacing: 0.3,
   },
 });

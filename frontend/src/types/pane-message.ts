@@ -63,7 +63,7 @@ export interface MapLayerChangePayload {
 }
 
 export interface AnalyticsChartClickPayload {
-  chartType: 'earnings' | 'species' | 'quality';
+  chartType: 'earnings' | 'species';
   dataPoint: {
     label: string;
     value: number;

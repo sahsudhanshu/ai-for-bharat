@@ -1,12 +1,6 @@
 import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-} from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { Stack, router } from "expo-router";
 import { ProfileForm } from "../../components/profile/ProfileForm";
 import { AvatarUploader } from "../../components/profile/AvatarUploader";
@@ -97,9 +91,9 @@ export default function EditProfileScreen() {
             headerBackTitle: "Back",
           }}
         />
-        <ScrollView style={styles.scroll}>
+        <KeyboardAwareScrollView style={styles.scroll}>
           <SkeletonProfile />
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </View>
     );
   }
@@ -155,10 +149,11 @@ export default function EditProfileScreen() {
         }}
       />
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
         <View style={styles.avatarSection}>
           <AvatarUploader
@@ -175,7 +170,7 @@ export default function EditProfileScreen() {
           onSave={handleSave}
           onCancel={handleCancel}
         />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

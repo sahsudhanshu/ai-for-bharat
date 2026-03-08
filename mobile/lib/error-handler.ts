@@ -3,15 +3,18 @@
  * Handles unauthorized errors and redirects to login
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
-import { toastService } from './toast-service';
-import { ApiError } from './api-client';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { router } from "expo-router";
+import { toastService } from "./toast-service";
 
-const TOKEN_KEY = 'ocean_ai_token';
-const USER_KEY = 'ocean_ai_user';
+const TOKEN_KEY = "ocean_ai_token";
+const USER_KEY = "ocean_ai_user";
 
 let isHandlingUnauthorized = false;
+
+type ErrorWithStatus = {
+  status?: unknown;
+};
 
 export async function handleUnauthorizedError() {
   // Prevent multiple simultaneous logout attempts
@@ -23,7 +26,7 @@ export async function handleUnauthorizedError() {
 
   try {
     // Show toast notification
-    toastService.error('Session expired. Please login again.');
+    toastService.error("Session expired. Please login again.");
 
     // Clear stored credentials
     await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
@@ -32,9 +35,9 @@ export async function handleUnauthorizedError() {
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Redirect to login
-    router.replace('/auth/login');
+    router.replace("/auth/login");
   } catch (error) {
-    console.error('Error handling unauthorized:', error);
+    console.error("Error handling unauthorized:", error);
   } finally {
     // Reset flag after a delay to allow for new unauthorized errors
     setTimeout(() => {
@@ -44,8 +47,9 @@ export async function handleUnauthorizedError() {
 }
 
 export function isUnauthorizedError(error: unknown): boolean {
-  if (error instanceof ApiError) {
-    return error.status === 401;
+  if (typeof error === "object" && error !== null && "status" in error) {
+    const status = (error as ErrorWithStatus).status;
+    return typeof status === "number" && status === 401;
   }
   return false;
 }

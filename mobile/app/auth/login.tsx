@@ -3,12 +3,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
@@ -43,92 +43,89 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      <KeyboardAwareScrollView
         style={styles.keyboardView}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        enableOnAndroid={true}
       >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Hero */}
-          <View style={styles.hero}>
-            <View style={styles.logoContainer}>
-              <Ionicons name="fish" size={30} color={COLORS.primaryLight} />
-            </View>
-            <Text style={styles.appName}>OceanAI</Text>
-            <Text style={styles.tagline}>AI for Bharat Fishermen</Text>
-            <View style={styles.heroBadge}>
-              <Text style={styles.heroBadgeText}>
-                AWS AI for Bharat Challenge
-              </Text>
-            </View>
+        {/* Header */}
+        <View style={styles.hero}>
+          <View style={styles.logoContainer}>
+            <Ionicons name="fish" size={30} color={COLORS.primaryLight} />
           </View>
-
-          {/* Card */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Welcome Back</Text>
-            <Text style={styles.cardSubtitle}>
-              Sign in to continue to your dashboard
+          <Text style={styles.appName}>OceanAI</Text>
+          <Text style={styles.tagline}>AI for Bharat Fishermen</Text>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>
+              AWS AI for Bharat Challenge
             </Text>
+          </View>
+        </View>
 
-            <View style={styles.formGroup}>
-              <Input
-                label="Email Address"
-                placeholder="rajan@example.com"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
+        {/* Card */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Welcome Back</Text>
+          <Text style={styles.cardSubtitle}>
+            Sign in to continue to your dashboard
+          </Text>
 
-            <View style={styles.formGroup}>
-              <Input
-                label="Password"
-                placeholder="Enter your password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                showPasswordToggle
-              />
-            </View>
-
-            <Button
-              label={loading ? "Signing in..." : "Sign In"}
-              onPress={handleLogin}
-              loading={loading}
-              fullWidth
-              size="lg"
-              style={styles.loginBtn}
+          <View style={styles.formGroup}>
+            <Input
+              label="Email Address"
+              placeholder="rajan@example.com"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
+          </View>
 
-            <View style={styles.footer}>
-              <Text style={styles.footerText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={() => router.push("/auth/register")}>
-                <Text style={styles.footerLink}>Register</Text>
-              </TouchableOpacity>
+          <View style={styles.formGroup}>
+            <Input
+              label="Password"
+              placeholder="Enter your password"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              showPasswordToggle
+            />
+          </View>
+
+          <Button
+            label={loading ? "Signing in..." : "Sign In"}
+            onPress={handleLogin}
+            loading={loading}
+            fullWidth
+            size="lg"
+            style={styles.loginBtn}
+          />
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => router.push("/auth/register")}>
+              <Text style={styles.footerLink}>Register</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Feature highlights */}
+        <View style={styles.features}>
+          {[
+            { icon: "fish-outline" as const, label: "AI Fish ID" },
+            { icon: "map-outline" as const, label: "Ocean Map" },
+            { icon: "chatbubbles-outline" as const, label: "AI Assistant" },
+            { icon: "bar-chart-outline" as const, label: "Analytics" },
+          ].map((f) => (
+            <View key={f.label} style={styles.featureItem}>
+              <Ionicons name={f.icon} size={18} color={COLORS.primaryLight} />
+              <Text style={styles.featureLabel}>{f.label}</Text>
             </View>
-          </View>
-
-          {/* Feature highlights */}
-          <View style={styles.features}>
-            {[
-              { icon: "fish-outline" as const, label: "AI Fish ID" },
-              { icon: "map-outline" as const, label: "Ocean Map" },
-              { icon: "chatbubbles-outline" as const, label: "AI Assistant" },
-              { icon: "bar-chart-outline" as const, label: "Analytics" },
-            ].map((f) => (
-              <View key={f.label} style={styles.featureItem}>
-                <Ionicons name={f.icon} size={18} color={COLORS.primaryLight} />
-                <Text style={styles.featureLabel}>{f.label}</Text>
-              </View>
-            ))}
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          ))}
+        </View>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
