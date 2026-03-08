@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import { Clock, ChevronRight, Fish, Sparkles, Loader2, Images } from 'lucide-react';
+import { Clock, ChevronRight, Fish, Sparkles, Images } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getGroups, type GroupRecord } from '@/lib/api-client';
 import { resolveMLUrl } from '@/lib/constants';
 import { useAgentFirstStore } from '@/lib/stores/agent-first-store';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 
 interface InlineHistoryCarouselProps {
@@ -33,8 +32,22 @@ export default function InlineHistoryCarousel({ onAskAboutGroup, className }: In
 
   if (loading) {
     return (
-      <div className={cn("mt-2 flex items-center justify-center h-24 rounded-xl border border-border/30 bg-muted/10", className)}>
-        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+      <div className={cn("mt-2 rounded-xl border border-border/30 bg-muted/10 overflow-hidden", className)}>
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/20">
+          <div className="h-3 w-3 rounded bg-muted animate-pulse" />
+          <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+        </div>
+        <div className="flex gap-2.5 p-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="w-[160px] shrink-0 rounded-lg border border-border/20 overflow-hidden">
+              <div className="h-[80px] bg-muted/40 animate-pulse" />
+              <div className="p-2 space-y-1.5">
+                <div className="h-3 w-20 rounded bg-muted animate-pulse" />
+                <div className="h-2.5 w-14 rounded bg-muted/60 animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -49,7 +62,7 @@ export default function InlineHistoryCarousel({ onAskAboutGroup, className }: In
   }
 
   return (
-    <div className={cn("mt-2 rounded-xl border border-border/30 overflow-hidden bg-card/40 backdrop-blur-sm", className)}>
+    <div className={cn("mt-2 rounded-xl border border-border/30 overflow-hidden bg-card/40 backdrop-blur-sm max-w-full", className)}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-border/20">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
@@ -65,8 +78,8 @@ export default function InlineHistoryCarousel({ onAskAboutGroup, className }: In
       </div>
 
       {/* Scrollable carousel */}
-      <ScrollArea className="w-full">
-        <div className="flex gap-2.5 p-3 min-w-max">
+      <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-border/40">
+        <div className="flex gap-2.5 p-3 w-max">
           {groups.map((group) => {
             const stats = group.analysisResult?.aggregateStats;
             const topSpecies = stats?.speciesDistribution
@@ -125,8 +138,7 @@ export default function InlineHistoryCarousel({ onAskAboutGroup, className }: In
             );
           })}
         </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+      </div>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import {
     Send, Mic, Bot, Volume2, Pause, Fish,
     Loader2, ImageIcon, Sparkles, Check, CheckCheck, AlertCircle,
-    MapPin, Upload, BarChart3, X, Reply, Wrench
+    MapPin, Upload, BarChart3, Clock, X, Reply, Wrench
 } from 'lucide-react';
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -18,15 +18,16 @@ import { useLanguage } from "@/lib/i18n";
 import { useVoiceInput } from "@/hooks/useVoiceInput";
 import { formatMessageTimestamp } from "@/lib/utils/timestamp";
 import { useAgentFirstStore } from '@/lib/stores/agent-first-store';
+import { toast as sonnerToast } from 'sonner';
 import { useAgentContext } from '@/lib/stores/agent-context-store';
 import CapabilityCards from '@/components/agent/CapabilityCards';
 import ContextPill from '@/components/agent/ContextPill';
 import { AnimatePresence, motion } from 'framer-motion';
 
 // Lazy-load inline widgets (rendered inside chat bubbles)
-const InlineMiniMap = lazy(() => import('@/components/agent/InlineMiniMap'));
 const InlineHistoryCarousel = lazy(() => import('@/components/agent/InlineHistoryCarousel'));
 const InlineUploadZone = lazy(() => import('@/components/agent/InlineUploadZone'));
+const InlineMiniMap = lazy(() => import('@/components/agent/InlineMiniMap'));
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type MessageStatus = 'sending' | 'sent' | 'failed';
@@ -35,6 +36,14 @@ interface MessageWidget {
     type: 'map' | 'history' | 'upload';
     mapLat?: number;
     mapLon?: number;
+}
+
+/** A context chip attached to a user message, shown visually and sent to backend */
+interface ContextChip {
+    type: 'location' | 'history' | 'upload' | 'analytics';
+    label: string;
+    /** Extra data for interactivity (coordinates, group ID, etc.) */
+    data?: Record<string, any>;
 }
 
 interface Message {
@@ -49,14 +58,17 @@ interface Message {
     replyToId?: string;
     widget?: MessageWidget; // Interactive inline widget from agent UI directive
     locationContext?: { lat: number; lon: number }; // Extracted map pin for clickable chip
+    referenceContext?: { label: string; detail: string; icon: 'history' | 'upload' | 'map' | 'analytics'; backendText: string };
+    contextChips?: ContextChip[]; // All attached context chips (location, history, upload, analytics)
 }
 
-function parseStoredUserMessage(rawText: string): { content: string; replyTo?: string; replyToId?: string; locationContext?: { lat: number; lon: number } } {
+function parseStoredUserMessage(rawText: string): { content: string; replyTo?: string; replyToId?: string; locationContext?: { lat: number; lon: number }; contextChips?: ContextChip[] } {
     // Stored user prompts may contain transport metadata used for model context.
     let content = rawText ?? '';
     let replyTo: string | undefined;
     let replyToId: string | undefined;
     let locationContext: { lat: number; lon: number } | undefined;
+    const chips: ContextChip[] = [];
 
     const replyPrefixWithId = content.match(/^\[Replying to id:([^\s\]]+)\s+text:\s*"([\s\S]*?)"\]\s*\n\n([\s\S]*)$/);
     if (replyPrefixWithId) {
@@ -76,12 +88,34 @@ function parseStoredUserMessage(rawText: string): { content: string; replyTo?: s
     if (mapPinMatch) {
         const lat = parseFloat(mapPinMatch[1]);
         const lon = parseFloat(mapPinMatch[2]);
-        if (!isNaN(lat) && !isNaN(lon)) locationContext = { lat, lon };
+        if (!isNaN(lat) && !isNaN(lon)) {
+            locationContext = { lat, lon };
+            chips.push({ type: 'location', label: `${lat.toFixed(4)}°N, ${lon.toFixed(4)}°E`, data: { lat, lon } });
+        }
+    }
+
+    // Extract groupId for history chip
+    const groupIdMatch = content.match(/\[groupId:([^\]]+)\]/);
+    if (groupIdMatch) {
+        chips.push({ type: 'history', label: `Catch #${groupIdMatch[1].slice(0, 8)}`, data: { groupId: groupIdMatch[1] } });
+    }
+
+    // Extract scan/species for upload chip
+    const scanMatch = content.match(/\[scan:([^\]]+)\]/);
+    const speciesMatch = content.match(/\[species:([^\]]+)\]/);
+    if (scanMatch) {
+        chips.push({ type: 'upload', label: speciesMatch ? `Scan · ${speciesMatch[1]}` : 'Scan results', data: { summary: scanMatch[1], species: speciesMatch?.[1] } });
+    }
+
+    // Extract page for analytics chip
+    const pageMatch = content.match(/\[page:analytics\]/i);
+    if (pageMatch) {
+        chips.push({ type: 'analytics', label: 'Analytics', data: {} });
     }
 
     // Strip all context bracket tags: [page:...] [mapPin:...] [userLoc:...] [lang:...] [scan:...] etc.
     content = content.replace(/\[(?:page|lang|userLoc|groupId|species|imgIdx|mapPin|mapZoom|scan|offline|group|image):[^\]]*\]\s*/gi, '');
-    return { content: content.trim(), replyTo, replyToId, locationContext };
+    return { content: content.trim(), replyTo, replyToId, locationContext, contextChips: chips.length > 0 ? chips : undefined };
 }
 
 interface AgentChatProps {
@@ -110,6 +144,16 @@ interface AgentChatProps {
     /** Callback when a new conversation is created */
     onNewConversationCreated?: (conv: Conversation) => void;
 }
+
+/** Strip agent UI JSON directives from displayed text.
+ *  Handles: UI{...}, UI\n{...}, **UI**\n{...}, standalone JSON, and leftover 'UI' word */
+const stripUiDirective = (text: string) =>
+    text
+        .replace(/\n*\**UI\**\s*\n*\{[^}]*\}\s*/gi, '')
+        .replace(/\n*\{\s*"map"\s*:\s*(?:true|false)[^}]*\}\s*/gi, '')
+        .replace(/\n*\**UI\**\s*$/gi, '')
+        .replace(/^\s*\**UI\**\s*\n*/gi, '')
+        .trim();
 
 const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>['components'] = {
     p: ({ children }) => <p className="mb-3 last:mb-0 leading-relaxed text-[14px] sm:text-[15px] text-foreground/90 font-medium">{children}</p>,
@@ -238,8 +282,8 @@ function MessageRow({ message: msg, isCompact, isStreaming, playingMsgId, synthe
                     "shrink-0 border border-primary/20",
                     isCompact ? "h-7 w-7 mt-0.5" : "h-8 w-8 mt-1",
                 )}>
-                    <div className="bg-primary/10 h-full w-full flex items-center justify-center">
-                        <Bot className={cn(isCompact ? "w-3.5 h-3.5" : "w-4 h-4", "text-primary")} />
+                    <div className="bg-gradient-to-br from-primary/15 to-cyan-500/15 h-full w-full flex items-center justify-center">
+                        <Fish className={cn(isCompact ? "w-3.5 h-3.5" : "w-4 h-4", "text-primary")} />
                     </div>
                 </Avatar>
             )}
@@ -256,19 +300,58 @@ function MessageRow({ message: msg, isCompact, isStreaming, playingMsgId, synthe
                     </div>
                 )}
 
-                {/* Location chip — clickable, opens map at these coordinates */}
+                {/* ── Context Chips — all attached context rendered as clickable pills ── */}
+                {msg.role === 'user' && msg.contextChips && msg.contextChips.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 items-center justify-end max-w-[85%]">
+                        {msg.contextChips.map((chip, i) => {
+                            const chipStyles: Record<ContextChip['type'], { bg: string; border: string; text: string; icon: React.ReactNode }> = {
+                                location: { bg: 'bg-cyan-500/10 hover:bg-cyan-500/20', border: 'border-cyan-500/20', text: 'text-cyan-600 dark:text-cyan-400', icon: <MapPin className="w-3 h-3" /> },
+                                history: { bg: 'bg-orange-500/10 hover:bg-orange-500/20', border: 'border-orange-500/20', text: 'text-orange-600 dark:text-orange-400', icon: <Clock className="w-3 h-3" /> },
+                                upload: { bg: 'bg-violet-500/10 hover:bg-violet-500/20', border: 'border-violet-500/20', text: 'text-violet-600 dark:text-violet-400', icon: <Upload className="w-3 h-3" /> },
+                                analytics: { bg: 'bg-emerald-500/10 hover:bg-emerald-500/20', border: 'border-emerald-500/20', text: 'text-emerald-600 dark:text-emerald-400', icon: <BarChart3 className="w-3 h-3" /> },
+                            };
+                            const s = chipStyles[chip.type];
+                            const handleClick = () => {
+                                const store = useAgentFirstStore.getState();
+                                if (chip.type === 'location' && chip.data?.lat != null) {
+                                    store.setActiveComponent('map', {
+                                        flyToLocation: { lat: chip.data.lat, lon: chip.data.lon, _t: Date.now() },
+                                    });
+                                } else if (chip.type === 'history') {
+                                    store.setActiveComponent('history');
+                                } else if (chip.type === 'upload') {
+                                    store.setActiveComponent('upload');
+                                } else if (chip.type === 'analytics') {
+                                    store.setActiveComponent('analytics');
+                                }
+                            };
+                            return (
+                                <button
+                                    key={`${chip.type}-${i}`}
+                                    onClick={handleClick}
+                                    className={cn("flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold transition-colors cursor-pointer", s.bg, s.border, s.text)}
+                                >
+                                    {s.icon}
+                                    {chip.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Inline mini-map preview for location context */}
                 {msg.role === 'user' && msg.locationContext && (
-                    <button
-                        onClick={() => {
-                            useAgentFirstStore.getState().setActiveComponent('map', {
-                                flyToLocation: { lat: msg.locationContext!.lat, lon: msg.locationContext!.lon, _t: Date.now() },
-                            });
-                        }}
-                        className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] text-cyan-600 dark:text-cyan-400 font-semibold hover:bg-cyan-500/20 transition-colors cursor-pointer"
-                    >
-                        <MapPin className="w-3 h-3" />
-                        {msg.locationContext.lat.toFixed(4)}°N, {msg.locationContext.lon.toFixed(4)}°E
-                    </button>
+                    <Suspense fallback={<div className="w-full max-w-[320px] h-[170px] rounded-xl bg-muted/20 animate-pulse" />}>
+                        <InlineMiniMap
+                            lat={msg.locationContext.lat}
+                            lon={msg.locationContext.lon}
+                            onClick={() => {
+                                useAgentFirstStore.getState().setActiveComponent('map', {
+                                    flyToLocation: { lat: msg.locationContext!.lat, lon: msg.locationContext!.lon, _t: Date.now() },
+                                });
+                            }}
+                        />
+                    </Suspense>
                 )}
 
                 <div className={cn(
@@ -301,17 +384,16 @@ function MessageRow({ message: msg, isCompact, isStreaming, playingMsgId, synthe
                     )}
                     {msg.role === 'assistant' ? (
                         msg.content ? (
-                            msg.id.startsWith('ai_temp_') && isStreaming ? (
-                                <p className="whitespace-pre-wrap text-[14px] sm:text-[15px] text-foreground/90 leading-relaxed">
-                                    {msg.content}
-                                </p>
-                            ) : (
-                                <div className="space-y-4">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                                        {msg.content}
-                                    </ReactMarkdown>
-                                </div>
-                            )
+                            <div className="space-y-4">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                                    {stripUiDirective(msg.content)}
+                                </ReactMarkdown>
+                                {isStreaming && msg.id.startsWith('ai_temp_') && (
+                                    <span className="inline-block w-[3px] h-[18px] bg-primary/70 animate-pulse ml-0.5 align-text-bottom" />
+                                )}
+                                {/* Map Ping Chips — clickable coordinate badges (Idea 5) */}
+                                {!isStreaming && <MapPingChips content={msg.content} />}
+                            </div>
                         ) : (
                             <div className="space-y-2 mt-2 w-[80%] max-w-[300px]">
                                 <div className="h-4 bg-muted animate-pulse rounded-full w-full"></div>
@@ -324,16 +406,32 @@ function MessageRow({ message: msg, isCompact, isStreaming, playingMsgId, synthe
                     )}
                 </div>
 
-                {/* ── Inline Widget (map / history / upload) ── */}
+                {/* ── Inline Widgets (history / upload / map) ── */}
                 {msg.role === 'assistant' && msg.widget && !isStreaming && (
                     <Suspense fallback={<div className="h-16 rounded-xl bg-muted/20 animate-pulse mt-1" />}>
                         {msg.widget.type === 'map' && msg.widget.mapLat != null && msg.widget.mapLon != null && (
-                            <InlineMiniMap lat={msg.widget.mapLat} lon={msg.widget.mapLon} />
+                            <InlineMiniMap
+                                lat={msg.widget.mapLat}
+                                lon={msg.widget.mapLon}
+                                onClick={() => {
+                                    useAgentFirstStore.getState().setActiveComponent('map', {
+                                        flyToLocation: { lat: msg.widget!.mapLat!, lon: msg.widget!.mapLon!, _t: Date.now() },
+                                    });
+                                }}
+                            />
                         )}
                         {msg.widget.type === 'history' && (
                             <InlineHistoryCarousel
                                 onAskAboutGroup={(groupId, summary) => {
-                                    (window as any).__agentChatInject?.(`Summarize and analyze catch group ${groupId}: ${summary}`);
+                                    (window as any).__agentChatInject?.(
+                                        'Analyze this catch group',
+                                        {
+                                            label: 'Analyze this catch group',
+                                            detail: `Group ${groupId.slice(0, 8)}`,
+                                            icon: 'history' as const,
+                                            backendText: `Summarize and analyze catch group ${groupId}: ${summary}`,
+                                        }
+                                    );
                                 }}
                             />
                         )}
@@ -387,6 +485,134 @@ function MessageRow({ message: msg, isCompact, isStreaming, playingMsgId, synthe
     );
 }
 
+// ── Tool Suggestion Chips (Idea 3) ─────────────────────────────────────────
+// Shows contextual tool suggestions based on what the user is typing
+const TOOL_SUGGESTION_RULES: { pattern: RegExp; toolId: 'upload' | 'map' | 'analytics' | 'history'; label: string; icon: React.ElementType; prompt?: string }[] = [
+    { pattern: /\b(photo|image|picture|scan|upload|camera|identify)\b/i, toolId: 'upload', label: 'Open Scanner', icon: Upload },
+    { pattern: /\b(where|spot|zone|location|fishing spot|near|map|harbor|coast)\b/i, toolId: 'map', label: 'Open Map', icon: MapPin },
+    { pattern: /\b(how much|price|market|cost|value|sell|earning)\b/i, toolId: 'analytics', label: 'View Analytics', icon: BarChart3, prompt: "What are today's market prices for fish in my area?" },
+    { pattern: /\b(yesterday|last week|previous|history|past|caught|record)\b/i, toolId: 'history', label: 'View History', icon: Fish },
+];
+
+function ToolSuggestionChips({ inputText, onToolClick, onPromptInject }: {
+    inputText: string;
+    onToolClick: (toolId: 'upload' | 'map' | 'analytics' | 'history') => void;
+    onPromptInject: (prompt: string) => void;
+}) {
+    if (!inputText || inputText.length < 3) return null;
+    const matches = TOOL_SUGGESTION_RULES.filter(r => r.pattern.test(inputText));
+    if (matches.length === 0) return null;
+
+    return (
+        <AnimatePresence>
+            <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border/10 overflow-x-auto scrollbar-none"
+            >
+                <Sparkles className="w-3 h-3 text-primary/50 shrink-0" />
+                <span className="text-[9px] text-muted-foreground/60 font-semibold whitespace-nowrap shrink-0">Suggest:</span>
+                {matches.slice(0, 2).map((m) => {
+                    const Icon = m.icon;
+                    return (
+                        <button
+                            key={m.toolId}
+                            onClick={() => m.prompt ? onPromptInject(m.prompt) : onToolClick(m.toolId)}
+                            className="flex items-center gap-1 px-2 py-1 rounded-full bg-primary/8 border border-primary/15 text-[10px] font-semibold text-primary/80 hover:bg-primary/15 transition-colors whitespace-nowrap shrink-0"
+                        >
+                            <Icon className="w-3 h-3" />
+                            {m.label}
+                        </button>
+                    );
+                })}
+            </motion.div>
+        </AnimatePresence>
+    );
+}
+
+// ── Agent Digest Card (Idea 1) ─────────────────────────────────────────────
+// Shows a daily briefing card at the top of empty chat state
+function AgentDigestCard({ onBriefingClick }: { onBriefingClick: (prompt: string) => void }) {
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    const timeIcon = hour < 6 ? '🌙' : hour < 12 ? '🌅' : hour < 17 ? '☀️' : hour < 20 ? '🌅' : '🌙';
+
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: 'easeOut' }}
+            className="w-full mb-4"
+        >
+            <div className="relative overflow-hidden">
+
+                <div className="relative pt-1 pb-0">
+                    <div className="flex items-center">
+                        <div>
+                            <h2 className="text-base font-bold text-foreground">{greeting}, Captain</h2>
+                            <p className="text-[10px] text-muted-foreground">
+                                {new Date().toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' })}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </motion.div>
+    );
+}
+
+// ── Map Ping Chip Extractor (Idea 5) ──────────────────────────────────────
+// Extracts coordinate mentions from assistant text and renders clickable chips
+const COORD_REGEX = /(-?\d{1,3}\.\d{2,6})\s*[°]?\s*[NS]?\s*[,\s]+\s*(-?\d{1,3}\.\d{2,6})\s*[°]?\s*[EW]?/g;
+
+function MapPingChips({ content }: { content: string }) {
+    const coords = React.useMemo(() => {
+        const matches: { lat: number; lon: number }[] = [];
+        let match: RegExpExecArray | null;
+        const regex = new RegExp(COORD_REGEX.source, 'g');
+        while ((match = regex.exec(content)) !== null) {
+            const lat = parseFloat(match[1]);
+            const lon = parseFloat(match[2]);
+            if (!isNaN(lat) && !isNaN(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+                // Deduplicate
+                if (!matches.some(m => Math.abs(m.lat - lat) < 0.0001 && Math.abs(m.lon - lon) < 0.0001)) {
+                    matches.push({ lat, lon });
+                }
+            }
+        }
+        return matches;
+    }, [content]);
+
+    if (coords.length === 0) return null;
+
+    return (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+            {coords.slice(0, 3).map((c, i) => (
+                <button
+                    key={i}
+                    onClick={() => {
+                        useAgentFirstStore.getState().setActiveComponent('map', {
+                            flyToLocation: { lat: c.lat, lon: c.lon, _t: Date.now() },
+                            initialCenter: [c.lat, c.lon],
+                            initialZoom: 12,
+                        });
+                        sonnerToast('Map opened', {
+                            description: `Showing ${c.lat.toFixed(2)}°N, ${c.lon.toFixed(2)}°E`,
+                            icon: '📍',
+                            duration: 2500,
+                        });
+                    }}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] text-cyan-600 dark:text-cyan-400 font-semibold hover:bg-cyan-500/20 transition-colors cursor-pointer"
+                >
+                    <MapPin className="w-3 h-3" />
+                    {c.lat.toFixed(2)}°N, {c.lon.toFixed(2)}°E
+                </button>
+            ))}
+        </div>
+    );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 export default function AgentChat({
     variant = 'full',
@@ -430,11 +656,21 @@ export default function AgentChat({
 
     // ── Agent context store integration ──────────────────────────────────────
     const agentContextPayload = useAgentContext(s => s.buildContextPayload);
+    const activeComponent = useAgentFirstStore(s => s.activeComponent);
+
+    // Track pending reference context from inject calls
+    const pendingRefContext = useRef<Message['referenceContext'] | null>(null);
 
     // Expose a global injection helper so inline widgets can inject prompts
     useEffect(() => {
-        (window as any).__agentChatInject = (text: string) => {
-            setInput(text);
+        (window as any).__agentChatInject = (text: string, context?: { label: string; detail: string; icon: 'history' | 'upload' | 'map' | 'analytics'; backendText: string }) => {
+            if (context) {
+                pendingRefContext.current = context;
+                setInput(context.label);  // Show short label in input
+            } else {
+                pendingRefContext.current = null;
+                setInput(text);
+            }
             inputRef.current?.focus();
         };
         return () => { delete (window as any).__agentChatInject; };
@@ -740,17 +976,57 @@ export default function AgentChat({
         const userMessageId = `user_${Date.now()}`;
         // Attach location context from the current agent context (if a map pin is selected)
         const currentMapPin = useAgentContext.getState().selectedMapPoint ?? undefined;
+        // Attach reference context if injected from a tool panel
+        const refCtx = pendingRefContext.current;
+        pendingRefContext.current = null;
+
+        // ── Build context chips from all active context ──
+        const ctxState = useAgentContext.getState();
+        const chips: ContextChip[] = [];
+        if (currentMapPin) {
+            chips.push({ type: 'location', label: `${currentMapPin.lat.toFixed(4)}°N, ${currentMapPin.lon.toFixed(4)}°E`, data: { lat: currentMapPin.lat, lon: currentMapPin.lon } });
+        }
+        if (ctxState.currentGroupId) {
+            chips.push({ type: 'history', label: `Catch #${ctxState.currentGroupId.slice(0, 8)}`, data: { groupId: ctxState.currentGroupId } });
+        }
+        if (ctxState.scanSummary) {
+            chips.push({ type: 'upload', label: ctxState.currentSpecies ? `Scan · ${ctxState.currentSpecies}` : 'Scan results', data: { summary: ctxState.scanSummary, species: ctxState.currentSpecies } });
+        }
+        if (ctxState.currentPage === 'analytics') {
+            chips.push({ type: 'analytics', label: 'Analytics', data: {} });
+        }
+        // If a reference context inject is present, add it as a chip too
+        if (refCtx) {
+            const refType = refCtx.icon === 'map' ? 'location' as const : refCtx.icon as ContextChip['type'];
+            // Only add if not already covered by auto-detected chips
+            if (!chips.some(c => c.type === refType)) {
+                chips.push({ type: refType, label: refCtx.detail, data: { backendText: refCtx.backendText } });
+            }
+        }
+
         const userMessage: Message = {
             id: userMessageId,
             role: 'user',
-            content: rawText,
+            content: refCtx ? refCtx.label : rawText,
             timestamp: new Date(),
             status: 'sending',
             replyTo: replyingTo ? replyingTo.content.substring(0, 100) : undefined,
             replyToId: replyingTo?.id,
             locationContext: currentMapPin,
+            referenceContext: refCtx ?? undefined,
+            contextChips: chips.length > 0 ? chips : undefined,
         };
         setMessages(prev => [...prev, userMessage]);
+
+        // If there's a reference context, send the detailed backend text instead
+        if (refCtx) {
+            text = refCtx.backendText;
+            // Still prepend global agent context
+            const ctxPayload2 = agentContextPayload();
+            if (ctxPayload2) {
+                text = `${ctxPayload2} ${text}`;
+            }
+        }
 
         // Include reply context in prompt
         if (replyingTo) {
@@ -760,6 +1036,8 @@ export default function AgentChat({
         setInput("");
         setReplyingTo(null);
         setIsTyping(true);
+
+        const tempAiMsgId = `ai_temp_${Date.now()}`;
 
         try {
             let targetChatId = chatId;
@@ -772,8 +1050,6 @@ export default function AgentChat({
                 } catch (e) { console.error("Failed to create conversation", e); }
             }
 
-            const tempAiMsgId = `ai_temp_${Date.now()}`;
-
             // Mark user message as sent
             setMessages(prev => prev.map(m =>
                 m.id === userMessageId ? { ...m, status: 'sent' as MessageStatus } : m
@@ -783,23 +1059,36 @@ export default function AgentChat({
                 id: tempAiMsgId, role: 'assistant', content: '', timestamp: new Date()
             }]);
 
-            let chunkBuffer = "";
-            let flushTimer: number | null = null;
-            const flushChunkBuffer = () => {
-                if (!chunkBuffer) return;
-                const pending = chunkBuffer;
-                chunkBuffer = "";
-                setMessages(prev => prev.map(m =>
-                    m.id === tempAiMsgId ? { ...m, content: m.content + pending } : m
-                ));
+            // ── Typewriter character queue ──────────────────────────────────
+            const charQueue: string[] = [];
+            let animFrame: number | null = null;
+            let typewriterDone = false;
+
+            const drainCharQueue = () => {
+                if (typewriterDone) return;
+                // Dynamically increase drain rate when queue is large
+                const CHARS_PER_FRAME = charQueue.length > 80 ? 12 : charQueue.length > 30 ? 6 : 3;
+                let appended = '';
+                for (let i = 0; i < CHARS_PER_FRAME && charQueue.length > 0; i++) {
+                    appended += charQueue.shift();
+                }
+                if (appended) {
+                    setMessages(prev => prev.map(m =>
+                        m.id === tempAiMsgId ? { ...m, content: m.content + appended } : m
+                    ));
+                }
+                if (charQueue.length > 0) {
+                    animFrame = requestAnimationFrame(drainCharQueue);
+                } else {
+                    animFrame = null;
+                }
             };
+
             const enqueueChunk = (chunkText: string) => {
-                chunkBuffer += chunkText;
-                if (flushTimer !== null) return;
-                flushTimer = window.setTimeout(() => {
-                    flushTimer = null;
-                    flushChunkBuffer();
-                }, 24);
+                for (const ch of chunkText) charQueue.push(ch);
+                if (animFrame === null) {
+                    animFrame = requestAnimationFrame(drainCharQueue);
+                }
             };
 
             const res = await streamChat(
@@ -810,11 +1099,20 @@ export default function AgentChat({
                 userLocation ?? undefined,
                 (toolName) => setActiveToolName(toolName),
             );
-            if (flushTimer !== null) {
-                window.clearTimeout(flushTimer);
-                flushTimer = null;
+
+            // Flush any remaining characters instantly
+            typewriterDone = true;
+            if (animFrame !== null) {
+                cancelAnimationFrame(animFrame);
+                animFrame = null;
             }
-            flushChunkBuffer();
+            if (charQueue.length > 0) {
+                const remaining = charQueue.join('');
+                charQueue.length = 0;
+                setMessages(prev => prev.map(m =>
+                    m.id === tempAiMsgId ? { ...m, content: m.content + remaining } : m
+                ));
+            }
             setActiveToolName(null);
 
             const finalChatId = targetChatId ?? res.chatId;
@@ -825,37 +1123,62 @@ export default function AgentChat({
                 }
             }
 
-            // Determine widget from agent UI directive
+            // Determine widget from agent UI directive AND auto-open sidebar tool
             let widget: MessageWidget | undefined;
             if (res.ui) {
+                const store = useAgentFirstStore.getState();
                 if (res.ui.map && res.ui.mapLat != null && res.ui.mapLon != null) {
+                    // Inline mini-map preview + open sidebar
                     widget = { type: 'map', mapLat: res.ui.mapLat, mapLon: res.ui.mapLon };
+                    store.setActiveComponent('map', {
+                        initialCenter: [res.ui.mapLat, res.ui.mapLon],
+                        initialZoom: 12,
+                        flyToLocation: { lat: res.ui.mapLat, lon: res.ui.mapLon, _t: Date.now() },
+                    });
+                    sonnerToast('Map opened', {
+                        description: `Showing location at ${res.ui.mapLat.toFixed(2)}°N, ${res.ui.mapLon.toFixed(2)}°E`,
+                        icon: '🗺️',
+                        duration: 3000,
+                    });
                 } else if (res.ui.history) {
                     widget = { type: 'history' };
+                    store.setActiveComponent('history');
+                    sonnerToast('Catch history opened', {
+                        description: 'Showing your recent catches in the side panel',
+                        icon: '📋',
+                        duration: 3000,
+                    });
                 } else if (res.ui.upload) {
                     widget = { type: 'upload' };
+                    store.setActiveComponent('upload');
+                    sonnerToast('Upload panel opened', {
+                        description: 'Ready to analyze your catch photos',
+                        icon: '📸',
+                        duration: 3000,
+                    });
                 }
             }
 
             // Always replace temp ID so Listen/Reply buttons appear and markdown renders
             const finalMsgId = res.messageId || `msg_${Date.now()}`;
             setMessages(prev => prev.map(m =>
-                m.id === tempAiMsgId ? { ...m, id: finalMsgId, widget } : m
+                m.id === tempAiMsgId ? { ...m, id: finalMsgId, content: stripUiDirective(m.content), widget } : m
             ));
         } catch (err) {
             console.error("Chat error:", err);
 
-            // Mark user message as failed
-            setMessages(prev => prev.map(m =>
-                m.id === userMessageId ? { ...m, status: 'failed' as MessageStatus } : m
-            ));
-
-            setMessages(prev => [...prev, {
-                id: `err_${Date.now()}`,
-                role: 'assistant',
-                content: "Sorry, I couldn't process that. Please try again.",
-                timestamp: new Date(),
-            }]);
+            // Remove the temp skeleton and mark user message as failed, add error message
+            setMessages(prev => {
+                const cleaned = prev.filter(m => m.id !== tempAiMsgId);
+                return [...cleaned.map(m =>
+                    m.id === userMessageId ? { ...m, status: 'failed' as MessageStatus } : m
+                ), {
+                    id: `err_${Date.now()}`,
+                    role: 'assistant' as const,
+                    content: "Sorry, I couldn't process that. Please try again.",
+                    timestamp: new Date(),
+                }];
+            });
         } finally {
             setIsTyping(false);
             setActiveToolName(null);
@@ -893,17 +1216,18 @@ export default function AgentChat({
             !isCompact && "mx-auto w-full max-w-[1200px] 2xl:max-w-[1280px]",
             className,
         )}>
-            {/* ── Header ── */}
+            {/* ── Header (Matsya Branding) ── */}
             <div className={cn(
-                "flex items-center gap-3 border-b border-border/15 shrink-0",
-                isCompact ? "px-4 py-3" : "px-5 py-4"
+                "flex items-center gap-3 border-b border-border/15 shrink-0 overflow-hidden",
+                isCompact ? "px-4 py-3 pr-10" : "px-5 py-4"
             )}>
-                <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4 text-primary" />
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center justify-center border border-primary/20 relative">
+                    <Fish className="w-4 h-4 text-primary" />
+                    <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-card" />
                 </div>
                 <div className="min-w-0">
                     <h3 className={cn("font-bold leading-tight", isCompact ? "text-sm" : "text-base")}>
-                        {contextGroupId ? "AI Agent" : t('chat.title')}
+                        {contextGroupId ? "Matsya AI" : "Matsya"}
                     </h3>
                     <p className="text-[10px] text-muted-foreground/60 leading-tight">
                         {contextGroupId
@@ -913,7 +1237,7 @@ export default function AgentChat({
                     </p>
                 </div>
                 {isTyping && (
-                    <div className="ml-auto flex items-center gap-1.5 text-[10px] text-primary/70 font-medium">
+                    <div className="ml-auto flex items-center gap-1.5 text-[10px] text-primary/70 font-medium shrink-0 min-w-0">
                         {activeToolName ? (
                             <>
                                 <Wrench className="w-3 h-3 animate-spin" />
@@ -931,8 +1255,8 @@ export default function AgentChat({
 
             {/* ── Messages ── */}
             <div className={cn(
-                "flex-1 overflow-y-auto py-2 relative",
-                isCompact ? "px-5 sm:px-6" : "px-4 sm:px-8 lg:px-12 xl:px-16 2xl:px-20"
+                "flex-1 overflow-y-auto py-2 relative scrollbar-thin",
+                isCompact ? "px-5 sm:px-6 pb-40" : "px-4 sm:px-8 lg:px-12 xl:px-16 2xl:px-20 pb-48 lg:pb-56"
             )} ref={scrollAreaRef}>
                 <div className={cn("space-y-1 pb-1 mx-auto w-full", isCompact ? "max-w-4xl" : "max-w-2xl")}>
                     {hasMoreHistory && !isLoadingHistory && (
@@ -947,8 +1271,16 @@ export default function AgentChat({
                         </div>
                     )}
                     {isLoadingHistory && (
-                        <div className="flex justify-center py-6">
-                            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/50" />
+                        <div className="space-y-4 py-4">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="flex gap-3 w-full">
+                                    <div className="h-8 w-8 rounded-full bg-muted animate-pulse shrink-0" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-4 rounded-full bg-muted animate-pulse w-3/4" />
+                                        <div className="h-4 rounded-full bg-muted animate-pulse w-1/2" />
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                     {!isLoadingHistory && messages.map((msg) => (
@@ -966,7 +1298,7 @@ export default function AgentChat({
                         />
                     ))}
 
-                    {/* ── Capability Cards (Empty State) ── */}
+                    {/* ── Agent Digest + Capability Cards (Empty State) ── */}
                     <AnimatePresence>
                         {messages.length === 0 && !contextGroupId && (
                             <motion.div
@@ -974,6 +1306,7 @@ export default function AgentChat({
                                 exit={{ opacity: 0, y: -20 }}
                                 transition={{ duration: 0.3, ease: 'easeOut' }}
                             >
+                                <AgentDigestCard onBriefingClick={(prompt) => handleSend(prompt)} />
                                 <CapabilityCards
                                     onCardClick={(command) => {
                                         // Trigger the command as if user typed it
@@ -992,8 +1325,8 @@ export default function AgentChat({
                             className="flex gap-3 sm:gap-4 w-full justify-start pt-2"
                         >
                             <Avatar className={cn("shrink-0 border border-primary/20", isCompact ? "h-7 w-7 mt-0.5" : "h-8 w-8 mt-1")}>
-                                <div className="bg-primary/10 h-full w-full flex items-center justify-center">
-                                    <Bot className={cn(isCompact ? "w-3.5 h-3.5" : "w-4 h-4", "text-primary")} />
+                                <div className="bg-gradient-to-br from-primary/15 to-cyan-500/15 h-full w-full flex items-center justify-center">
+                                    <Fish className={cn(isCompact ? "w-3.5 h-3.5" : "w-4 h-4", "text-primary")} />
                                 </div>
                             </Avatar>
                             <div className="py-2.5 px-4 bg-muted/30 border border-border/10 rounded-2xl rounded-tl-md flex items-center h-[38px]">
@@ -1010,142 +1343,160 @@ export default function AgentChat({
                 </div>
             </div>
 
-            {/* ── Quick chips ── */}
-            {messages.length === 0 && (
-                <div className="px-3 pb-2 shrink-0">
-                    <div className="flex flex-wrap gap-1.5">
-                        {quickChips.map((chip, i) => (
-                            <button
-                                key={i}
-                                onClick={() => handleSend(chip)}
-                                disabled={isTyping}
-                                className="px-2.5 py-1 rounded-full bg-primary/5 border border-primary/10 text-[11px] font-medium text-primary/70 hover:bg-primary/10 hover:text-primary transition-all duration-200 disabled:opacity-40"
-                            >
-                                {chip}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            {/* ── Voice indicator ── */}
-            {
-                isListening && (
-                    <div className="px-3 py-2 border-t border-red-500/10 bg-red-500/3 flex items-center gap-2 animate-fade-in shrink-0">
-                        <div className="relative flex items-center justify-center">
-                            <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
-                            <div className="absolute w-4 h-4 bg-red-400/15 rounded-full animate-ping" />
-                        </div>
-                        <span className="text-xs font-medium text-red-400">Listening...</span>
-                        <span className="text-[10px] text-muted-foreground/50 ml-auto">Release to send</span>
-                    </div>
-                )
-            }
-
-            {/* ── Input bar ── */}
+            {/* ── Floating Input Area ── */}
             <div className={cn(
-                "border-t border-border/15 bg-background/20 shrink-0",
-                isCompact ? "p-2" : "p-2.5"
+                "shrink-0 flex flex-col items-center relative z-10",
+                "bg-gradient-to-t from-background via-background/90 to-transparent",
+                isCompact ? "pt-6 pb-4 px-2" : "pt-8 pb-6 px-4"
             )}>
-                {replyingTo && (
-                    <div className={cn(
-                        "mb-2 mx-auto w-full rounded-lg border border-border/30 bg-muted/20 px-3 py-1.5 text-xs",
-                        isCompact ? "max-w-3xl" : "max-w-3xl"
-                    )}>
-                        <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1 border-l-2 border-primary/35 pl-2.5">
-                                <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-primary/80 font-semibold">
-                                    <Reply className="w-3 h-3" />
-                                    Replying to {replyingTo.role === 'assistant' ? 'assistant' : 'message'}
-                                </div>
-                                <div className="relative mt-1">
-                                    <p
-                                        className="text-muted-foreground leading-5 overflow-hidden pr-8"
-                                        style={{
-                                            display: '-webkit-box',
-                                            WebkitLineClamp: 2,
-                                            WebkitBoxOrient: 'vertical',
-                                        }}
-                                        title={replyingTo.content}
-                                    >
-                                        {replyPreview}
-                                    </p>
-                                    <span className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-muted/20 to-transparent" />
-                                </div>
-                            </div>
-                            <button onClick={() => setReplyingTo(null)} className="text-muted-foreground/60 hover:text-foreground shrink-0">
-                                <X className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                    </div>
-                )}
                 <div className={cn(
-                    "flex flex-col gap-1.5 mx-auto w-full",
+                    "w-full flex flex-col gap-2 relative",
                     isCompact ? "max-w-3xl" : "max-w-3xl"
                 )}>
-                    {/* Context Pill — shows what context the AI is "seeing" */}
-                    <div className="flex items-center gap-1.5 px-0.5">
-                        <ContextPill />
-                        {isCompact && (
-                            <span className="text-[9px] text-muted-foreground/40 ml-auto hidden sm:block">Ctrl+K for commands</span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
 
-                    <Textarea
-                        ref={inputRef}
-                        value={input}
-                        rows={2}
-                        onChange={e => {
-                            setInput(e.target.value);
-                            const el = e.currentTarget;
-                            el.style.height = 'auto';
-                            el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-                        }}
-                        onKeyDown={(e) => {
-                            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-                                e.preventDefault();
-                                handleSend();
-                                return;
-                            }
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                handleSend();
-                            }
-                        }}
-                        placeholder={contextGroupId ? "Ask about this catch..." : t('chat.placeholder')}
-                        disabled={isTyping}
-                        className={cn(
-                            "flex-1 min-h-[56px] max-h-44 resize-none py-3 pl-3.5 pr-3.5 rounded-xl bg-background/70 border border-border/40 focus-visible:ring-1 focus-visible:ring-primary/25 focus-visible:border-primary/30 leading-5",
-                            isCompact ? "text-[12.5px]" : "text-[13px]"
+                    {/* ── Voice indicator ── */}
+                    <AnimatePresence>
+                        {isListening && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.95 }}
+                                className="absolute -top-10 left-0 right-0 mx-auto w-fit bg-red-500 text-white shadow-lg shadow-red-500/20 px-4 py-1.5 rounded-full flex items-center gap-2"
+                            >
+                                <div className="relative flex items-center justify-center">
+                                    <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                                    <div className="absolute w-4 h-4 bg-white/30 rounded-full animate-ping" />
+                                </div>
+                                <span className="text-[11px] font-bold tracking-wide">LISTENING...</span>
+                            </motion.div>
                         )}
-                    />
-                    <button
-                        onClick={() => { if (!voiceSupported) { toast.error(t('voice.notSupported')); return; } isListening ? stopListening() : startListening(); }}
-                        disabled={isTyping}
-                        data-compact
-                        className={cn(
-                            "shrink-0 rounded-xl flex items-center justify-center transition-all",
-                            isCompact ? "w-7 h-7" : "w-8 h-8",
-                            isListening
-                                ? "bg-red-500/15 text-red-400 shadow-sm"
-                                : "bg-muted/15 text-muted-foreground/50 hover:bg-primary/5 hover:text-primary/70"
+                    </AnimatePresence>
+
+                    {/* ── Quick chips ── */}
+                    {messages.length === 0 && quickChips.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 justify-center mb-1">
+                            {quickChips.map((chip, i) => (
+                                <button
+                                    key={i}
+                                    onClick={() => handleSend(chip)}
+                                    disabled={isTyping}
+                                    className="px-3 py-1.5 rounded-full bg-background/50 border border-border/40 text-[11px] font-medium text-foreground/70 hover:bg-primary/5 hover:text-primary hover:border-primary/20 shadow-sm transition-all duration-200 disabled:opacity-40"
+                                >
+                                    {chip}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* ── Replying To Banner ── */}
+                    {replyingTo && (
+                        <div className="w-full rounded-t-2xl border-t border-l border-r border-border/20 bg-muted/40 backdrop-blur-md px-4 py-2 text-xs -mb-3 pb-4">
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1 border-l-2 border-primary/35 pl-2.5">
+                                    <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-primary/80 font-bold mb-0.5">
+                                        <Reply className="w-3 h-3" />
+                                        Replying to {replyingTo.role === 'assistant' ? 'assistant' : 'message'}
+                                    </div>
+                                    <div className="relative">
+                                        <p className="text-muted-foreground leading-snug overflow-hidden pr-8 line-clamp-1" title={replyingTo.content}>
+                                            {replyPreview}
+                                        </p>
+                                        <span className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-muted/20 to-transparent" />
+                                    </div>
+                                </div>
+                                <button onClick={() => setReplyingTo(null)} className="text-muted-foreground/60 hover:text-foreground shrink-0 mt-0.5 bg-background/50 rounded-full p-1 border border-border/10">
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── Main Input Card ── */}
+                    <div className={cn(
+                        "relative w-full rounded-2xl sm:rounded-3xl border border-border/40 bg-card/80 backdrop-blur-xl shadow-lg shadow-black/5 flex flex-col overflow-hidden transition-all duration-300 focus-within:shadow-xl focus-within:border-primary/20 focus-within:ring-1 focus-within:ring-primary/10",
+                        replyingTo && "rounded-t-none"
+                    )}>
+                        {/* Context Pill — only show when a tool panel is open (avoids redundancy with reference chips) */}
+                        {activeComponent && (
+                            <div className="px-4 pt-3 flex items-center justify-between border-b border-border/10 pb-2 bg-muted/10">
+                                <ContextPill />
+                                {isCompact && <span className="text-[9px] text-muted-foreground/40 ml-auto hidden sm:block">Ctrl+K for commands</span>}
+                            </div>
                         )}
-                    >
-                        <Mic className={cn(isCompact ? "w-3.5 h-3.5" : "w-4 h-4")} />
-                    </button>
-                    <button
-                        onClick={() => handleSend()}
-                        disabled={!input.trim() || isTyping}
-                        data-compact
-                        className={cn(
-                            "shrink-0 rounded-xl bg-primary text-white flex items-center justify-center shadow-sm shadow-primary/15 transition-all active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed",
-                            isCompact ? "w-7 h-7" : "w-8 h-8"
-                        )}
-                    >
-                        {isTyping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                    </button>
+
+                        {/* ── Tool Suggestion Chips (Idea 3) ── */}
+                        <ToolSuggestionChips inputText={input} onToolClick={(toolId) => {
+                            useAgentFirstStore.getState().setActiveComponent(toolId);
+                        }} onPromptInject={(prompt) => handleSend(prompt)} />
+
+                        <div className={cn("flex flex-row items-end gap-2", isCompact ? "p-2" : "p-3")}>
+                            <Textarea
+                                ref={inputRef}
+                                value={input}
+                                rows={1}
+                                onChange={e => {
+                                    setInput(e.target.value);
+                                    const el = e.currentTarget;
+                                    el.style.height = 'auto';
+                                    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+                                }}
+                                onKeyDown={(e) => {
+                                    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleSend();
+                                        return;
+                                    }
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
+                                placeholder={contextGroupId ? "Ask about this catch..." : t('chat.placeholder')}
+                                disabled={isTyping}
+                                className={cn(
+                                    "flex-1 min-h-[44px] max-h-52 resize-none py-3 pl-3 sm:pl-4 pr-2 bg-transparent border-0 focus-visible:ring-0 leading-relaxed text-foreground placeholder:text-muted-foreground/50",
+                                    isCompact ? "text-[13px]" : "text-[14px]"
+                                )}
+                            />
+
+                            <div className="flex items-center gap-1 shrink-0 pb-1 pr-1">
+                                <button
+                                    onClick={() => { if (!voiceSupported) { toast.error(t('voice.notSupported')); return; } isListening ? stopListening() : startListening(); }}
+                                    disabled={isTyping}
+                                    className={cn(
+                                        "shrink-0 rounded-full flex items-center justify-center transition-all",
+                                        isCompact ? "w-8 h-8" : "w-10 h-10",
+                                        isListening
+                                            ? "bg-red-500 text-white shadow-md shadow-red-500/20"
+                                            : "bg-transparent text-muted-foreground/60 hover:bg-muted"
+                                    )}
+                                >
+                                    <Mic className={cn(isCompact ? "w-4 h-4" : "w-5 h-5")} />
+                                </button>
+
+                                <button
+                                    onClick={() => handleSend()}
+                                    disabled={!input.trim() || isTyping}
+                                    className={cn(
+                                        "shrink-0 rounded-full flex items-center justify-center transition-all",
+                                        isCompact ? "w-8 h-8" : "w-10 h-10",
+                                        input.trim() && !isTyping
+                                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 hover:scale-105 active:scale-95"
+                                            : "bg-muted text-muted-foreground/40"
+                                    )}
+                                >
+                                    {isTyping ? <Loader2 className={cn("animate-spin", isCompact ? "w-4 h-4" : "w-4.5 h-4.5")} /> : <Send className={cn(isCompact ? "w-4 h-4" : "w-4.5 h-4.5", "ml-0.5")} />}
+                                </button>
+                            </div>
+                        </div>
                     </div>
+
+                    {/* Tiny footer label */}
+                    {!isCompact && !contextGroupId && (
+                        <div className="text-center mt-1">
+                            <span className="text-[10px] text-muted-foreground/40">AI can make mistakes. Consider verifying important information.</span>
+                        </div>
+                    )}
                 </div>
             </div>
 

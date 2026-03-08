@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Sparkles, MapPin, Upload, BarChart3, Clock, MessageSquare, Search,
+  Fish, Send,
 } from 'lucide-react';
 import {
   CommandDialog,
@@ -30,6 +31,7 @@ interface CommandPaletteProps {
 /**
  * Global command palette (Ctrl+K / Cmd+K).
  * Provides instant access to the AI agent, all tools, and recent chats.
+ * Type @agent <query> or just a question to send it directly to the agent.
  */
 export default function CommandPalette({
   chatHistory = [],
@@ -38,6 +40,7 @@ export default function CommandPalette({
   onNewChat,
 }: CommandPaletteProps) {
   const [open, setOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
   const setActiveComponent = useAgentFirstStore(s => s.setActiveComponent);
   const clearComponent = useAgentFirstStore(s => s.clearComponent);
 
@@ -55,26 +58,65 @@ export default function CommandPalette({
 
   const runCommand = useCallback((callback: () => void) => {
     setOpen(false);
+    setSearchValue('');
     // Small delay so the dialog closes smoothly
     requestAnimationFrame(callback);
   }, []);
 
+  // Detect @agent prefixed queries or natural language questions
+  const isAgentQuery = searchValue.startsWith('@agent ') || searchValue.startsWith('@matsya ');
+  const agentQueryText = isAgentQuery ? searchValue.replace(/^@(?:agent|matsya)\s+/, '') : '';
+  const isNaturalQuestion = !isAgentQuery && searchValue.length > 10 && /[?.]$|^(what|where|how|when|why|which|can|tell|show|give|find|get)\b/i.test(searchValue);
+
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Ask AI, open tool, or search chats..." />
+    <CommandDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearchValue(''); }}>
+      <CommandInput
+        placeholder="Ask Matsya, open tool, or search chats... (@agent for direct query)"
+        value={searchValue}
+        onValueChange={setSearchValue}
+      />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>
+          {searchValue.length > 2 ? (
+            <button
+              onClick={() => runCommand(() => onFocusChat?.(searchValue))}
+              className="flex items-center gap-2 w-full px-2 py-3 text-sm text-left hover:bg-muted/50 rounded-md transition-colors"
+            >
+              <Fish className="w-4 h-4 text-primary" />
+              <span>Ask Matsya: &quot;{searchValue}&quot;</span>
+              <Send className="w-3 h-3 ml-auto text-muted-foreground" />
+            </button>
+          ) : (
+            'No results found.'
+          )}
+        </CommandEmpty>
+
+        {/* ── Direct Agent Query (when @agent prefix or question detected) ── */}
+        {(isAgentQuery || isNaturalQuestion) && searchValue.length > 3 && (
+          <CommandGroup heading="Ask Matsya AI">
+            <CommandItem
+              onSelect={() => runCommand(() => {
+                clearComponent();
+                onFocusChat?.(isAgentQuery ? agentQueryText : searchValue);
+              })}
+            >
+              <Fish className="mr-2 h-4 w-4 text-primary" />
+              <span className="truncate">Ask: &quot;{isAgentQuery ? agentQueryText : searchValue}&quot;</span>
+              <Send className="ml-auto h-3 w-3 text-muted-foreground/50" />
+            </CommandItem>
+          </CommandGroup>
+        )}
 
         {/* ── Agent Actions ── */}
-        <CommandGroup heading="AI Agent">
+        <CommandGroup heading="Matsya AI">
           <CommandItem
             onSelect={() => runCommand(() => {
               clearComponent();
               onFocusChat?.();
             })}
           >
-            <Sparkles className="mr-2 h-4 w-4 text-primary" />
-            <span>Ask AI Agent...</span>
+            <Fish className="mr-2 h-4 w-4 text-primary" />
+            <span>Ask Matsya AI...</span>
             <span className="ml-auto text-[10px] text-muted-foreground/50">Focus chat</span>
           </CommandItem>
           <CommandItem

@@ -74,7 +74,7 @@ export default function PaneDivider({ onResize, onReset }: PaneDividerProps) {
   return (
     <div
       className={cn(
-        "relative w-1 bg-border/20 hover:bg-border/40 transition-colors cursor-col-resize group flex-shrink-0",
+        "relative w-1 bg-border/20 hover:bg-border/40 transition-colors cursor-col-resize group flex-shrink-0 z-50",
         isDragging && "bg-primary/40"
       )}
       onMouseDown={handleMouseDown}

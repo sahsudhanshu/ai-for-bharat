@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription
@@ -9,10 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Loader2, ArrowLeft, Download, Bug, Scale, TrendingUp, MapPin, Bot,
-  ChevronLeft, ChevronRight, Eye, ChevronDown, ChevronUp, Images, Sparkles, Search
+  ChevronLeft, ChevronRight, Eye, ChevronDown, ChevronUp, Images, Sparkles, Search, Zap
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getGroupDetails, type GroupRecord } from "@/lib/api-client";
+import {
+  getGroupDetails,
+  estimateFishWeight,
+  saveWeightEstimate,
+  type GroupRecord,
+  type FishWeightEstimate,
+} from "@/lib/api-client";
 import { resolveMLUrl } from "@/lib/constants";
 import { jsPDF } from "jspdf";
 import { toast } from "sonner";
@@ -24,37 +30,6 @@ const TileLayer = dynamic(() => import("react-leaflet").then((m) => m.TileLayer)
 const Marker = dynamic(() => import("react-leaflet").then((m) => m.Marker), { ssr: false });
 const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), { ssr: false });
 
-// Helper function to generate supplement data
-function generateSupplement(speciesLabel: string) {
-  const SPECIES_DATA = [
-    { name: "Indian Pomfret", scientific: "Pampus argenteus", minSize: 150, pricePerKg: 650 },
-    { name: "Indian Mackerel", scientific: "Rastrelliger kanagurta", minSize: 100, pricePerKg: 220 },
-    { name: "Kingfish", scientific: "Scomberomorus commerson", minSize: 350, pricePerKg: 480 },
-    { name: "Yellowfin Tuna", scientific: "Thunnus albacares", minSize: 450, pricePerKg: 420 },
-    { name: "Indo-Pacific Swordfish", scientific: "Xiphias gladius", minSize: 1200, pricePerKg: 820 },
-    { name: "Seer Fish", scientific: "Scomberomorus guttatus", minSize: 300, pricePerKg: 850 },
-    { name: "Hilsa Shad", scientific: "Tenualosa ilisha", minSize: 250, pricePerKg: 700 },
-  ];
-
-  const matchSpecies = (label: string) => {
-    if (!label) return SPECIES_DATA[0];
-    const lower = label.toLowerCase();
-    return SPECIES_DATA.find(s =>
-      lower.includes(s.name.split(" ")[0].toLowerCase()) ||
-      s.name.toLowerCase().includes(lower)
-    ) ?? SPECIES_DATA[0];
-  };
-
-  const matched = matchSpecies(speciesLabel);
-  // deterministic mock generation based on label length to prevent jitter
-  const length_mm = matched.minSize + ((speciesLabel.length * 17) % 200);
-  const weight_kg = ((length_mm / 1000) ** 3 * 1e6 * 0.014) / 1000;
-  const estimatedValue = Math.round(weight_kg * matched.pricePerKg);
-  const qualityGrade = weight_kg > (matched.minSize / 1000) * 1.5 ? "Premium" : "Standard";
-
-  return { weight_kg, estimatedValue, qualityGrade };
-}
-
 export default function HistoryDetailView({ groupId, onBack }: { groupId: string; onBack: () => void }) {
   const [group, setGroup] = useState<GroupRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -63,6 +38,13 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
   // Split view state
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [expandedCrops, setExpandedCrops] = useState<Set<string>>(new Set(['yolo_overview']));
+
+  // Weight estimation state
+  const [weightFormOpen, setWeightFormOpen] = useState<Record<string, boolean>>({});
+  const [weightInputs, setWeightInputs] = useState<Record<string, { length1: string; length3: string; height: string; width: string }>>({});
+  const [weightLoading, setWeightLoading] = useState<Record<string, boolean>>({});
+  const [weightResults, setWeightResults] = useState<Record<string, FishWeightEstimate>>({});
+  const [weightErrors, setWeightErrors] = useState<Record<string, string>>({});
 
   const YOLO_CONFIDENCE_THRESHOLD = 0.30;
 
@@ -79,6 +61,29 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
           const end = new Date(data.analysisResult.processedAt).getTime();
           setAnalysisTime(Math.round((end - start) / 1000));
         }
+
+        // Load any previously saved weight estimates from the group record
+        const saved = (data as any).weightEstimates;
+        if (saved && typeof saved === 'object') {
+          const loaded: Record<string, FishWeightEstimate> = {};
+          for (const [fishKey, val] of Object.entries(saved)) {
+            if (val && typeof val === 'object' && (val as any).estimated_weight_grams) {
+              const v = val as any;
+              loaded[fishKey] = {
+                species: v.species || '',
+                estimated_weight_grams: v.estimated_weight_grams,
+                estimated_weight_range: v.estimated_weight_range || { min_grams: 0, max_grams: 0 },
+                ml_predicted_weight_grams: v.ml_predicted_weight_grams ?? null,
+                formula_calculated_weight_grams: v.formula_calculated_weight_grams ?? 0,
+                market_price_per_kg: v.market_price_per_kg || { min_inr: 0, max_inr: 0, market_reference: '' },
+                estimated_fish_value: v.estimated_fish_value || { min_inr: 0, max_inr: 0 },
+                quality_grade: v.quality_grade || 'Standard',
+                notes: v.notes || '',
+              };
+            }
+          }
+          setWeightResults(loaded);
+        }
       } catch (err) {
         console.error("Failed to load group details", err);
         toast.error("Failed to load group details");
@@ -88,6 +93,50 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
     };
     loadGroupDetails();
   }, [groupId]);
+
+  const handleWeightEstimate = useCallback(async (cropKey: string, fishIndex: number, species: string) => {
+    const inputs = weightInputs[cropKey];
+    if (!inputs || !inputs.length1 || !inputs.length3 || !inputs.height || !inputs.width) {
+      setWeightErrors(prev => ({ ...prev, [cropKey]: "Please fill all measurement fields" }));
+      return;
+    }
+    setWeightLoading(prev => ({ ...prev, [cropKey]: true }));
+    setWeightErrors(prev => ({ ...prev, [cropKey]: "" }));
+    try {
+      const result = await estimateFishWeight({
+        species,
+        length1: parseFloat(inputs.length1),
+        length3: parseFloat(inputs.length3),
+        height: parseFloat(inputs.height),
+        width: parseFloat(inputs.width),
+      });
+
+      // Store the result keyed by fish_<index> to match the backend format
+      const fishKey = `fish_${fishIndex}`;
+      setWeightResults(prev => ({ ...prev, [fishKey]: result }));
+      setWeightFormOpen(prev => ({ ...prev, [cropKey]: false }));
+
+      // Save to database
+      try {
+        await saveWeightEstimate({
+          groupId,
+          imageIndex: selectedImageIndex,
+          fishIndex,
+          species,
+          weightG: result.estimated_weight_grams,
+          fullEstimate: result,
+        });
+        toast.success("Weight estimate saved");
+      } catch (saveErr) {
+        console.error("Failed to save weight estimate", saveErr);
+        // Don't fail the UX - the estimate is still shown
+      }
+    } catch (err) {
+      setWeightErrors(prev => ({ ...prev, [cropKey]: err instanceof Error ? err.message : "Estimation failed" }));
+    } finally {
+      setWeightLoading(prev => ({ ...prev, [cropKey]: false }));
+    }
+  }, [weightInputs, groupId, selectedImageIndex]);
 
   const toggleCropExpand = (key: string) => {
     setExpandedCrops(prev => {
@@ -157,7 +206,8 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
 
       for (let i = 0; i < allCrops.length; i++) {
         const { imageIndex, crop } = allCrops[i];
-        const supplement = generateSupplement(crop.species.label);
+        const fishKey = `fish_${i}`;
+        const saved = weightResults[fishKey];
 
         if (cursorY > pageHeight - 40) { doc.addPage(); cursorY = 20; }
         doc.setFontSize(10);
@@ -167,7 +217,11 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
         doc.setFont("helvetica", "normal");
         doc.text(`Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`, 22, cursorY);
         cursorY += 5;
-        doc.text(`Weight: ${supplement.weight_kg.toFixed(2)} kg  |  Value: ₹${supplement.estimatedValue.toLocaleString()}`, 22, cursorY);
+        if (saved) {
+          doc.text(`Weight: ${(saved.estimated_weight_grams / 1000).toFixed(2)} kg  |  Value: ₹${saved.estimated_fish_value.min_inr}–${saved.estimated_fish_value.max_inr}`, 22, cursorY);
+        } else {
+          doc.text(`Weight: Not estimated`, 22, cursorY);
+        }
         cursorY += 8;
       }
 
@@ -198,10 +252,18 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
       .sort((a, b) => b[1].species.confidence - a[1].species.confidence);
   }, [currentImageResult]);
 
-  const topSpeciesName = useMemo(() => {
-    if (cropEntries.length === 0) return '';
-    return cropEntries[0][1].species.label;
-  }, [cropEntries]);
+  // Calculate the global fish index for a crop entry given its position in the current image
+  const getGlobalFishIndex = useCallback((localIdx: number): number => {
+    let offset = 0;
+    for (let i = 0; i < selectedImageIndex; i++) {
+      const img = currentImages[i];
+      if (img?.crops) {
+        offset += Object.entries(img.crops as Record<string, any>)
+          .filter(([, c]) => c.yolo_confidence >= YOLO_CONFIDENCE_THRESHOLD).length;
+      }
+    }
+    return offset + localIdx;
+  }, [selectedImageIndex, currentImages]);
 
 
   if (isLoading) {
@@ -380,8 +442,10 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
                 <Search className="w-3.5 h-3.5" /> Detections for Image {selectedImageIndex + 1}
               </h3>
 
-              {cropEntries.length > 0 ? cropEntries.map(([key, crop], idx) => {
-                const supplement = generateSupplement(crop.species.label);
+              {cropEntries.length > 0 ? cropEntries.map(([key, crop], localIdx) => {
+                const globalIdx = getGlobalFishIndex(localIdx);
+                const fishKey = `fish_${globalIdx}`;
+                const savedWeight = weightResults[fishKey];
                 const isExpanded = expandedCrops.has(key);
                 const hasCropImg = !!crop.crop_url;
                 const hasGradcam = !!crop.species.gradcam_url || !!crop.disease.gradcam_url;
@@ -402,7 +466,7 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
                         <div className="flex-1 min-w-0 flex flex-col justify-center">
                           <div className="flex items-start justify-between gap-2 mb-1">
                             <div>
-                              <p className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wider">Fish #{idx + 1}</p>
+                              <p className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wider">Fish #{localIdx + 1}</p>
                               <h3 className="text-sm font-bold text-foreground leading-tight truncate">{crop.species.label}</h3>
                             </div>
                             <Badge variant="outline" className="text-[9px] px-1.5 py-0 shrink-0 border-primary/20 text-primary font-bold bg-primary/5">
@@ -419,21 +483,94 @@ export default function HistoryDetailView({ groupId, onBack }: { groupId: string
                         </div>
                       </div>
 
-                      {/* Inline stats */}
-                      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/5">
-                        <div className="text-center p-1.5 rounded-lg bg-muted/10 transition-colors hover:bg-muted/20">
-                          <p className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wide">Weight</p>
-                          <p className="text-xs font-bold text-foreground/90">{supplement.weight_kg.toFixed(1)} kg</p>
+                      {/* Weight Estimation Section */}
+                      {savedWeight ? (
+                        /* ── Show saved results ── */
+                        <div className="space-y-1.5 pt-1">
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                              <p className="text-[9px] text-muted-foreground/50 font-medium">Est. Weight</p>
+                              <p className="text-xs font-bold">{(savedWeight.estimated_weight_grams / 1000).toFixed(2)} kg</p>
+                            </div>
+                            <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                              <p className="text-[9px] text-muted-foreground/50 font-medium">Quality</p>
+                              <p className={cn("text-xs font-bold", savedWeight.quality_grade === "Premium" ? "text-emerald-500" : savedWeight.quality_grade === "Standard" ? "text-amber-500" : "text-red-500")}>{savedWeight.quality_grade}</p>
+                            </div>
+                            <div className="text-center p-1.5 rounded-lg bg-muted/10">
+                              <p className="text-[9px] text-muted-foreground/50 font-medium">Value</p>
+                              <p className="text-xs font-bold">₹{savedWeight.estimated_fish_value.min_inr}–{savedWeight.estimated_fish_value.max_inr}</p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="text-center p-1.5 rounded-lg bg-primary/5">
+                              <p className="text-[9px] text-muted-foreground/50 font-medium">Weight Range</p>
+                              <p className="text-[10px] font-bold">{(savedWeight.estimated_weight_range.min_grams / 1000).toFixed(2)}–{(savedWeight.estimated_weight_range.max_grams / 1000).toFixed(2)} kg</p>
+                            </div>
+                            <div className="text-center p-1.5 rounded-lg bg-primary/5">
+                              <p className="text-[9px] text-muted-foreground/50 font-medium">Market Price</p>
+                              <p className="text-[10px] font-bold">₹{savedWeight.market_price_per_kg.min_inr}–{savedWeight.market_price_per_kg.max_inr}/kg</p>
+                            </div>
+                          </div>
+                          {savedWeight.notes && (
+                            <p className="text-[9px] text-muted-foreground/40 italic px-1">{savedWeight.notes}</p>
+                          )}
                         </div>
-                        <div className="text-center p-1.5 rounded-lg bg-muted/10 transition-colors hover:bg-muted/20">
-                          <p className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wide">Quality</p>
-                          <p className={cn("text-xs font-bold", supplement.qualityGrade === "Premium" ? "text-emerald-500" : "text-foreground/90")}>{supplement.qualityGrade}</p>
+                      ) : weightFormOpen[key] ? (
+                        /* ── Show measurement form ── */
+                        <div className="space-y-2 pt-1">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {(["length1", "length3", "height", "width"] as const).map((field) => (
+                              <div key={field}>
+                                <label className="text-[9px] text-muted-foreground/50 font-medium block mb-0.5">
+                                  {field === "length1" ? "Length 1 (cm)" : field === "length3" ? "Total Length (cm)" : field === "height" ? "Height (cm)" : "Width (cm)"}
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-border/20 bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                  value={weightInputs[key]?.[field] || ""}
+                                  onChange={(e) => setWeightInputs(prev => ({ ...prev, [key]: { ...prev[key], [field]: e.target.value } }))}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          {weightErrors[key] && (
+                            <p className="text-[9px] text-red-500 font-medium">{weightErrors[key]}</p>
+                          )}
+                          <div className="flex gap-1.5">
+                            <Button
+                              size="sm"
+                              className="flex-1 h-7 text-[10px] rounded-lg bg-primary font-semibold"
+                              onClick={() => handleWeightEstimate(key, globalIdx, crop.species.label)}
+                              disabled={weightLoading[key]}
+                            >
+                              {weightLoading[key] ? (
+                                <><Loader2 className="w-3 h-3 mr-1 animate-spin" /> Estimating...</>
+                              ) : "Calculate Weight"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-[10px] rounded-lg text-muted-foreground"
+                              onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: false }))}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
                         </div>
-                        <div className="text-center p-1.5 rounded-lg bg-muted/10 transition-colors hover:bg-muted/20">
-                          <p className="text-[9px] text-muted-foreground/60 font-bold uppercase tracking-wide">Value</p>
-                          <p className="text-xs font-bold text-foreground/90">₹{supplement.estimatedValue}</p>
-                        </div>
-                      </div>
+                      ) : (
+                        /* ── Show button ── */
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-7 text-[10px] rounded-lg border-primary/20 text-primary hover:bg-primary/5 font-medium mt-1"
+                          onClick={() => setWeightFormOpen(prev => ({ ...prev, [key]: true }))}
+                        >
+                          <Zap className="w-3 h-3 mr-1" />
+                          Get Estimated Weight
+                        </Button>
+                      )}
 
                       {/* Grad-CAM toggle */}
                       {hasGradcam && (

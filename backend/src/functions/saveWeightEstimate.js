@@ -40,7 +40,7 @@ exports.handler = async (event) => {
         return badRequest("Invalid JSON body");
     }
 
-    const { groupId, imageUri, fishIndex, species, weightG, timestamp } = body;
+    const { groupId, imageUri, fishIndex, species, weightG, timestamp, fullEstimate } = body;
 
     if (!imageUri || fishIndex === undefined || !species || weightG === undefined) {
         return badRequest("Missing required fields: imageUri, fishIndex, species, weightG");
@@ -75,16 +75,43 @@ exports.handler = async (event) => {
         const weightKg = weightG / 1000;
         const fishKey = `fish_${Number(fishIndex)}`;
 
+        // Store the full estimate object if provided, otherwise just the weight
+        const estimateEntry = fullEstimate ? {
+            weightKg,
+            species,
+            estimated_weight_grams: fullEstimate.estimated_weight_grams,
+            estimated_weight_range: fullEstimate.estimated_weight_range,
+            market_price_per_kg: fullEstimate.market_price_per_kg,
+            estimated_fish_value: fullEstimate.estimated_fish_value,
+            quality_grade: fullEstimate.quality_grade,
+            notes: fullEstimate.notes,
+            timestamp: timestamp || new Date().toISOString(),
+        } : weightKg;
+
         // Merge the new weight into the existing per-fish estimates map and
         // recompute the aggregate total.
         const existing = group.weightEstimates || {};
-        const updatedMap = { ...existing, [fishKey]: weightKg };
-        const totalWeightKg = Object.values(updatedMap).reduce((s, v) => s + (v || 0), 0);
+        const updatedMap = { ...existing, [fishKey]: estimateEntry };
+
+        // Calculate total weight from all entries (handle both old numeric and new object format)
+        const totalWeightKg = Object.values(updatedMap).reduce((s, v) => {
+            if (typeof v === 'number') return s + v;
+            if (v && typeof v === 'object' && v.weightKg) return s + v.weightKg;
+            return s;
+        }, 0);
+
+        // Calculate total value from all entries
+        const totalValueInr = Object.values(updatedMap).reduce((s, v) => {
+            if (v && typeof v === 'object' && v.estimated_fish_value) {
+                return s + ((v.estimated_fish_value.min_inr + v.estimated_fish_value.max_inr) / 2);
+            }
+            return s;
+        }, 0);
 
         // Build the update — also patch aggregateStats if they exist on the record.
         const hasAggregateStats = group.analysisResult?.aggregateStats !== undefined;
         const updateExpr = hasAggregateStats
-            ? "SET weightEstimates = :wm, analysisResult.aggregateStats.totalEstimatedWeight = :tw, updatedAt = :ua"
+            ? "SET weightEstimates = :wm, analysisResult.aggregateStats.totalEstimatedWeight = :tw, analysisResult.aggregateStats.totalEstimatedValue = :tv, updatedAt = :ua"
             : "SET weightEstimates = :wm, updatedAt = :ua";
 
         await ddb.send(new UpdateCommand({
@@ -93,7 +120,7 @@ exports.handler = async (event) => {
             UpdateExpression: updateExpr,
             ExpressionAttributeValues: {
                 ":wm": updatedMap,
-                ...(hasAggregateStats && { ":tw": totalWeightKg }),
+                ...(hasAggregateStats && { ":tw": totalWeightKg, ":tv": Math.round(totalValueInr) }),
                 ":ua": new Date().toISOString(),
             },
         }));

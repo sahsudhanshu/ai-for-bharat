@@ -5,7 +5,7 @@ import {
     Shield, Bell, Globe, Lock, Eye, EyeOff,
     Smartphone, Save, Anchor, Scale, Ship,
     Download, Trash2, ChevronRight, Loader2,
-    LogOut, HelpCircle, Languages,
+    LogOut, HelpCircle, Languages, Moon, Sun, Monitor,
 } from 'lucide-react';
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { useAuth } from "@/lib/auth-context";
 import { getUserProfile, updateUserProfile, exportUserData, deleteUserAccount } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 
 // ── Reusable setting row ──────────────────────────────────────────────────────
 function SettingRow({
@@ -74,6 +75,7 @@ interface SettingsOverlayProps {
 
 export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverlayProps) {
     const { user, logout, changePassword } = useAuth();
+    const { theme, setTheme } = useTheme();
 
     const [isLoading, setIsLoading] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
@@ -234,6 +236,43 @@ export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverla
                         </SelectContent>
                     </Select>
                 </SettingRow>
+
+                {/* ── Theme Switcher ── */}
+                <SettingRow icon={Moon} label="Appearance" description="Select application theme"
+                    iconBg="bg-indigo-500/10" iconColor="text-indigo-500">
+                    <div className="flex bg-muted/30 rounded-full p-1 border border-border/20 shrink-0 relative items-center h-9">
+                        {/* Animated Background Slider */}
+                        <div className={cn(
+                            "absolute left-1 top-1 bottom-1 w-8 bg-background rounded-full shadow-sm transition-transform duration-300 ease-in-out border border-border/10",
+                            theme === 'light' ? "translate-x-0" :
+                                theme === 'system' ? "translate-x-8" :
+                                    "translate-x-16"
+                        )} />
+
+                        <button
+                            onClick={() => setTheme('light')}
+                            className={cn("w-8 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'light' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            title="Light"
+                        >
+                            <Sun className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setTheme('system')}
+                            className={cn("w-8 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'system' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            title="System Default"
+                        >
+                            <Monitor className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => setTheme('dark')}
+                            className={cn("w-8 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'dark' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                            title="Dark"
+                        >
+                            <Moon className="w-4 h-4" />
+                        </button>
+                    </div>
+                </SettingRow>
+
                 <SettingRow icon={Bell} label="Notifications" description="Prices & weather alerts"
                     iconBg="bg-emerald-500/10" iconColor="text-emerald-500">
                     <Switch checked={notifications} onCheckedChange={setNotifications} />

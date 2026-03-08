@@ -79,6 +79,8 @@ exports.handler = async (event) => {
             updatedAt: group.updatedAt,
             analysisResult: group.analysisResult,
             presignedViewUrls,
+            // Include weight estimates if available
+            ...(group.weightEstimates && { weightEstimates: group.weightEstimates }),
             // Include location data if available
             ...(group.latitude !== undefined && { latitude: group.latitude }),
             ...(group.longitude !== undefined && { longitude: group.longitude }),

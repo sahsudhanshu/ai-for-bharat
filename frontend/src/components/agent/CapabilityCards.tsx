@@ -103,7 +103,7 @@ export default function CapabilityCards({
   };
 
   return (
-    <div className={cn("w-full px-4 py-6", className)}>
+    <div className={cn("w-full px-4 pt-4", className)}>
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -10 }}
@@ -198,7 +198,7 @@ export default function CapabilityCards({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 0.5, duration: 0.3 }}
-        className="mt-6 text-center text-xs text-muted-foreground/60"
+        className="mt-4 text-center text-xs text-muted-foreground/60"
       >
         {t('capability.hint')}
       </motion.p>

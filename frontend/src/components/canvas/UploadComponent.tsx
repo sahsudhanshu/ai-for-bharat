@@ -544,7 +544,15 @@ export default function UploadComponent({
               size="sm"
               onClick={() => {
                 const summary = `Scan complete: ${mlResults.length} images, ${cropEntries.length} fish detected.`;
-                (window as any).__agentChatInject?.(`${summary} Analyze these results — what species were found, any diseases, and recommendations?`);
+                (window as any).__agentChatInject?.(
+                  'Analyze scan results',
+                  {
+                    label: 'Analyze scan results',
+                    detail: `${mlResults.length} images · ${cropEntries.length} fish`,
+                    icon: 'upload' as const,
+                    backendText: `${summary} Analyze these results — what species were found, any diseases, and recommendations?`,
+                  }
+                );
               }}
               className="h-8 rounded-xl border-primary/30 text-primary text-xs font-medium hover:bg-primary/10"
             >

@@ -36,9 +36,8 @@ export default function RootLayout({
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="outdoor"
-          themes={["outdoor", "light", "dark"]}
-          enableSystem={false}
+          defaultTheme="system"
+          enableSystem={true}
         >
           <Toaster position="top-right" />
           <LanguageProvider>

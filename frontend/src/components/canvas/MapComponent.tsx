@@ -249,8 +249,8 @@ export default function MapComponent({
           setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude });
           setLocationResolved(true);
         },
-        (error) => {
-          console.error("Error getting user location:", error);
+        () => {
+          // Location permission denied or unavailable — fallback to default center
           setLocationResolved(true);
         },
         { timeout: 5000 }
@@ -619,7 +619,7 @@ export default function MapComponent({
             <ZoomControl position="bottomright" />
             <ScaleControl position="bottomright" />
             <MapEventsWrapper onMouseMove={handleMouseMove} onClick={handleMapClick} onMapReady={handleMapReady} onMoveEnd={handleMoveEnd} />
-            <UserLocationMarker onLocationFound={handleLocationFound} showRadius={false} autoCenter={true} />
+            <UserLocationMarker onLocationFound={handleLocationFound} showRadius={false} autoCenter={!flyToLocation} />
 
             {/* Disaster Alert Zones */}
             {showAlerts && activeAlerts.map(alert => (
@@ -741,7 +741,15 @@ export default function MapComponent({
                             setMapPointContext({ lat: clickedWeather.lat, lon: clickedWeather.lng });
                             setContextPage('map');
                             const prompt = `Tell me about fishing conditions, weather forecast, and expected catch near coordinates ${clickedWeather.lat.toFixed(4)}°N, ${clickedWeather.lng.toFixed(4)}°E. Current weather: ${clickedWeather.description ?? 'unknown'}, temp ${clickedWeather.temp?.toFixed(1) ?? '?'}°C, wind ${clickedWeather.wind ?? '?'} m/s.`;
-                            (window as any).__agentChatInject?.(prompt);
+                            (window as any).__agentChatInject?.(
+                              'Tell me about this location',
+                              {
+                                label: 'Tell me about this location',
+                                detail: `${clickedWeather.lat.toFixed(4)}°N, ${clickedWeather.lng.toFixed(4)}°E`,
+                                icon: 'map' as const,
+                                backendText: prompt,
+                              }
+                            );
                           }}
                           className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors"
                         >

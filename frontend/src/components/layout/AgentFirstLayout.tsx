@@ -8,9 +8,10 @@ import {
     Sparkles, Upload, MapPin, BarChart3, Clock, Settings,
     HelpCircle, User, LogOut, ChevronLeft, Globe, Bell, X,
     Plus, MessageSquare, PanelLeftClose, PanelLeftOpen,
-    Home, Camera,
+    Home, Camera, Sun, Moon, Monitor,
     PanelRightOpen,
 } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth-context';
 import { useLanguage, LANGUAGES } from '@/lib/i18n';
@@ -119,6 +120,7 @@ export default function AgentFirstLayout() {
     const { user, logout } = useAuth();
     const { locale, setLocale, t } = useLanguage();
     const router = useRouter();
+    const { theme, setTheme } = useTheme();
 
     const activeComponent = useAgentFirstStore(selectActiveComponent);
     const isOffline = useAgentFirstStore(selectIsOffline);
@@ -141,12 +143,19 @@ export default function AgentFirstLayout() {
     const [sidebarExpanded, setSidebarExpanded] = useState(false);
     const [rightSidebarExpanded, setRightSidebarExpanded] = useState(false);
     const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+    const [canvasFlash, setCanvasFlash] = useState(false);
+    const prevActiveRef = useRef<string | null>(null);
 
     // ── Sync current page to agent context store ──────────────────────────────
     const setContextPage = useAgentContext(s => s.setCurrentPage);
+    const clearMapPoint = useAgentContext(s => s.setSelectedMapPoint);
     useEffect(() => {
         setContextPage(activeComponent ?? 'chat');
-    }, [activeComponent, setContextPage]);
+        // Clear the selected map point when leaving the map panel
+        if (activeComponent !== 'map') {
+            clearMapPoint(null);
+        }
+    }, [activeComponent, setContextPage, clearMapPoint]);
 
     // Hover-to-expand refs
     const leftHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -236,6 +245,22 @@ export default function AgentFirstLayout() {
             setMobileDrawerOpen(false);
         }
     }, [isMobile, activeComponent]);
+
+    // ── Canvas flash + auto-expand when agent opens a tool ────────────────────
+    useEffect(() => {
+        if (activeComponent && prevActiveRef.current !== activeComponent) {
+            // Auto-expand chat if it was collapsed
+            if (chatCollapsed) setChatCollapsed(false);
+            // Trigger flash attention animation on the canvas pane
+            setCanvasFlash(true);
+            const timer = setTimeout(() => setCanvasFlash(false), 800);
+            prevActiveRef.current = activeComponent;
+            return () => clearTimeout(timer);
+        }
+        if (!activeComponent) {
+            prevActiveRef.current = null;
+        }
+    }, [activeComponent, chatCollapsed]);
 
     // ── Pane resize handler (uses RAF for smooth dragging) ────────────────────────
     const handleResize = useCallback((deltaX: number) => {
@@ -458,11 +483,9 @@ export default function AgentFirstLayout() {
 
                     {(!sidebarExpanded || (!isLoadingHistory && chatHistory.length === 0)) && <div className="flex-1" />}
 
-                    {/* Secondary Nav — open as overlay dialogs */}
+                    {/* Secondary Nav */}
                     <div className={cn("flex flex-col gap-0.5 py-2 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2 items-center")}>
                         {[
-                            { icon: User, label: 'Profile', isActive: overlayTab === 'profile', onClick: () => openOverlay('profile') },
-                            { icon: Settings, label: 'Settings', isActive: overlayTab === 'settings', onClick: () => openOverlay('settings') },
                             { icon: HelpCircle, label: 'Help & Support', isActive: overlayTab === 'help', onClick: () => openOverlay('help') },
                         ].map((item) => {
                             const Icon = item.icon;
@@ -498,7 +521,9 @@ export default function AgentFirstLayout() {
                     </div>
 
                     {/* User Avatar */}
-                    <div className={cn("pb-3 pt-1 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2 flex flex-col items-center")}>
+                    <div
+                        className={cn("pb-3 pt-1 border-t border-border/15", sidebarExpanded ? "px-3" : "px-2 flex flex-col items-center")}
+                    >
                         <DropdownMenu open={profileDropdownOpen} onOpenChange={setProfileDropdownOpen}>
                             <DropdownMenuTrigger asChild>
                                 <button className={cn(
@@ -517,12 +542,59 @@ export default function AgentFirstLayout() {
                                     )}
                                 </button>
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent side="right" align="end" className="w-56 rounded-xl border-border/30">
+                            <DropdownMenuContent
+                                side="right"
+                                align="end"
+                                className="w-56 rounded-xl border-border/30"
+                            >
                                 <DropdownMenuLabel className="font-normal">
                                     <div className="flex flex-col space-y-1 pb-1">
                                         <p className="text-sm font-bold">{user?.name ?? 'Fisher'}</p>
                                         <p className="text-[11px] text-muted-foreground/60">{user?.email ?? 'user@oceanai.in'}</p>
                                         {user?.port && <Badge className="w-fit mt-1 text-[10px] bg-primary/10 text-primary border-none">{user.port}</Badge>}
+                                    </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator className="bg-border/20" />
+                                <DropdownMenuItem onClick={() => openOverlay('profile')} className="cursor-pointer text-xs">
+                                    <User className="mr-2 w-3.5 h-3.5 text-muted-foreground" /> Profile
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => openOverlay('settings')} className="cursor-pointer text-xs">
+                                    <Settings className="mr-2 w-3.5 h-3.5 text-muted-foreground" /> Settings
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator className="bg-border/20" />
+                                <DropdownMenuLabel className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/60 flex items-center justify-between w-full h-10 pr-2">
+                                    <span>Appearance</span>
+                                    <div className="flex bg-muted/20 rounded-full p-0.5 border border-border/20 shrink-0 relative items-center h-8 w-[98px]">
+                                        {/* Animated Background Slider */}
+                                        <div className={cn(
+                                            "absolute left-0.5 top-0.5 bottom-0.5 w-7 bg-background rounded-full shadow-sm transition-transform duration-300 ease-in-out border border-border/10",
+                                            theme === 'light' ? "translate-x-0" :
+                                                theme === 'system' ? "translate-x-[30px]" :
+                                                    "translate-x-[60px]"
+                                        )} />
+
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTheme('light'); }}
+                                            className={cn("w-7 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'light' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                                            title="Light"
+                                        >
+                                            <Sun className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTheme('system'); }}
+                                            className={cn("w-7 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'system' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                                            title="System Default"
+                                        >
+                                            <Monitor className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTheme('dark'); }}
+                                            className={cn("w-7 h-full flex items-center justify-center rounded-full transition-all relative z-10", theme === 'dark' ? "text-foreground" : "text-muted-foreground hover:text-foreground")}
+                                            title="Dark"
+                                        >
+                                            <Moon className="w-3.5 h-3.5" />
+                                        </button>
                                     </div>
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator className="bg-border/20" />
@@ -631,7 +703,10 @@ export default function AgentFirstLayout() {
                                     borderLeftWidth: activeComponent ? 1 : 0,
                                 }}
                                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
-                                className="h-full overflow-hidden will-change-[width] border-border/10 bg-background relative z-10"
+                                className={cn(
+                                    "h-full overflow-hidden will-change-[width] border-border/10 bg-background relative z-10 transition-shadow duration-500",
+                                    canvasFlash && "ring-2 ring-primary/40 shadow-lg shadow-primary/10"
+                                )}
                             >
                                 <div className="h-full flex flex-col absolute inset-y-0 left-0 min-w-[340px]" style={{ width: '100%' }}>
                                     {/* Canvas Header */}
@@ -912,7 +987,7 @@ export default function AgentFirstLayout() {
                             const conv = await createConversation();
                             setChatId(conv.conversationId);
                             setChatHistory(prev => [conv, ...prev]);
-                        } catch {}
+                        } catch { }
                     }}
                 />
 

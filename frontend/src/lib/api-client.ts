@@ -142,6 +142,7 @@ export interface GroupRecord {
   locationMapped?: boolean;
   locationMapReason?: string;
   presignedViewUrls?: string[];
+  weightEstimates?: Record<string, FishWeightEstimate | number>;
   createdAt: string;
 }
 
@@ -794,6 +795,30 @@ export async function estimateFishWeight(params: {
     },
   );
   return res.data;
+}
+
+/**
+ * Persist a weight estimate to the group record in DynamoDB.
+ */
+export async function saveWeightEstimate(params: {
+  groupId: string;
+  imageIndex: number;
+  fishIndex: number;
+  species: string;
+  weightG: number;
+  fullEstimate: FishWeightEstimate;
+}): Promise<{ stored: boolean; groupId: string }> {
+  return apiFetch<{ stored: boolean; groupId: string }>("/weight-estimates", {
+    method: "POST",
+    body: JSON.stringify({
+      groupId: params.groupId,
+      imageUri: `image_${params.imageIndex}`,
+      fishIndex: params.fishIndex,
+      species: params.species,
+      weightG: params.weightG,
+      fullEstimate: params.fullEstimate,
+    }),
+  });
 }
 
 // ── Text-to-Speech ────────────────────────────────────────────────────────────

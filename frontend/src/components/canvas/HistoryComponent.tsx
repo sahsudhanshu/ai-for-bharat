@@ -13,12 +13,14 @@ import { resolveMLUrl } from "@/lib/constants";
 import { jsPDF } from "jspdf";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
+import { useAgentContext } from "@/lib/stores/agent-context-store";
 import HistoryDetailView from "./HistoryDetailView";
 
 export default function HistoryComponent() {
   const router = useRouter();
   const store = useAgentFirstStore();
   const setActiveComponent = store.setActiveComponent;
+  const setCurrentGroup = useAgentContext(s => s.setCurrentGroup);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -29,6 +31,19 @@ export default function HistoryComponent() {
       setSelectedGroupId(store.componentProps.selectedGroupId);
     }
   }, [store.componentProps?.selectedGroupId]);
+
+  // Sync selected group to agent context
+  useEffect(() => {
+    if (selectedGroupId) {
+      const group = groups.find(g => g.groupId === selectedGroupId);
+      const topSpecies = group?.analysisResult?.aggregateStats?.speciesDistribution
+        ? Object.keys(group.analysisResult.aggregateStats.speciesDistribution)[0]
+        : undefined;
+      setCurrentGroup(selectedGroupId, 0, topSpecies);
+    } else {
+      setCurrentGroup(null);
+    }
+  }, [selectedGroupId, groups, setCurrentGroup]);
 
   useEffect(() => {
     loadGroups();
@@ -299,7 +314,15 @@ export default function HistoryComponent() {
                           className="rounded-lg text-primary hover:bg-primary/10"
                           onClick={() => {
                             const summary = `Group ${group.groupId.slice(0, 8)}, ${group.imageCount} images, status: ${group.status}, created ${new Date(group.createdAt).toLocaleDateString()}`;
-                            (window as any).__agentChatInject?.(`Analyze my catch scan: ${summary}. What species were detected? Any diseases? Give me insights.`);
+                            (window as any).__agentChatInject?.(
+                              'Analyze this catch scan',
+                              {
+                                label: 'Analyze this catch scan',
+                                detail: `Group ${group.groupId.slice(0, 8)} · ${group.imageCount} images`,
+                                icon: 'history' as const,
+                                backendText: `Analyze my catch scan: ${summary}. What species were detected? Any diseases? Give me insights.`,
+                              }
+                            );
                           }}
                         >
                           <Sparkles className="w-4 h-4 mr-1" />
