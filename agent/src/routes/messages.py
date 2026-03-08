@@ -42,6 +42,26 @@ def _extract_text(content) -> str:
     return str(content)
 
 
+import re as _re
+
+_JSON_BLOB_RE = _re.compile(
+    r'\{\s*["\']?(?:map|history|upload|map_lat|map_lon)["\']?\s*:[^}]*\}'
+)
+_NOISE_PATTERNS = [
+    _re.compile(r'No facts recorded yet\.?', _re.IGNORECASE),
+    _re.compile(r'No new facts to record\.?', _re.IGNORECASE),
+    _re.compile(r'UPDATED FACTS:\s*', _re.IGNORECASE),
+]
+
+
+def _sanitise_agent_text(text: str) -> str:
+    """Strip leaked JSON UI blobs and memory-system noise from agent output."""
+    result = _JSON_BLOB_RE.sub("", text)
+    for pattern in _NOISE_PATTERNS:
+        result = pattern.sub("", result)
+    return result.strip()
+
+
 # ── Request / Response models ────────────────────────────────────────────────
 
 class SendMessageRequest(BaseModel):
@@ -123,6 +143,9 @@ async def send_message(
             for tc in msg.tool_calls:
                 tool_calls_meta.append({"name": tc["name"], "args": tc["args"]})
 
+    if not ai_content:
+        ai_content = "I processed your request but couldn't generate a response. Please try again."
+    ai_content = _sanitise_agent_text(ai_content)
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
 
@@ -212,12 +235,15 @@ async def send_message_stream(
             # Emit immediately so clients/proxies flush stream early.
             yield "data: {\"type\": \"start\"}\n\n"
 
-            # Using astream_events handles yielding the tokens as they arrive
+            # Using astream_events handles yielding the tokens as they arrive.
+            # IMPORTANT: Only stream tokens from the "agent" node — other nodes
+            # (intent_classifier, memory_update) make internal LLM calls whose
+            # output must NOT be forwarded to the client.
             async for event in graph.astream_events(initial_state, version="v2"):
                 kind = event["event"]
+                node = event.get("metadata", {}).get("langgraph_node")
                 
-                # Check for output from the LLM specific event
-                if kind == "on_chat_model_stream":
+                if kind == "on_chat_model_stream" and node == "agent":
                     chunk = event["data"]["chunk"]
                     if isinstance(chunk, AIMessageChunk) and chunk.content:
                         text = _extract_text(chunk.content)
@@ -225,11 +251,14 @@ async def send_message_stream(
                             ai_content_chunks.append(text)
                             yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
                             
-                elif kind == "on_tool_start":
+                elif kind == "on_tool_start" and node in ("agent", "tool_executor"):
                     tool_name = event.get("name")
                     yield f"data: {json.dumps({'type': 'tool', 'name': tool_name})}\n\n"
 
             ai_content = "".join(ai_content_chunks)
+            if not ai_content:
+                ai_content = "I processed your request but couldn't generate a text response."
+            ai_content = _sanitise_agent_text(ai_content)
             if not ai_content:
                 ai_content = "I processed your request but couldn't generate a text response."
 
