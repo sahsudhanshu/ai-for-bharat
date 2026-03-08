@@ -67,7 +67,10 @@ import { BoundingBoxOverlay } from "../../components/BoundingBoxOverlay";
 import { generateMockSupplement } from "../../lib/species-data";
 import { setAnalysisData, getAnalysisData } from "../../lib/analysis-store";
 import { toastService } from "../../lib/toast-service";
-import { saveLocalAnalysis, updateLocalDetectionWeight } from "../../lib/local-history";
+import {
+  saveLocalAnalysis,
+  updateLocalDetectionWeight,
+} from "../../lib/local-history";
 import { SyncService } from "../../lib/sync-service";
 import { WeightEstimateModal } from "../../components/WeightEstimateModal";
 import { ProfileMenu } from "../../components/ui/ProfileMenu";
@@ -743,8 +746,7 @@ export default function UploadScreen() {
           );
           setStep("error");
           const cloudErrorMessage = e.message || t("common.error");
-          const offlineErrorMessage =
-            fallbackErr.message || t("common.error");
+          const offlineErrorMessage = fallbackErr.message || t("common.error");
           Alert.alert(
             "Analysis Failed",
             `Cloud: ${cloudErrorMessage}\nOffline: ${offlineErrorMessage}\n\n${CACHE_HINT_MESSAGE}`,

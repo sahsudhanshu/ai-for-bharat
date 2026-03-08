@@ -2320,7 +2320,12 @@ export async function syncOfflineSession(
   payload: OfflineSessionPreparePayload | OfflineSessionCommitPayload,
 ): Promise<OfflineSessionPrepareResult & OfflineSessionCommitResult> {
   if (IS_DEMO_MODE) {
-    return { token: "", sessionId: "", sessionType: "single", presignedUrls: [] };
+    return {
+      token: "",
+      sessionId: "",
+      sessionType: "single",
+      presignedUrls: [],
+    };
   }
   const endpoint =
     action === "prepare"

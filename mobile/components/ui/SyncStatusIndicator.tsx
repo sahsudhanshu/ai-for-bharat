@@ -55,7 +55,12 @@ export function SyncStatusIndicator({
   const getStatusConfig = () => {
     // Actively syncing
     if (syncStatus === "syncing") {
-      return { icon: null, color: "#3B82F6", text: "Syncing...", showSpinner: true };
+      return {
+        icon: null,
+        color: "#3B82F6",
+        text: "Syncing...",
+        showSpinner: true,
+      };
     }
 
     // Offline with queued items — no spinner, show saved-offline badge
@@ -102,7 +107,12 @@ export function SyncStatusIndicator({
     }
 
     // Idle — nothing pending, never synced this session
-    return { icon: "cloud-done" as const, color: "#6B7280", text: "Synced", showSpinner: false };
+    return {
+      icon: "cloud-done" as const,
+      color: "#6B7280",
+      text: "Synced",
+      showSpinner: false,
+    };
   };
 
   const config = getStatusConfig();
@@ -110,7 +120,8 @@ export function SyncStatusIndicator({
   const fontSize = size === "small" ? 12 : 14;
 
   // Only allow manual sync tap when online and there are pending items
-  const showSyncButton = isOnline && pendingCount > 0 && syncStatus !== "syncing";
+  const showSyncButton =
+    isOnline && pendingCount > 0 && syncStatus !== "syncing";
 
   return (
     <TouchableOpacity

@@ -2,11 +2,11 @@
  * Simple module-level store for passing detailed analysis data
  * to the detailed report page without needing URL params.
  */
-import type { GroupAnalysis } from './types';
-import type { OfflineDetectionResult } from './offline-inference';
+import type { GroupAnalysis } from "./types";
+import type { OfflineDetectionResult } from "./offline-inference";
 
 export interface OnlineAnalysisData {
-  mode: 'online';
+  mode: "online";
   groupAnalysis: GroupAnalysis;
   groupId: string;
   imageUris: string[];
@@ -14,7 +14,7 @@ export interface OnlineAnalysisData {
 }
 
 export interface OfflineAnalysisData {
-  mode: 'offline';
+  mode: "offline";
   offlineResults: OfflineDetectionResult[];
   processingTime: number;
   imageUri: string;
@@ -40,7 +40,7 @@ export function getAnalysisData(): AnalysisData | null {
  * Called from the detail screen when the user confirms a manual measurement.
  */
 export function updateOfflineWeight(fishIndex: number, weightG: number): void {
-  if (!_current || _current.mode !== 'offline') return;
+  if (!_current || _current.mode !== "offline") return;
   const det = _current.offlineResults[fishIndex];
   if (!det) return;
   det.weightG = weightG;
