@@ -29,7 +29,6 @@ import { PublicProfileCard } from "../../components/profile/PublicProfileCard";
 import { SettingsSection } from "../../components/settings/SettingsSection";
 import { PreferenceRow } from "../../components/settings/PreferenceRow";
 import { ChangePasswordModal } from "../../components/settings/ChangePasswordModal";
-import { SyncStatusCard } from "../../components/settings/SyncStatusCard";
 import { ExportDataModal } from "../../components/settings/ExportDataModal";
 import { DeleteAccountModal } from "../../components/settings/DeleteAccountModal";
 import {
@@ -350,10 +349,6 @@ export default function SettingsScreen() {
             onPress={() => router.push("/profile/edit" as any)}
           />
         </Card>
-
-        {/* Sync Status */}
-        <Text style={styles.sectionLabel}>Data Synchronization</Text>
-        <SyncStatusCard />
 
         {/* Language */}
         <Text style={styles.sectionLabel}>{t("settings.language")}</Text>

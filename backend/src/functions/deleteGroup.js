@@ -6,7 +6,7 @@
  */
 const { verifyToken } = require("../utils/auth");
 const { ok, unauthorized, notFound, badRequest, serverError } = require("../utils/response");
-const { getGroup, deleteGroup } = require("../utils/groupsDb");
+const { getGroupAnywhere, deleteGroupAnywhere } = require("../utils/groupsDb");
 
 exports.handler = async (event) => {
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -27,8 +27,8 @@ exports.handler = async (event) => {
     }
 
     try {
-        // Verify the group exists and belongs to this user
-        const group = await getGroup(groupId);
+        // Verify the group exists and belongs to this user (checking both tables)
+        const group = await getGroupAnywhere(groupId);
 
         if (!group) {
             return notFound("Group not found");
@@ -38,7 +38,7 @@ exports.handler = async (event) => {
             return unauthorized("You do not have permission to delete this group");
         }
 
-        await deleteGroup(groupId);
+        await deleteGroupAnywhere(groupId);
 
         return ok({ message: "Group deleted successfully", groupId });
     } catch (err) {

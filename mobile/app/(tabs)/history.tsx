@@ -32,12 +32,16 @@ const HISTORY_CACHE_KEY = "ocean_ai_history_cache";
 
 /** Convert a local offline record to the GroupRecord shape HistoryCard expects */
 function localToGroupRecord(r: LocalHistoryRecord): GroupRecord {
+  const allDetections = r.sessionType === "group" 
+    ? (r.images?.flatMap(img => img.detections) || [])
+    : (r.detections || []);
+
   return {
     groupId: `local_${r.id}`,
     userId: "",
-    imageCount: 1,
+    imageCount: r.sessionType === "group" ? (r.images?.length || 0) : 1,
     s3Keys: [],
-    status: "completed",
+    status: r.syncStatus === "syncing" ? "processing" : "completed",
     createdAt: r.createdAt,
     latitude: r.location?.lat,
     longitude: r.location?.lng,
@@ -47,8 +51,8 @@ function localToGroupRecord(r: LocalHistoryRecord): GroupRecord {
         totalFishCount: r.fishCount,
         averageConfidence: r.avgConfidence,
         totalEstimatedWeight:
-          r.detections.reduce((s, d) => s + (d.weightG ?? 0), 0) / 1000,
-        totalEstimatedValue: r.detections.reduce(
+          allDetections.reduce((s, d) => s + (d.weightG ?? 0), 0) / 1000,
+        totalEstimatedValue: allDetections.reduce(
           (s, d) => s + (d.estimatedValue ?? 0),
           0,
         ),
@@ -178,9 +182,13 @@ export default function HistoryScreen() {
   const handleViewLocalDetails = (record: LocalHistoryRecord) => {
     setAnalysisData({
       mode: "offline",
-      offlineResults: record.detections,
+      offlineResults: record.sessionType === "group" 
+        ? (record.images?.[0]?.detections || []) // For now, show first image details if it's a group
+        : (record.detections || []),
       processingTime: record.processingTime,
-      imageUri: record.imageUri,
+      imageUri: record.sessionType === "group"
+        ? (record.images?.[0]?.imageUri || "")
+        : (record.imageUri || ""),
       location: record.location,
     });
     router.push("/analysis/detail");

@@ -60,10 +60,14 @@ export interface OfflineDetectionResult {
   speciesConfidence: number;
   disease: string;
   diseaseConfidence: number;
+  /** Estimated from bounding box — not reliable for display */
   weightG: number;
+  /** True only when the user manually entered a measurement in the detail screen */
+  weightUserEntered: boolean;
   lengthMm: number;
   qualityGrade: string;
   pricePerKg: number;
+  /** Always 0 for offline results — pricing is unavailable without connectivity */
   estimatedValue: number;
   isLegalSize: boolean;
   minLegalSize: number;
@@ -300,10 +304,11 @@ export async function runOfflineInference(
           disease: diseaseResult.label,
           diseaseConfidence: diseaseResult.confidence,
           weightG,
+          weightUserEntered: false,
           lengthMm,
           qualityGrade,
           pricePerKg: speciesInfo.avgPrice,
-          estimatedValue,
+          estimatedValue: 0,
           isLegalSize: lengthMm >= speciesInfo.minSize,
           minLegalSize: speciesInfo.minSize,
           cropUri,
@@ -365,6 +370,7 @@ export async function runOfflineInference(
           disease: "Unknown",
           diseaseConfidence: 0,
           weightG: 0,
+          weightUserEntered: false,
           lengthMm: 0,
           qualityGrade: "Unknown",
           pricePerKg: 0,

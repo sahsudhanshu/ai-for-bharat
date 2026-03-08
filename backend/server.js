@@ -101,8 +101,8 @@ app.get('/user/public/:slug', (req, res) => runLambda(req, res, require('./src/f
 // Weight estimate sync
 app.post('/weight-estimates', (req, res) => runLambda(req, res, require('./src/functions/saveWeightEstimate.js').handler));
 
-// Offline analysis sync
-app.post('/offline-analyses', (req, res) => runLambda(req, res, require('./src/functions/saveOfflineAnalysis.js').handler));
+// Offline session sync (two-phase: prepare → upload to S3 → commit)
+app.post('/sync/offline-session/:action', (req, res) => runLambda(req, res, require('./src/functions/syncOfflineSession.js').handler));
 
 // ── Start server with diagnostics ───────────────────────────────────────────
 (async () => {
@@ -129,6 +129,8 @@ app.post('/offline-analyses', (req, res) => runLambda(req, res, require('./src/f
         console.log(`  GET  /groups`);
         console.log(`  GET  /groups/:groupId`);
         console.log(`  DELETE /groups/:groupId`);
+        console.log(`  POST /sync/offline-session/prepare`);
+        console.log(`  POST /sync/offline-session/commit`);
         console.log(`\nPress Ctrl+C to stop the server\n`);
     });
 

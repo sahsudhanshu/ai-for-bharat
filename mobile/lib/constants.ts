@@ -112,7 +112,9 @@ export const ENDPOINTS = {
   getChatHistory: "/chat/history",
   getAnalytics: "/analytics",
   saveWeightEstimate: "/weight-estimates",
-  saveOfflineAnalysis: "/offline-analyses",
+  saveOfflineAnalysis: "/offline-analyses",  // legacy — kept for reference
+  syncOfflineSessionPrepare: "/sync/offline-session/prepare",
+  syncOfflineSessionCommit: "/sync/offline-session/commit",
 };
 
 // ── App Config ───────────────────────────────────────────────────────────────

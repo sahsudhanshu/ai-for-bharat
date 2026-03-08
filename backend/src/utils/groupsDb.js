@@ -15,7 +15,93 @@ const { PutCommand, GetCommand, QueryCommand, UpdateCommand, DeleteCommand } = r
 const { ddb } = require("./dynamodb");
 
 const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
 const USER_ID_INDEX = "userId-createdAt-index";
+
+/**
+ * Transform a legacy single-image record to group format
+ */
+function transformLegacyToGroup(legacyRecord) {
+    if (!legacyRecord) return null;
+    let primarySpecies = null;
+    let totalFishCount = 0;
+    let transformedAnalysis = null;
+
+    if (legacyRecord.analysisResult) {
+        const ar = legacyRecord.analysisResult;
+        primarySpecies = ar.species;
+        totalFishCount = 1;
+
+        // Map legacy flat analysis to modern GroupAnalysis structure
+        transformedAnalysis = {
+            images: [
+                {
+                    imageIndex: 0,
+                    s3Key: legacyRecord.s3Key,
+                    yolo_image_url: ar.debugUrls?.yoloImageUrl,
+                    crops: {
+                        "0": {
+                            crop_url: ar.debugUrls?.cropImageUrl,
+                            species: {
+                                label: ar.species,
+                                confidence: ar.confidence,
+                                gradcam_url: ar.debugUrls?.gradcamUrl,
+                            },
+                            disease: {
+                                label: "Healthy",
+                                confidence: 1.0,
+                                gradcam_url: "",
+                            },
+                            weight_kg: ar.weightEstimate,
+                            estimatedValue: ar.marketEstimate?.estimated_value,
+                        },
+                    },
+                },
+            ],
+            aggregateStats: {
+                totalFishCount: 1,
+                speciesDistribution: { [ar.species]: 1 },
+                averageConfidence: ar.confidence,
+                diseaseDetected: false,
+                totalEstimatedWeight: ar.weightEstimate,
+                totalEstimatedValue: ar.marketEstimate?.estimated_value || 0,
+            },
+            detections: [
+                {
+                    cropUrl: ar.debugUrls?.cropImageUrl || "",
+                    species: ar.species || "Unknown",
+                    confidence: ar.confidence || 0,
+                    diseaseStatus: "Healthy",
+                    diseaseConfidence: 1.0,
+                    weight: ar.weightEstimate || 0,
+                    value: ar.marketEstimate?.estimated_value || 0,
+                    gradcamUrls: {
+                        species: ar.debugUrls?.gradcamUrl || "",
+                        disease: "",
+                    },
+                },
+            ],
+            yoloVisualizationUrls: ar.debugUrls?.yoloImageUrl
+                ? [ar.debugUrls.yoloImageUrl]
+                : [],
+            processedAt: ar.timestamp || legacyRecord.createdAt,
+        };
+    }
+
+    return {
+        groupId: legacyRecord.imageId,
+        userId: legacyRecord.userId,
+        imageCount: 1,
+        status: legacyRecord.status || "completed",
+        createdAt: legacyRecord.createdAt,
+        updatedAt: legacyRecord.updatedAt || legacyRecord.createdAt,
+        primarySpecies,
+        totalFishCount,
+        s3Keys: legacyRecord.s3Key ? [legacyRecord.s3Key] : [],
+        analysisResult: transformedAnalysis,
+        isLegacy: true,
+    };
+}
 
 /**
  * Insert a new group record with status "pending"
@@ -299,13 +385,66 @@ async function deleteGroup(groupId) {
     }
 }
 
+/**
+ * Get a group, falling back to legacy images table if not found in groups table
+ */
+async function getGroupAnywhere(groupId) {
+    // Try groups table first
+    const group = await getGroup(groupId);
+    if (group) return group;
+
+    // Fall back to images table (where imageId = groupId in merged history)
+    try {
+        const result = await ddb.send(
+            new GetCommand({
+                TableName: IMAGES_TABLE,
+                Key: { imageId: groupId },
+            })
+        );
+        if (result.Item) {
+            return transformLegacyToGroup(result.Item);
+        }
+    } catch (error) {
+        console.warn(`[getGroupAnywhere] Failed to check legacy images for ${groupId}:`, error);
+    }
+    return null;
+}
+
+/**
+ * Delete a group from whichever table it exists in
+ */
+async function deleteGroupAnywhere(groupId) {
+    // Try deleting from groups table
+    try {
+        await deleteGroup(groupId);
+    } catch (error) {
+        console.warn(`[deleteGroupAnywhere] Failed to delete from groups table (might be legacy):`, error);
+    }
+
+    // Also attempt deletion from images table
+    try {
+        await ddb.send(
+            new DeleteCommand({
+                TableName: IMAGES_TABLE,
+                Key: { imageId: groupId },
+            })
+        );
+    } catch (error) {
+        console.error(`[deleteGroupAnywhere] Failed to delete from images table:`, error);
+        throw new Error(`Failed to delete legacy record: ${error.message}`);
+    }
+}
+
 module.exports = {
     createGroup,
     getGroup,
+    getGroupAnywhere,
     queryGroupsByUserId,
     updateGroupStatus,
     updateGroupAnalysis,
     updateGroupAnalysisAndStatus,
     addGroupError,
     deleteGroup,
+    deleteGroupAnywhere,
+    transformLegacyToGroup,
 };

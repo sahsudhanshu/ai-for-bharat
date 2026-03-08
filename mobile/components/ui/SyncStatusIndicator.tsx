@@ -2,7 +2,7 @@
  * Sync Status Indicator
  * Shows sync status with icon and manual sync button
  */
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -32,21 +32,28 @@ export function SyncStatusIndicator({
     isOnline,
   } = useNetwork();
 
+  // Tick every minute so the "Xm ago" text stays current
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleManualSync = async () => {
     if (!isOnline) {
       toastService.error("No internet connection");
       return;
     }
-
     try {
       await manualSync();
       toastService.success("Sync completed");
-    } catch (error) {
+    } catch {
       toastService.error("Sync failed");
     }
   };
 
   const getStatusConfig = () => {
+    // Actively syncing
     if (syncStatus === "syncing") {
       return {
         icon: null,
@@ -56,7 +63,18 @@ export function SyncStatusIndicator({
       };
     }
 
-    if (syncStatus === "failed" || failedCount > 0) {
+    // Offline with queued items — no spinner, show saved-offline badge
+    if (!isOnline && pendingCount > 0) {
+      return {
+        icon: "cloud-offline" as const,
+        color: "#F59E0B",
+        text: `${pendingCount} saved`,
+        showSpinner: false,
+      };
+    }
+
+    // Actually-failed items (not just a transient syncStatus)
+    if (failedCount > 0) {
       return {
         icon: "alert-circle" as const,
         color: "#EF4444",
@@ -65,6 +83,7 @@ export function SyncStatusIndicator({
       };
     }
 
+    // Pending items waiting to upload
     if (pendingCount > 0) {
       return {
         icon: "cloud-upload" as const,
@@ -74,24 +93,20 @@ export function SyncStatusIndicator({
       };
     }
 
-    if (syncStatus === "synced" && lastSyncTime) {
-      const now = new Date();
-      const diff = now.getTime() - lastSyncTime.getTime();
-      const minutes = Math.floor(diff / 60000);
-
-      let timeText = "Just now";
-      if (minutes > 0) {
-        timeText = `${minutes}m ago`;
-      }
-
+    // Successfully synced — show relative time
+    if ((syncStatus === "synced" || syncStatus === "idle") && lastSyncTime) {
+      const minutes = Math.floor(
+        (Date.now() - lastSyncTime.getTime()) / 60_000,
+      );
       return {
         icon: "checkmark-circle" as const,
         color: "#10B981",
-        text: timeText,
+        text: minutes > 0 ? `${minutes}m ago` : "Just now",
         showSpinner: false,
       };
     }
 
+    // Idle — nothing pending, never synced this session
     return {
       icon: "cloud-done" as const,
       color: "#6B7280",
@@ -104,8 +119,9 @@ export function SyncStatusIndicator({
   const iconSize = size === "small" ? 16 : 20;
   const fontSize = size === "small" ? 12 : 14;
 
-  // Show manual sync button if there are pending items
-  const showSyncButton = pendingCount > 0 && !syncStatus.includes("syncing");
+  // Only allow manual sync tap when online and there are pending items
+  const showSyncButton =
+    isOnline && pendingCount > 0 && syncStatus !== "syncing";
 
   return (
     <TouchableOpacity

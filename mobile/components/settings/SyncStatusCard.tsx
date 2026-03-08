@@ -31,9 +31,18 @@ export function SyncStatusCard() {
   };
 
   const handleSyncNow = async () => {
+    if (status.pending === 0) {
+      toastService.info("Data is already up to date.");
+      // Still trigger a background check just in case
+      SyncService.syncPendingChanges();
+      return;
+    }
+
     try {
+      toastService.info("Syncing your data...");
       await SyncService.syncPendingChanges();
       await loadStatus();
+      toastService.success("Sync completed successfully!");
     } catch (error) {
       console.error("Sync failed:", error);
       toastService.error("Sync failed. Please try again.");
@@ -84,7 +93,7 @@ export function SyncStatusCard() {
         <TouchableOpacity
           style={[styles.button, status.syncing && styles.buttonDisabled]}
           onPress={handleSyncNow}
-          disabled={status.syncing || status.pending === 0}
+          disabled={status.syncing}
         >
           {status.syncing ? (
             <ActivityIndicator size="small" color={COLORS.primary} />

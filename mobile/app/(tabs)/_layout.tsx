@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS, FONTS, SPACING } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
 import { TouchableOpacity, View, StyleSheet, Platform } from "react-native";
-import { SyncStatusIndicator } from "../../components/ui/SyncStatusIndicator";
 import { ConnectionQualityIcon } from "../../components/ui/ConnectionQualityIcon";
 
 type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
@@ -20,10 +19,9 @@ export default function TabsLayout() {
       <Ionicons name={focused ? focusedName : name} size={20} color={color} />
     );
 
-  // Header right component with sync status and connection quality
+  // Header right component with connection quality
   const HeaderRight = () => (
     <View style={styles.headerRight}>
-      <SyncStatusIndicator showLabel={false} size="small" />
       <ConnectionQualityIcon size={18} />
     </View>
   );
