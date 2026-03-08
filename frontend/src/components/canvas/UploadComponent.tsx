@@ -13,14 +13,10 @@ import {
   FileText,
   Trash2,
   Zap,
-  Scale,
-  BarChart2,
-  TrendingUp,
   Info,
   MapPin,
   Loader2,
   Eye,
-  Bot,
   ChevronDown,
   ChevronUp,
   Bug,
@@ -29,7 +25,6 @@ import {
   ChevronRight,
   Images,
   Sparkles,
-  ArrowRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -53,23 +48,48 @@ import {
   uploadGroupToS3,
   analyzeGroup,
   getGroups,
-  deleteGroup,
-  getPrimaryCrop,
   type GroupRecord,
 } from "@/lib/api-client";
 import { useLanguage } from "@/lib/i18n";
 import { resolveMLUrl } from "@/lib/constants";
 import CameraModal from "@/components/CameraModal";
-import AgentChat from "@/components/AgentChat";
+import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
 
 type UploadStep = "idle" | "uploading" | "processing" | "done" | "error";
 
-export default function UploadPage() {
+export interface UploadComponentProps {
+  /** Callback to dispatch PaneMessage to AgentInterface */
+  onPaneMessage?: (message: {
+    id: string;
+    type: 'info' | 'action' | 'data' | 'error' | 'query';
+    source: 'upload';
+    payload: Record<string, any>;
+    timestamp: number;
+    metadata?: {
+      userInitiated: boolean;
+      requiresResponse: boolean;
+    };
+  }) => void;
+  /** Initial files to upload (optional) */
+  initialFiles?: File[];
+  /** Auto-analyze on mount if initialFiles provided */
+  autoAnalyze?: boolean;
+  /** Optional class for the outer container */
+  className?: string;
+}
+
+export default function UploadComponent({
+  onPaneMessage,
+  initialFiles,
+  autoAnalyze = false,
+  className,
+}: UploadComponentProps) {
   const router = useRouter();
+  const setActiveComponent = useAgentFirstStore(s => s.setActiveComponent);
   const { t } = useLanguage();
 
   // Multi-file state
-  const [files, setFiles] = useState<File[]>([]);
+  const [files, setFiles] = useState<File[]>(initialFiles || []);
   const [previews, setPreviews] = useState<string[]>([]);
   const [selectedPreviewIndex, setSelectedPreviewIndex] = useState(0);
 
@@ -96,7 +116,6 @@ export default function UploadPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mobileFileInputRef = useRef<HTMLInputElement>(null);
-  const resultsCardRef = useRef<HTMLDivElement>(null);
 
   // Current ML result being displayed
   const currentMlResult = mlResults[currentResultIndex] || null;
@@ -253,13 +272,59 @@ export default function UploadPage() {
       setMlResults([]);
       setCurrentResultIndex(0);
 
+      // Dispatch upload:started PaneMessage
+      if (onPaneMessage) {
+        onPaneMessage({
+          id: `msg_${Date.now()}`,
+          type: 'info',
+          source: 'upload',
+          payload: {
+            event: 'upload:started',
+            imageCount: files.length,
+          },
+          timestamp: Date.now(),
+          metadata: { userInitiated: true, requiresResponse: false },
+        });
+      }
+
       const fileMetadata = files.map(f => ({ fileName: f.name, fileType: f.type }));
       const { groupId, presignedUrls } = await createGroupPresignedUrls(fileMetadata);
       setCurrentGroupId(groupId);
 
       await uploadGroupToS3(presignedUrls, files, (index, pct) => {
         setUploadProgress(prev => ({ ...prev, [index]: pct }));
+
+        // Dispatch upload:progress PaneMessage
+        if (onPaneMessage && pct === 100) {
+          onPaneMessage({
+            id: `msg_${Date.now()}_${index}`,
+            type: 'info',
+            source: 'upload',
+            payload: {
+              event: 'upload:progress',
+              progress: Math.round(Object.values({ ...uploadProgress, [index]: pct }).reduce((a, b) => a + b, 0) / files.length),
+            },
+            timestamp: Date.now(),
+            metadata: { userInitiated: false, requiresResponse: false },
+          });
+        }
       });
+
+      // Dispatch upload:complete PaneMessage
+      if (onPaneMessage) {
+        onPaneMessage({
+          id: `msg_${Date.now()}`,
+          type: 'data',
+          source: 'upload',
+          payload: {
+            event: 'upload:complete',
+            groupId,
+            imageCount: files.length,
+          },
+          timestamp: Date.now(),
+          metadata: { userInitiated: false, requiresResponse: false },
+        });
+      }
 
       setStep("processing");
       setAnalysisProgress(0);
@@ -282,10 +347,46 @@ export default function UploadPage() {
       await loadHistory();
 
       const totalFish = analysisResult.aggregateStats.totalFishCount;
+
+      // Dispatch analysis:complete PaneMessage
+      if (onPaneMessage) {
+        onPaneMessage({
+          id: `msg_${Date.now()}`,
+          type: 'data',
+          source: 'upload',
+          payload: {
+            event: 'analysis:complete',
+            groupId,
+            imageCount: files.length,
+            fishCount: totalFish,
+            topSpecies: topSpeciesName,
+            results: analysisResult,
+          },
+          timestamp: Date.now(),
+          metadata: { userInitiated: false, requiresResponse: true },
+        });
+      }
+
       toast.success(`Analysis complete! ${totalFish} fish detected across ${files.length} images.`);
     } catch (err) {
       setStep("error");
-      toast.error(err instanceof Error ? err.message : t("upload.error"));
+      const errorMessage = err instanceof Error ? err.message : t("upload.error");
+      toast.error(errorMessage);
+
+      // Dispatch error PaneMessage
+      if (onPaneMessage) {
+        onPaneMessage({
+          id: `msg_${Date.now()}`,
+          type: 'error',
+          source: 'upload',
+          payload: {
+            event: 'upload:error',
+            error: errorMessage,
+          },
+          timestamp: Date.now(),
+          metadata: { userInitiated: false, requiresResponse: false },
+        });
+      }
     }
   };
 
@@ -375,7 +476,7 @@ export default function UploadPage() {
   // ═══════════════════════════════════════════════════════════════════════════
   if (hasResults) {
     return (
-      <div className="h-[calc(100dvh-120px)] lg:h-[calc(100dvh-100px)] flex flex-col animate-fade-in">
+      <div className={cn("h-full flex flex-col animate-fade-in", className)}>
         {/* ── Top bar ── */}
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-3">
@@ -402,7 +503,7 @@ export default function UploadPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => currentGroupId && router.push(`/history/${currentGroupId}`)}
+              onClick={() => currentGroupId && setActiveComponent('history', { selectedGroupId: currentGroupId })}
               className="h-8 rounded-xl border-border/20 text-xs font-medium hover:bg-muted/20"
             >
               <Eye className="w-3.5 h-3.5 mr-1.5" />
@@ -419,11 +520,11 @@ export default function UploadPage() {
           </div>
         </div>
 
-        {/* ── Split view ── */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 min-h-0">
+        {/* ── Full-width analysis view ── */}
+        <div className="flex-1 grid grid-cols-1 gap-4 min-h-0">
 
-          {/* ── LEFT: Image carousel + Analysis ── */}
-          <div className="lg:col-span-7 flex flex-col min-h-0 gap-3">
+          {/* ── Image carousel + Analysis ── */}
+          <div className="flex flex-col min-h-0 gap-3">
             {/* Image viewer */}
             <div className="relative rounded-2xl overflow-hidden border border-border/15 bg-card/30 backdrop-blur-sm flex-shrink-0 animate-slide-in-left" style={{ animationDuration: '0.5s' }}>
               <img
@@ -610,7 +711,7 @@ export default function UploadPage() {
                 </div>
               ) : currentMlResult && cropEntries.length === 0 ? (
                 <div className="flex flex-col items-center justify-center text-center py-10 opacity-40">
-                  <BarChart2 className="w-10 h-10 mb-3" />
+                  <Eye className="w-10 h-10 mb-3" />
                   <p className="text-sm font-bold">No Fish Detected</p>
                   <p className="text-xs text-muted-foreground">Below {Math.round(YOLO_CONFIDENCE_THRESHOLD * 100)}% threshold</p>
                 </div>
@@ -618,17 +719,6 @@ export default function UploadPage() {
             </div>
           </div>
 
-          {/* ── RIGHT: Agent Chat ── */}
-          <div className="lg:col-span-5 min-h-0 animate-slide-in-right" style={{ animationDuration: '0.5s', animationDelay: '0.15s' }}>
-            <AgentChat
-              variant="compact"
-              contextGroupId={currentGroupId}
-              contextImageIndex={currentResultIndex}
-              contextImageCount={mlResults.length}
-              contextSpecies={topSpeciesName}
-              className="h-full"
-            />
-          </div>
         </div>
       </div>
     );
@@ -638,7 +728,7 @@ export default function UploadPage() {
   // ── UPLOAD MODE (before analysis) ────────────────────────────────────────
   // ═══════════════════════════════════════════════════════════════════════════
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-10 animate-fade-in-up" style={{ animationDuration: '0.4s' }}>
+    <div className={cn("max-w-5xl mx-auto space-y-6 pb-10 animate-fade-in-up", className)} style={{ animationDuration: '0.4s' }}>
       <div className="flex justify-between items-start">
         <div className="space-y-1">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight">
@@ -842,12 +932,11 @@ export default function UploadPage() {
             {history.slice(0, 5).map((group) => {
               const stats = group.analysisResult?.aggregateStats;
               const fishCount = stats?.totalFishCount ?? 0;
-              const hasDisease = stats?.diseaseDetected ?? false;
 
               return (
                 <div key={group.groupId}
                   className="rounded-xl border border-border/15 bg-card/15 p-3 flex items-center justify-between gap-3 hover:bg-card/30 transition-colors duration-200 cursor-pointer"
-                  onClick={() => router.push(`/history/${group.groupId}`)}
+                  onClick={() => setActiveComponent('history', { selectedGroupId: group.groupId })}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-lg border border-border/10 bg-primary/5 flex items-center justify-center text-primary">
@@ -872,7 +961,6 @@ export default function UploadPage() {
                     )}>
                       {group.status}
                     </Badge>
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30" />
                   </div>
                 </div>
               );

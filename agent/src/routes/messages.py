@@ -17,6 +17,7 @@ from src.utils.auth import TokenPayload, verify_token
 from src.memory.dynamodb_store import (
     get_conversation,
     get_messages,
+    get_messages_page,
     save_message,
     update_conversation,
 )
@@ -208,6 +209,9 @@ async def send_message_stream(
                 "longitude": body.longitude,
             }))
 
+            # Emit immediately so clients/proxies flush stream early.
+            yield "data: {\"type\": \"start\"}\n\n"
+
             # Using astream_events handles yielding the tokens as they arrive
             async for event in graph.astream_events(initial_state, version="v2"):
                 kind = event["event"]
@@ -253,7 +257,15 @@ async def send_message_stream(
             save_message(conversation_id, role="assistant", content=error_msg)
             yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ── Get message history ─────────────────────────────────────────────────────
@@ -262,6 +274,7 @@ async def send_message_stream(
 async def get_message_history(
     conversation_id: str,
     limit: int = 50,
+    cursor: str | None = None,
     user: TokenPayload = Depends(verify_token),
 ):
     conv = get_conversation(conversation_id)
@@ -270,9 +283,17 @@ async def get_message_history(
     if conv.get("userId") != user.sub:
         raise HTTPException(status_code=403, detail="Not your conversation")
 
-    messages = get_messages(conversation_id, limit=limit, ascending=True)
+    page = get_messages_page(
+        conversation_id,
+        limit=limit,
+        cursor=cursor,
+        ascending=True,
+    )
+
     return {
         "success": True,
-        "messages": messages,
+        "messages": page.get("items", []),
+        "nextCursor": page.get("nextCursor"),
+        "hasMore": page.get("hasMore", False),
         "summary": conv.get("summary"),
     }

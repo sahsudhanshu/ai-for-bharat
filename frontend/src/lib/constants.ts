@@ -12,7 +12,9 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL;
 
 /** Whether the LangGraph agent is available */
-export const IS_AGENT_CONFIGURED = true;
+export const IS_AGENT_CONFIGURED = Boolean(
+  AGENT_BASE_URL && AGENT_BASE_URL.trim().length > 0,
+);
 
 /** API endpoint paths */
 export const ENDPOINTS = {

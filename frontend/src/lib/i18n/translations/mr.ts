@@ -56,6 +56,19 @@ const mr: TranslationStrings = {
     'common.profile': 'प्रोफाइल',
     'common.settings': 'सेटिंग्ज',
     'common.logOut': 'लॉग आउट',
+
+    // Capability Cards
+    'capability.title': 'मी तुम्हाला कशी मदत करू शकतो?',
+    'capability.subtitle': 'एक द्रुत क्रिया निवडा किंवा मला काहीही विचारा',
+    'capability.dailyBriefing': 'दैनिक ब्रीफिंग',
+    'capability.dailyBriefingDesc': 'हवामान परिस्थिती आणि बाजार किंमती मिळवा',
+    'capability.uploadCatch': 'कॅच अपलोड करा',
+    'capability.uploadCatchDesc': 'AI सह माशांच्या प्रजाती ओळखा',
+    'capability.viewMap': 'नकाशा पहा',
+    'capability.viewMapDesc': 'सागरी डेटा आणि मासेमारी क्षेत्रे एक्सप्लोर करा',
+    'capability.analytics': 'विश्लेषण',
+    'capability.analyticsDesc': 'कमाई आणि कॅच इतिहास ट्रॅक करा',
+    'capability.hint': 'किंवा खाली तुमचा प्रश्न टाइप करा',
 };
 
 export default mr;

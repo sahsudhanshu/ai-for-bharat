@@ -33,12 +33,12 @@ export default function RootLayout({
       <body
         className={`${poppins.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
+        <Toaster position="top-right" />
         <LanguageProvider>
           <AuthProvider>
             <AppLayout>
               {children}
             </AppLayout>
-            <Toaster position="top-right" />
           </AuthProvider>
         </LanguageProvider>
         <VisualEditsMessenger />

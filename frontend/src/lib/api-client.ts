@@ -84,6 +84,12 @@ export interface UnifiedMessage {
   timestamp: string;
 }
 
+export interface PaginatedConversationHistory {
+  messages: UnifiedMessage[];
+  nextCursor?: string;
+  hasMore: boolean;
+}
+
 export interface SendChatResponse {
   chatId: string;
   response: string;
@@ -407,73 +413,95 @@ export async function streamChat(
   location?: { latitude: number; longitude: number },
 ): Promise<{ chatId: string; messageId?: string }> {
   if (IS_AGENT_CONFIGURED && overrideChatId) {
-    const url = `${AGENT_BASE_URL}/conversations/${overrideChatId}/messages/stream`;
-    const token = await getToken();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
+    let streamEstablished = false;
+    let streamedAnyChunk = false;
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        message,
-        language,
-        latitude: location?.latitude,
-        longitude: location?.longitude,
-      }),
-    });
+    try {
+      const url = `${AGENT_BASE_URL}/conversations/${overrideChatId}/messages/stream`;
+      const token = await getToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
 
-    if (!res.ok) {
-      throw new ApiError(res.status, "Stream API error");
-    }
+      const res = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          message,
+          language,
+          latitude: location?.latitude,
+          longitude: location?.longitude,
+        }),
+      });
 
-    if (!res.body) throw new Error("No response body");
+      if (!res.ok) {
+        throw new ApiError(res.status, "Stream API error");
+      }
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let done = false;
-    let buffer = "";
-    let finalMessageId: string | undefined;
+      if (!res.body) throw new Error("No response body");
 
-    while (!done) {
-      const { value, done: readerDone } = await reader.read();
-      done = readerDone;
-      if (value) {
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let done = false;
+      let buffer = "";
+      let finalMessageId: string | undefined;
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === "chunk") {
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              let data: any;
+              try {
+                data = JSON.parse(line.slice(6));
+              } catch {
+                // Ignore malformed/incomplete SSE payload lines.
+                continue;
+              }
+              if (data.type === "start" || data.type === "tool") {
+                streamEstablished = true;
+              } else if (data.type === "chunk") {
+                streamEstablished = true;
+                streamedAnyChunk = true;
                 onChunk(data.text);
               } else if (data.type === "end") {
+                streamEstablished = true;
                 finalMessageId = data.messageId;
               } else if (data.type === "error") {
                 throw new Error(data.error);
               }
-            } catch (e) {
-              // ignore parse error if incomplete JSON
             }
           }
         }
       }
+      return { chatId: overrideChatId, messageId: finalMessageId };
+    } catch {
+      // If stream was already established, avoid issuing a second duplicate sync request.
+      if (streamEstablished || streamedAnyChunk) {
+        return { chatId: overrideChatId };
+      }
     }
-    return { chatId: overrideChatId, messageId: finalMessageId };
   }
 
-  // Fallback
+  // ── Fallback: sync send (first message without chatId, or agent not configured) ──
   const fallbackRes = await sendChat(
     message,
     overrideChatId,
     language,
     location,
   );
-  onChunk(fallbackRes.response);
+
+  // Deliver the full response instantly instead of fake word-by-word delay
+  if (fallbackRes.response) {
+    onChunk(fallbackRes.response);
+  }
+
   return { chatId: fallbackRes.chatId };
 }
 
@@ -487,15 +515,8 @@ export async function getChatHistory(
 ): Promise<UnifiedMessage[]> {
   if (IS_AGENT_CONFIGURED) {
     if (overrideChatId) {
-      const res = await agentFetch<{ messages: ConversationMessage[] }>(
-        `/conversations/${overrideChatId}/messages?limit=${limit}`,
-      );
-      return res.messages.map((m) => ({
-        id: m.messageId,
-        role: m.role,
-        text: m.content,
-        timestamp: m.timestamp,
-      }));
+      const page = await getConversationMessagesPage(limit, overrideChatId);
+      return page.messages;
     }
     const oldLog = await agentFetch<ChatMessage[]>(`/chat?limit=${limit}`);
     return oldLog.map((m) => ({
@@ -514,6 +535,41 @@ export async function getChatHistory(
     text: m.response,
     timestamp: m.timestamp,
   }));
+}
+
+/**
+ * Fetch a page of conversation messages using a cursor for older history.
+ */
+export async function getConversationMessagesPage(
+  limit: number,
+  conversationId: string,
+  cursor?: string,
+): Promise<PaginatedConversationHistory> {
+  if (!IS_AGENT_CONFIGURED) {
+    return { messages: [], hasMore: false };
+  }
+
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) {
+    params.set("cursor", cursor);
+  }
+
+  const res = await agentFetch<{
+    messages: ConversationMessage[];
+    nextCursor?: string;
+    hasMore?: boolean;
+  }>(`/conversations/${conversationId}/messages?${params.toString()}`);
+
+  return {
+    messages: res.messages.map((m) => ({
+      id: m.messageId,
+      role: m.role,
+      text: m.content,
+      timestamp: m.timestamp,
+    })),
+    nextCursor: res.nextCursor,
+    hasMore: Boolean(res.hasMore ?? res.nextCursor),
+  };
 }
 
 export async function createConversation(

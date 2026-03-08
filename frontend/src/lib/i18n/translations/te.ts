@@ -56,6 +56,19 @@ const te: TranslationStrings = {
     'common.profile': 'ప్రొఫైల్',
     'common.settings': 'సెట్టింగ్‌లు',
     'common.logOut': 'లాగ్ అవుట్',
+
+    // Capability Cards
+    'capability.title': 'నేను మీకు ఎలా సహాయం చేయగలను?',
+    'capability.subtitle': 'త్వరిత చర్యను ఎంచుకోండి లేదా నన్ను ఏదైనా అడగండి',
+    'capability.dailyBriefing': 'రోజువారీ బ్రీఫింగ్',
+    'capability.dailyBriefingDesc': 'వాతావరణ పరిస్థితులు మరియు మార్కెట్ ధరలను పొందండి',
+    'capability.uploadCatch': 'క్యాచ్ అప్‌లోడ్ చేయండి',
+    'capability.uploadCatchDesc': 'AI తో చేపల జాతులను గుర్తించండి',
+    'capability.viewMap': 'మ్యాప్ చూడండి',
+    'capability.viewMapDesc': 'సముద్ర డేటా మరియు ఫిషింగ్ జోన్‌లను అన్వేషించండి',
+    'capability.analytics': 'విశ్లేషణ',
+    'capability.analyticsDesc': 'ఆదాయం మరియు క్యాచ్ చరిత్రను ట్రాక్ చేయండి',
+    'capability.hint': 'లేదా క్రింద మీ ప్రశ్నను టైప్ చేయండి',
 };
 
 export default te;

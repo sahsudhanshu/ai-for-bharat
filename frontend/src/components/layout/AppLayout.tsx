@@ -2,10 +2,7 @@
 
 import React, { ReactNode, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import Sidebar from './Sidebar';
-import Header from './Header';
-import BottomNav from './BottomNav';
-import GlobalAlertStrip from './GlobalAlertStrip';
+import AgentFirstLayout from './AgentFirstLayout';
 import { useAuth } from "@/lib/auth-context";
 import { Loader2 } from 'lucide-react';
 
@@ -31,9 +28,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   }, [isLoading, isAuthenticated, isPublicRoute, router]);
 
   // Show public routes without layout
-  if (isPublicRoute) {
-    return <>{children}</>;
-  }
+  if (isPublicRoute) return <>{children}</>;
 
   // Global loading spinner while checking auth
   if (isLoading) {
@@ -49,26 +44,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
     );
   }
 
-  // Redirect in progress — show nothing to prevent flash
-  if (!isAuthenticated && !isPublicRoute) {
-    return null;
-  }
+  // Redirect in progress
+  if (!isAuthenticated && !isPublicRoute) return null;
 
-  return (
-    <div className="flex min-h-screen bg-background text-foreground font-sans">
-      <Sidebar />
-      <div className="flex-1 flex flex-col relative overflow-hidden">
-        <Header />
-        <GlobalAlertStrip />
-        <main
-          key={pathname}
-          className="flex-1 p-4 sm:p-6 lg:p-10 pb-24 lg:pb-10 animate-fade-in-up overflow-y-auto"
-          style={{ animationDuration: '0.4s' }}
-        >
-          {children}
-        </main>
-      </div>
-      <BottomNav />
-    </div>
-  );
+  // Authenticated routes run in a single Agent-First experience.
+  return <AgentFirstLayout />;
 }

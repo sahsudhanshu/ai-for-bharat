@@ -56,37 +56,40 @@ async def build_message_history(conversation_id: str) -> Tuple[list, Optional[st
         - recent_lc_messages: LangChain BaseMessage list for the last N messages
         - summary_text: Summary of older messages (or None if all fit in window)
     """
-    all_messages = get_messages(conversation_id, limit=500, ascending=True)
-    total = len(all_messages)
-
-    # Build LangChain messages for the last N
-    recent_raw = all_messages[-SHORT_TERM_MESSAGE_LIMIT:] if total > SHORT_TERM_MESSAGE_LIMIT else all_messages
+    # Only fetch the messages we actually need (last N) instead of all 500
+    recent_raw = get_messages(conversation_id, limit=SHORT_TERM_MESSAGE_LIMIT, ascending=True)
     recent_lc = _to_langchain_messages(recent_raw)
 
-    # Check if we need a summary for older messages
-    summary = None
+    # Grab existing summary from conversation metadata
     conv = get_conversation(conversation_id)
-    if conv:
-        summary = conv.get("summary") or None
+    summary = conv.get("summary") or None if conv else None
 
-    if total > SHORT_TERM_MESSAGE_LIMIT and not summary:
-        # Generate summary for the older messages
-        older = all_messages[:-SHORT_TERM_MESSAGE_LIMIT]
-        summary = await _summarize_messages(older)
-        if conv:
-            update_conversation(conversation_id, summary=summary)
+    # If we got a full page back and there's no summary yet, older messages exist
+    # This only happens once per conversation (summary is cached after first generation)
+    if len(recent_raw) >= SHORT_TERM_MESSAGE_LIMIT and not summary:
+        total = count_messages(conversation_id)
+        if total > SHORT_TERM_MESSAGE_LIMIT:
+            all_msgs = get_messages(conversation_id, limit=total, ascending=True)
+            older = all_msgs[:-SHORT_TERM_MESSAGE_LIMIT]
+            if older:
+                summary = await _summarize_messages(older)
+                if conv:
+                    update_conversation(conversation_id, summary=summary)
 
     return recent_lc, summary
 
 
 async def maybe_update_summary(conversation_id: str) -> None:
-    """Re-summarise if total messages exceeded the threshold since last summary."""
+    """Re-summarise if total messages exceeded the threshold since last summary.
+    This runs as a background task after the stream response, so latency is not critical."""
     total = count_messages(conversation_id)
     if total <= SHORT_TERM_MESSAGE_LIMIT:
         return
 
-    all_messages = get_messages(conversation_id, limit=500, ascending=True)
+    all_messages = get_messages(conversation_id, limit=total, ascending=True)
     older = all_messages[:-SHORT_TERM_MESSAGE_LIMIT]
+    if not older:
+        return
     summary = await _summarize_messages(older)
     update_conversation(conversation_id, summary=summary)
 
@@ -149,5 +152,11 @@ async def extract_and_update_long_term_memory(
         "UPDATED FACTS:"
     )
     updated = await _call_bedrock_for_text(prompt)
+    # Don't save placeholder/empty text back to DynamoDB
     if updated.strip():
-        update_long_term_memory(user_id, updated.strip())
+        cleaned = updated.strip()
+        if cleaned.lower().replace("- ", "") not in (
+            "no facts recorded yet.", "no facts recorded yet",
+            "no new facts to record.", "no new facts to record",
+        ):
+            update_long_term_memory(user_id, cleaned)

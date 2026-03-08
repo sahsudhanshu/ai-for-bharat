@@ -11,11 +11,24 @@ import { toast } from "sonner";
 import { getGroups, deleteGroup, type GroupRecord } from "@/lib/api-client";
 import { resolveMLUrl } from "@/lib/constants";
 import { jsPDF } from "jspdf";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
+import HistoryDetailView from "./HistoryDetailView";
 
-export default function GroupsPage() {
+export default function HistoryComponent() {
   const router = useRouter();
+  const store = useAgentFirstStore();
+  const setActiveComponent = store.setActiveComponent;
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+
+  // Sync selectedGroupId from store props
+  useEffect(() => {
+    if (store.componentProps?.selectedGroupId) {
+      setSelectedGroupId(store.componentProps.selectedGroupId);
+    }
+  }, [store.componentProps?.selectedGroupId]);
 
   useEffect(() => {
     loadGroups();
@@ -107,9 +120,11 @@ export default function GroupsPage() {
 
   if (isLoading) {
     return (
-      <div className="max-w-6xl mx-auto py-20 text-center">
-        <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-muted-foreground">Loading history...</p>
+      <div className="w-full h-full flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-muted-foreground">Loading history...</p>
+        </div>
       </div>
     );
   }
@@ -180,112 +195,122 @@ export default function GroupsPage() {
     );
   };
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-10">
-      <div>
-        <h1 className="text-3xl font-bold">History</h1>
-        <p className="text-muted-foreground">Your past analysis sessions</p>
+  if (selectedGroupId) {
+    return (
+      <div className="w-full h-full min-h-0">
+        <HistoryDetailView groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} />
       </div>
+    );
+  }
 
-      {groups.length === 0 ? (
-        <Card className="rounded-3xl">
-          <CardContent className="p-20 text-center">
-            <Images className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-bold mb-2">No history yet</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Upload images to start analysing your catch
-            </p>
-            <Button onClick={() => router.push("/upload")}>Upload Now</Button>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-4">
-          {groups.map((group) => {
-            const stats = group.analysisResult?.aggregateStats;
-            const fishCount = stats?.totalFishCount ?? 0;
-            const speciesCount = stats?.speciesDistribution
-              ? Object.keys(stats.speciesDistribution).length
-              : 0;
+  return (
+    <ScrollArea className="h-full w-full">
+      <div className="max-w-6xl mx-auto space-y-6 p-6 pb-20">
+        <div>
+          <h1 className="text-3xl font-bold">History</h1>
+          <p className="text-muted-foreground">Your past analysis sessions</p>
+        </div>
 
-            return (
-              <Card
-                key={group.groupId}
-                className="rounded-2xl hover:shadow-lg transition-shadow"
-              >
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4 flex-1 min-w-0">
-                      <ThumbnailStack group={group} />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-bold text-lg">
-                            {group.imageCount}{" "}
-                            {group.imageCount === 1 ? "Image" : "Images"}
-                          </h3>
-                          <Badge
-                            className={cn(
-                              "uppercase text-xs",
-                              getStatusColor(group.status),
-                            )}
-                          >
-                            {group.status}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(group.createdAt).toLocaleString()}
-                        </p>
-                        {stats && (
-                          <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
-                            <span>🐟 {fishCount} fish</span>
-                            <span>📊 {speciesCount} species</span>
-                            {stats.diseaseDetected && (
-                              <span className="text-amber-600">
-                                ⚠️ Disease detected
-                              </span>
-                            )}
+        {groups.length === 0 ? (
+          <Card className="rounded-3xl">
+            <CardContent className="p-20 text-center">
+              <Images className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+              <h3 className="text-lg font-bold mb-2">No history yet</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Upload images to start analysing your catch
+              </p>
+              <Button onClick={() => setActiveComponent('upload')}>Upload Now</Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4">
+            {groups.map((group) => {
+              const stats = group.analysisResult?.aggregateStats;
+              const fishCount = stats?.totalFishCount ?? 0;
+              const speciesCount = stats?.speciesDistribution
+                ? Object.keys(stats.speciesDistribution).length
+                : 0;
+
+              return (
+                <Card
+                  key={group.groupId}
+                  className="rounded-2xl hover:shadow-lg transition-shadow"
+                >
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <ThumbnailStack group={group} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-bold text-lg">
+                              {group.imageCount}{" "}
+                              {group.imageCount === 1 ? "Image" : "Images"}
+                            </h3>
+                            <Badge
+                              className={cn(
+                                "uppercase text-xs",
+                                getStatusColor(group.status),
+                              )}
+                            >
+                              {group.status}
+                            </Badge>
                           </div>
-                        )}
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(group.createdAt).toLocaleString()}
+                          </p>
+                          {stats && (
+                            <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
+                              <span>🐟 {fishCount} fish</span>
+                              <span>📊 {speciesCount} species</span>
+                              {stats.diseaseDetected && (
+                                <span className="text-amber-600">
+                                  ⚠️ Disease detected
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
+                      <div className="flex gap-2 shrink-0">
 
-                      {group.status === 'completed' && (
+                        {group.status === 'completed' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="rounded-lg text-muted-foreground hover:text-foreground"
+                            onClick={() => handleExportPdf(group)}
+                            title="Export as PDF"
+                          >
+                            <Download className="w-4 h-4 mr-1" />
+                            <span className="hidden sm:inline">Export</span>
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="rounded-lg text-muted-foreground hover:text-foreground"
-                          onClick={() => handleExportPdf(group)}
-                          title="Export as PDF"
+                          className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(group.groupId)}
                         >
-                          <Download className="w-4 h-4 mr-1" />
-                          <span className="hidden sm:inline">Export</span>
+                          <Trash2 className="w-4 h-4" />
                         </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={() => handleDelete(group.groupId)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/history/${group.groupId}`)}
-                        className="rounded-lg"
-                      >
-                        <Eye className="w-4 h-4 mr-2" />
-                        View
-                      </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedGroupId(group.groupId)}
+                          className="rounded-lg"
+                        >
+                          <Eye className="w-4 h-4 mr-2" />
+                          View
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </ScrollArea>
   );
 }

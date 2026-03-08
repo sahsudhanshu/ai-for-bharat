@@ -302,6 +302,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     localStorage.removeItem("ocean_ai_user");
     localStorage.removeItem("ocean_ai_token");
+    
+    // Clear session storage for agent-first architecture
+    try {
+      sessionStorage.removeItem('oceanai_agent_session');
+    } catch (error) {
+      console.error('[Auth] Failed to clear session:', error);
+    }
   };
 
   // Keep ref up-to-date so the event listener always calls the latest logout

@@ -159,6 +159,19 @@ const hi: TranslationStrings = {
     'common.profile': 'प्रोफ़ाइल',
     'common.settings': 'सेटिंग्स',
     'common.logOut': 'लॉग आउट',
+
+    // Capability Cards
+    'capability.title': 'मैं आपकी कैसे मदद कर सकता हूं?',
+    'capability.subtitle': 'एक त्वरित कार्रवाई चुनें या मुझसे कुछ भी पूछें',
+    'capability.dailyBriefing': 'दैनिक ब्रीफिंग',
+    'capability.dailyBriefingDesc': 'मौसम की स्थिति और बाजार मूल्य प्राप्त करें',
+    'capability.uploadCatch': 'कैच अपलोड करें',
+    'capability.uploadCatchDesc': 'AI से मछली की प्रजाति पहचानें',
+    'capability.viewMap': 'मानचित्र देखें',
+    'capability.viewMapDesc': 'समुद्री डेटा और मछली पकड़ने के क्षेत्र देखें',
+    'capability.analytics': 'विश्लेषण',
+    'capability.analyticsDesc': 'कमाई और कैच इतिहास ट्रैक करें',
+    'capability.hint': 'या नीचे अपना प्रश्न टाइप करें',
 };
 
 export default hi;

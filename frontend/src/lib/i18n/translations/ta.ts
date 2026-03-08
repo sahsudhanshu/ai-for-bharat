@@ -57,6 +57,19 @@ const ta: TranslationStrings = {
     'common.profile': 'சுயவிவரம்',
     'common.settings': 'அமைப்புகள்',
     'common.logOut': 'வெளியேறு',
+
+    // Capability Cards
+    'capability.title': 'நான் உங்களுக்கு எப்படி உதவ முடியும்?',
+    'capability.subtitle': 'விரைவு செயலைத் தேர்ந்தெடுக்கவும் அல்லது என்னிடம் எதையும் கேளுங்கள்',
+    'capability.dailyBriefing': 'தினசரி சுருக்கம்',
+    'capability.dailyBriefingDesc': 'வானிலை நிலைமைகள் மற்றும் சந்தை விலைகளைப் பெறுங்கள்',
+    'capability.uploadCatch': 'பிடியை பதிவேற்றவும்',
+    'capability.uploadCatchDesc': 'AI மூலம் மீன் இனங்களை அடையாளம் காணவும்',
+    'capability.viewMap': 'வரைபடத்தைக் காண்க',
+    'capability.viewMapDesc': 'கடல் தரவு மற்றும் மீன்பிடி மண்டலங்களை ஆராயுங்கள்',
+    'capability.analytics': 'பகுப்பாய்வு',
+    'capability.analyticsDesc': 'வருவாய் மற்றும் பிடி வரலாற்றைக் கண்காணிக்கவும்',
+    'capability.hint': 'அல்லது கீழே உங்கள் கேள்வியை தட்டச்சு செய்யவும்',
 };
 
 export default ta;
