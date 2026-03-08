@@ -8,11 +8,12 @@ Data sources
 • ERDDAP / NASA MODIS (free)      — chlorophyll-a as marine fish-density proxy
 • OpenWeatherMap                  — live weather at each point
 • DynamoDB ai-bharat-images       — recency-weighted user catch history
+• Gemini + Google Search          — web-sourced fish activity per water body
 • User GPS                        — transport cost
 
 Confidence (0–100) per point
 ────────────────────────────
-  Fish Density  60 %  — chlorophyll (marine) + recency-weighted DynamoDB catches
+  Fish Density  60 %  — chlorophyll (marine) + DynamoDB catches + Gemini web search
   Weather       25 %  — wind, rain, clouds
   Transport     15 %  — distance from user
 
@@ -26,6 +27,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -33,7 +35,7 @@ import httpx
 from boto3.dynamodb.conditions import Attr, Key
 from langchain_core.tools import tool
 
-from src.config.settings import IMAGES_TABLE, OPENWEATHERMAP_API_KEY
+from src.config.settings import GOOGLE_API_KEY, GEMINI_MODEL, IMAGES_TABLE, OPENWEATHERMAP_API_KEY
 from src.utils.dynamodb import dynamodb
 
 
@@ -205,6 +207,47 @@ async def _fetch_chlorophyll_score(
         return None
 
 
+async def _fetch_gemini_web_score(
+    client: httpx.AsyncClient, water_body_name: str, lat: float, lon: float
+) -> Optional[float]:
+    """
+    Ask Gemini (with Google Search grounding) for a fish activity score (0–100)
+    for the given water body. Called once per body; shared across its sub-points.
+    Returns None on failure or missing API key — existing formula applies unchanged.
+    """
+    if not GOOGLE_API_KEY:
+        return None
+
+    model_id = GEMINI_MODEL.replace("models/", "")
+    prompt = (
+        f"How good is '{water_body_name}' (near {lat:.3f}°N, {lon:.3f}°E, India) for fishing? "
+        f"Use web search to find: fish species present, fishing activity, catch reports, aquaculture. "
+        f'Reply ONLY with valid JSON: {{"score": <integer 0-100>, "reason": "<10 words max>"}}'
+    )
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent"
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 128},
+    }
+    try:
+        r = await client.post(url, json=payload, params={"key": GOOGLE_API_KEY}, timeout=10)
+        if r.status_code != 200:
+            print(f"[fishing_spots] Gemini web search HTTP {r.status_code}", flush=True)
+            return None
+        parts = r.json()["candidates"][0]["content"]["parts"]
+        text = next((p.get("text", "") for p in reversed(parts) if "text" in p), "")
+        match = re.search(r'\{[^}]+\}', text)
+        if match:
+            data = json.loads(match.group())
+            score = float(data.get("score", 50))
+            print(f"[fishing_spots] {water_body_name}: Gemini web score={score}", flush=True)
+            return min(100.0, max(0.0, round(score, 1)))
+    except Exception as exc:
+        print(f"[fishing_spots] Gemini web score error: {exc}", flush=True)
+    return None
+
+
 def _fish_density_score(
     spot_lat: float, spot_lon: float, catch_markers: list[dict]
 ) -> float:
@@ -228,11 +271,26 @@ def _fish_density_score(
     return min(95.0, round(20.0 + weighted * 7.5, 1))
 
 
-def _combined_density(chl_score: Optional[float], dynamo_score: float) -> float:
-    """Combine marine chlorophyll (60%) and catch records (40%) for coastal/sea;
-    fall back to catches only for inland bodies."""
-    if chl_score is not None:
+def _combined_density(
+    chl_score: Optional[float],
+    dynamo_score: float,
+    web_score: Optional[float] = None,
+) -> float:
+    """Combine chlorophyll (ERDDAP), DynamoDB catches, and Gemini web search into fish_s.
+
+    All 3 sources  : chl*0.35 + dynamo*0.25 + web*0.40
+    Chl + dynamo   : chl*0.60 + dynamo*0.40
+    Web + dynamo   : dynamo*0.55 + web*0.45
+    Dynamo only    : dynamo
+    """
+    has_chl = chl_score is not None
+    has_web = web_score is not None
+    if has_chl and has_web:
+        return round(chl_score * 0.35 + dynamo_score * 0.25 + web_score * 0.40, 1)
+    if has_chl:
         return round(chl_score * 0.60 + dynamo_score * 0.40, 1)
+    if has_web:
+        return round(dynamo_score * 0.55 + web_score * 0.45, 1)
     return dynamo_score
 
 
@@ -370,6 +428,9 @@ async def get_nearby_fishing_spots(
             if chl_score is not None:
                 print(f"[fishing_spots] {body['name']}: chlorophyll score={chl_score}", flush=True)
 
+            # Gemini web search score — per water body name, shared by sub-points
+            web_score = await _fetch_gemini_web_score(client, body["name"], c_lat, c_lon)
+
             # Sub-sample points within this body
             sub_points = _sample_geometry_points(body["geometry"], body["name"], body["water_type"], n_sub=3)
 
@@ -377,7 +438,7 @@ async def get_nearby_fishing_spots(
                 dist = _haversine(latitude, longitude, pt["lat"], pt["lon"])
                 transport_s = _transport_score(dist)
                 dynamo_s = _fish_density_score(pt["lat"], pt["lon"], catch_markers)
-                fish_s = _combined_density(chl_score, dynamo_s)
+                fish_s = _combined_density(chl_score, dynamo_s, web_score)
                 confidence = round(fish_s * 0.60 + weather_s * 0.25 + transport_s * 0.15, 1)
 
                 all_spots.append({
@@ -392,6 +453,7 @@ async def get_nearby_fishing_spots(
                     "fish_density_score": round(fish_s, 1),
                     "transport_score": round(transport_s, 1),
                     "chlorophyll_available": chl_score is not None,
+                    "gemini_web_score": web_score,
                     "confidence": confidence,
                     "color": _confidence_color(confidence),
                 })

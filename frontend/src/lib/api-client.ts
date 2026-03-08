@@ -368,6 +368,7 @@ export interface FishingSpot {
   fish_density_score: number;
   transport_score: number;
   chlorophyll_available: boolean;
+  gemini_web_score: number | null;
   confidence: number;
   color: string; // "#10b981" | "#f59e0b" | "#ef4444"
 }

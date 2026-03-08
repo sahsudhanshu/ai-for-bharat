@@ -752,6 +752,9 @@ export default function MapComponent({
                     {spot.chlorophyll_available && (
                       <p className="text-[9px] text-cyan-400 mt-1">🌊 Chlorophyll data included</p>
                     )}
+                    {spot.gemini_web_score !== null && spot.gemini_web_score !== undefined && (
+                      <p className="text-[9px] text-violet-400 mt-0.5">🤖 Web search: {spot.gemini_web_score}/100</p>
+                    )}
                   </div>
 
                   {/* Secondary stats: Weather + Transport */}
