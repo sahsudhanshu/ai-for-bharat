@@ -9,6 +9,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { getConversationsList } from "@/lib/api-client";
+import type { Conversation } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { useLanguage } from "@/lib/i18n";
 import AgentChat from '@/components/AgentChat';
@@ -45,6 +46,7 @@ export default function ChatbotPage() {
 
   const [isLoadingChats, setIsLoadingChats] = useState(true);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [newChatResetToken, setNewChatResetToken] = useState(0);
   const [chats, setChats] = useState<{ id: string; title: string; updatedAt?: string }[]>([]);
 
   // ── Geolocation for Telegram Link ──────────────────────────────────────────
@@ -65,10 +67,6 @@ export default function ChatbotPage() {
         const convList = await getConversationsList();
         setChats(convList.map(c => ({ id: c.conversationId, title: c.title, updatedAt: c.updatedAt })));
         setIsLoadingChats(false);
-
-        if (convList.length > 0) {
-          setCurrentChatId(convList[0].conversationId);
-        }
       } catch { setIsLoadingChats(false); }
     };
     init();
@@ -76,15 +74,33 @@ export default function ChatbotPage() {
 
   const createNewChat = () => {
     setCurrentChatId(null);
-    // Force a re-render of the AgentChat by using a distinct null-ish key or letting the component handle null
+    setNewChatResetToken((prev) => prev + 1);
   };
 
   const handleChatIdChange = (newChatId: string) => {
     setCurrentChatId(newChatId);
+
+    // Optimistically reflect the new conversation immediately.
+    setChats(prev => {
+      if (prev.some(c => c.id === newChatId)) return prev;
+      return [{ id: newChatId, title: 'New Chat', updatedAt: new Date().toISOString() }, ...prev].slice(0, 20);
+    });
+
     // Refresh chats list to get the new title
     getConversationsList().then(convList => {
       setChats(convList.map(c => ({ id: c.conversationId, title: c.title, updatedAt: c.updatedAt })));
     }).catch(console.error);
+  };
+
+  const handleNewConversationCreated = (conv: Conversation) => {
+    setChats(prev => {
+      if (prev.some(c => c.id === conv.conversationId)) return prev;
+      return [{
+        id: conv.conversationId,
+        title: conv.title || 'New Chat',
+        updatedAt: conv.updatedAt || new Date().toISOString(),
+      }, ...prev].slice(0, 20);
+    });
   };
 
   // ── Quick actions ─────────────────────────────────────────────────────────
@@ -127,12 +143,13 @@ export default function ChatbotPage() {
 
         {/* ── Main chat area ── */}
         <div className="lg:col-span-8 flex flex-col h-[400px] sm:h-[500px] lg:h-full min-h-0 order-2 lg:order-1 animate-slide-in-left">
-          {/* Key ensures AgentChat completely remounts when starting a new chat */}
+          {/* Keep component mounted so in-flight streamed replies are not lost on chatId updates */}
           <AgentChat
-            key={currentChatId ?? 'new'}
             variant="full"
             chatId={currentChatId}
+            resetToken={newChatResetToken}
             onChatIdChange={handleChatIdChange}
+            onNewConversationCreated={handleNewConversationCreated}
           />
         </div>
 

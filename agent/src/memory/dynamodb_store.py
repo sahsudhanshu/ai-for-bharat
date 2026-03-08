@@ -147,6 +147,46 @@ def get_messages(
     return items
 
 
+def get_messages_page(
+    conversation_id: str,
+    limit: int = 50,
+    cursor: Optional[str] = None,
+    ascending: bool = True,
+) -> Dict[str, Any]:
+    """Get a paginated message page and cursor for older messages."""
+    table = dynamodb.Table(MESSAGES_TABLE)
+
+    safe_limit = max(1, min(limit, 200))
+    query_args: Dict[str, Any] = {
+        "KeyConditionExpression": Key("conversationId").eq(conversation_id),
+        "ScanIndexForward": False,  # newest first
+        "Limit": safe_limit,
+    }
+
+    if cursor:
+        query_args["ExclusiveStartKey"] = {
+            "conversationId": conversation_id,
+            "timestamp": cursor,
+        }
+
+    resp = table.query(**query_args)
+    items = resp.get("Items", [])
+
+    if ascending:
+        items = items[::-1]
+
+    next_cursor = None
+    lek = resp.get("LastEvaluatedKey")
+    if lek and lek.get("timestamp"):
+        next_cursor = lek["timestamp"]
+
+    return {
+        "items": items,
+        "nextCursor": next_cursor,
+        "hasMore": bool(next_cursor),
+    }
+
+
 def get_recent_messages(conversation_id: str) -> List[Dict[str, Any]]:
     """Get the last SHORT_TERM_MESSAGE_LIMIT messages (verbatim)."""
     return get_messages(conversation_id, limit=SHORT_TERM_MESSAGE_LIMIT, ascending=False)[::-1]

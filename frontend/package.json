@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
+    "dev:clean": "node -e \"const fs=require('fs'); fs.rmSync('.next',{recursive:true,force:true}); fs.rmSync('tsconfig.tsbuildinfo',{force:true});\" && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
@@ -37,13 +38,14 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/leaflet": "^1.9.21",
+    "@types/react-window": "^1.8.8",
     "amazon-cognito-identity-js": "^6.3.16",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
-    "framer-motion": "^12.23.24",
+    "framer-motion": "^12.35.1",
     "input-otp": "^1.4.2",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
@@ -59,12 +61,14 @@
     "react-leaflet": "^5.0.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^3.0.6",
+    "react-window": "^2.2.7",
     "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
     "vaul": "^1.1.2",
-    "zod": "^4.1.12"
+    "zod": "^4.1.12",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",

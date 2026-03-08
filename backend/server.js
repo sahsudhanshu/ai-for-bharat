@@ -9,6 +9,42 @@ const port = 3005;
 app.use(cors());
 app.use(express.json());
 
+const MAX_LOG_LEN = 800;
+
+function truncateForLog(value) {
+    if (value === undefined || value === null) return '';
+    const str = typeof value === 'string' ? value : JSON.stringify(value);
+    return str.length > MAX_LOG_LEN ? `${str.slice(0, MAX_LOG_LEN)}...[truncated]` : str;
+}
+
+// Global request/response logger (including non-Lambda routes)
+app.use((req, res, next) => {
+    const start = Date.now();
+    const requestPreview = truncateForLog({
+        params: req.params,
+        query: req.query,
+        body: req.body,
+    });
+
+    let responsePreview = '';
+    const originalSend = res.send.bind(res);
+    res.send = (body) => {
+        responsePreview = truncateForLog(body);
+        return originalSend(body);
+    };
+
+    console.log(`[BACKEND][REQ] ${req.method} ${req.originalUrl} payload=${requestPreview}`);
+
+    res.on('finish', () => {
+        const durationMs = Date.now() - start;
+        console.log(
+            `[BACKEND][RES] ${req.method} ${req.originalUrl} status=${res.statusCode} duration=${durationMs}ms payload=${responsePreview}`
+        );
+    });
+
+    next();
+});
+
 // Helper to convert Express req/res to Lambda Event format
 const runLambda = async (req, res, lambdaHandler) => {
     const hasBody = req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0;
@@ -23,9 +59,10 @@ const runLambda = async (req, res, lambdaHandler) => {
 
     try {
         const result = await lambdaHandler(event);
+        console.log(`[BACKEND][LAMBDA] ${req.method} ${req.path} statusCode=${result.statusCode} body=${truncateForLog(result.body)}`);
         res.status(result.statusCode).set(result.headers || {}).send(result.body);
     } catch (err) {
-        console.error(err);
+        console.error(`[BACKEND][ERROR] ${req.method} ${req.path}`, err);
         res.status(500).json({ success: false, message: "Internal Server Error" });
     }
 };

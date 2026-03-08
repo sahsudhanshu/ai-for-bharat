@@ -142,6 +142,19 @@ const bn: TranslationStrings = {
     'common.profile': 'প্রোফাইল',
     'common.settings': 'সেটিংস',
     'common.logOut': 'লগ আউট',
+
+    // Capability Cards
+    'capability.title': 'আমি আপনাকে কীভাবে সাহায্য করতে পারি?',
+    'capability.subtitle': 'একটি দ্রুত কাজ বেছে নিন বা আমাকে যেকোনো কিছু জিজ্ঞাসা করুন',
+    'capability.dailyBriefing': 'দৈনিক ব্রিফিং',
+    'capability.dailyBriefingDesc': 'আবহাওয়ার অবস্থা এবং বাজার মূল্য পান',
+    'capability.uploadCatch': 'ক্যাচ আপলোড করুন',
+    'capability.uploadCatchDesc': 'AI দিয়ে মাছের প্রজাতি সনাক্ত করুন',
+    'capability.viewMap': 'মানচিত্র দেখুন',
+    'capability.viewMapDesc': 'সমুদ্র ডেটা এবং মাছ ধরার অঞ্চল অন্বেষণ করুন',
+    'capability.analytics': 'বিশ্লেষণ',
+    'capability.analyticsDesc': 'আয় এবং ক্যাচ ইতিহাস ট্র্যাক করুন',
+    'capability.hint': 'অথবা নীচে আপনার প্রশ্ন টাইপ করুন',
 };
 
 export default bn;

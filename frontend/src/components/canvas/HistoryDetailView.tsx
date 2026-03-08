@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
   Card, CardContent, CardHeader, CardTitle, CardDescription
@@ -17,7 +16,6 @@ import { getGroupDetails, type GroupRecord } from "@/lib/api-client";
 import { resolveMLUrl } from "@/lib/constants";
 import { jsPDF } from "jspdf";
 import { toast } from "sonner";
-import AgentChat from "@/components/AgentChat";
 import "leaflet/dist/leaflet.css";
 
 // Dynamic imports for map components
@@ -57,11 +55,7 @@ function generateSupplement(speciesLabel: string) {
   return { weight_kg, estimatedValue, qualityGrade };
 }
 
-export default function GroupDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const groupId = params.groupId as string;
-
+export default function HistoryDetailView({ groupId, onBack }: { groupId: string; onBack: () => void }) {
   const [group, setGroup] = useState<GroupRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [analysisTime, setAnalysisTime] = useState<number | null>(null);
@@ -212,7 +206,7 @@ export default function GroupDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col h-[calc(100dvh-120px)] items-center justify-center text-center">
+      <div className="h-full min-h-0 flex flex-col items-center justify-center text-center">
         <Loader2 className="w-12 h-12 animate-spin mb-4 text-primary" />
         <p className="text-muted-foreground animate-pulse">Loading analysis history...</p>
       </div>
@@ -221,9 +215,9 @@ export default function GroupDetailPage() {
 
   if (!group || !group.analysisResult) {
     return (
-      <div className="flex-1 flex flex-col h-[calc(100dvh-120px)] items-center justify-center text-center">
+      <div className="h-full min-h-0 flex flex-col items-center justify-center text-center">
         <p className="text-muted-foreground mb-4">Analysis not found or pending</p>
-        <Button onClick={() => router.push("/history")} className="rounded-xl">
+        <Button onClick={onBack} className="rounded-xl">
           Back to History
         </Button>
       </div>
@@ -231,12 +225,12 @@ export default function GroupDetailPage() {
   }
 
   return (
-    <div className="h-[calc(100dvh-120px)] flex flex-col animate-fade-in-up" style={{ animationDuration: '0.4s' }}>
+    <div className="h-full min-h-0 flex flex-col animate-fade-in-up" style={{ animationDuration: '0.4s' }}>
 
       {/* ── Top bar ── */}
       <div className="flex items-center justify-between mb-4 shrink-0">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/upload')} className="rounded-xl mr-1 shrink-0">
+          <Button variant="ghost" size="icon" onClick={onBack} className="rounded-xl mr-1 shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 hidden sm:flex">
@@ -262,11 +256,10 @@ export default function GroupDetailPage() {
         </div>
       </div>
 
-      {/* ── Split view ── */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 min-h-0">
+      <div className="flex-1 w-full min-h-0">
 
         {/* ── LEFT: Image carousel + Analysis Details ── */}
-        <div className="lg:col-span-7 flex flex-col min-h-0 gap-3">
+        <div className="flex flex-col min-h-0 gap-3 w-full">
 
           {/* Current Image Viewer */}
           <div className="relative rounded-2xl overflow-hidden border border-border/15 bg-card/30 backdrop-blur-sm flex-shrink-0 animate-slide-in-left">
@@ -504,18 +497,6 @@ export default function GroupDetailPage() {
             )}
 
           </div>
-        </div>
-
-        {/* ── RIGHT: Agent Chat ── */}
-        <div className="lg:col-span-5 flex flex-col h-full min-h-0 animate-slide-in-right">
-          <AgentChat
-            variant="compact"
-            contextGroupId={groupId}
-            contextImageIndex={selectedImageIndex}
-            contextImageCount={currentImages.length}
-            contextSpecies={topSpeciesName}
-            className="h-full"
-          />
         </div>
 
       </div>

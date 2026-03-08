@@ -28,6 +28,7 @@ Graph flow:
 """
 from __future__ import annotations
 from typing import Any, Dict, Literal
+import asyncio
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
@@ -102,7 +103,7 @@ def _get_llm():
             model=model_id,
             google_api_key=google_api_key,
             temperature=0.7,
-            max_output_tokens=4096,
+            max_output_tokens=1536,
             streaming=True,
         )
         return llm.bind_tools(TOOLS)
@@ -147,11 +148,22 @@ async def load_context(state: AgentState) -> Dict[str, Any]:
     user_id = state["user_id"]
     lang = state.get("selected_language", "en")
 
-    # Build message history (last N verbatim + summary of older)
-    recent_messages, summary = await build_message_history(conversation_id)
+    # Run independent IO in parallel to reduce latency
+    import concurrent.futures, functools, asyncio as _aio
+    loop = _aio.get_running_loop()
 
-    # Long-term memory
-    ltm = get_long_term_memory(user_id)
+    history_task = _aio.ensure_future(build_message_history(conversation_id))
+    ltm_task = loop.run_in_executor(None, get_long_term_memory, user_id)
+
+    recent_messages, summary = await history_task
+    ltm = await ltm_task
+
+    # Filter out placeholder text so the LLM doesn't echo it in responses
+    if ltm and ltm.strip().lower().replace("- ", "") in (
+        "no facts recorded yet.", "no facts recorded yet",
+        "no new facts to record.", "no new facts to record",
+    ):
+        ltm = None
 
     # User location from browser GPS
     lat = state.get("latitude")
@@ -341,24 +353,40 @@ async def tool_executor(state: AgentState) -> Dict[str, Any]:
 
     tool_outputs = state.get("tool_outputs", [])
 
-    for call in last_msg.tool_calls:
+    async def _run_tool(call: Dict[str, Any]) -> Dict[str, Any]:
         tool_name = call["name"]
-        tool_args = call["args"]
+        tool_args = dict(call["args"])
 
-        # Auto-inject user_id for catch tools so the LLM doesn't need to guess it
+        # Auto-inject user_id for catch tools so the LLM doesn't need to guess it.
         if tool_name in ("get_catch_history", "get_catch_details", "get_group_history", "get_group_details"):
             tool_args["user_id"] = state.get("user_id", "")
 
-        if tool_name in TOOL_MAP:
-            try:
-                result = await TOOL_MAP[tool_name].ainvoke(tool_args)
-            except Exception as e:
-                result = f"⚠️ Tool error: {e}"
-        else:
-            result = f"⚠️ Unknown tool: {tool_name}"
+        if tool_name not in TOOL_MAP:
+            return {
+                "call": call,
+                "tool": tool_name,
+                "args": tool_args,
+                "result": f"⚠️ Unknown tool: {tool_name}",
+            }
 
-        messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
-        tool_outputs.append({"tool": tool_name, "args": tool_args, "result": str(result)[:500]})
+        try:
+            result = await TOOL_MAP[tool_name].ainvoke(tool_args)
+        except Exception as e:
+            result = f"⚠️ Tool error: {e}"
+
+        return {
+            "call": call,
+            "tool": tool_name,
+            "args": tool_args,
+            "result": str(result),
+        }
+
+    # Run independent tool calls concurrently to reduce end-to-end latency.
+    tool_results = await asyncio.gather(*[_run_tool(call) for call in last_msg.tool_calls])
+
+    for tr in tool_results:
+        messages.append(ToolMessage(content=tr["result"], tool_call_id=tr["call"]["id"]))
+        tool_outputs.append({"tool": tr["tool"], "args": tr["args"], "result": tr["result"][:500]})
 
     return {"messages": messages, "tool_outputs": tool_outputs}
 

@@ -159,6 +159,19 @@ const en: TranslationStrings = {
   'common.profile': 'Profile',
   'common.settings': 'Settings',
   'common.logOut': 'Log out',
+
+  // Capability Cards
+  'capability.title': 'What can I help you with?',
+  'capability.subtitle': 'Choose a quick action or ask me anything',
+  'capability.dailyBriefing': 'Daily Briefing',
+  'capability.dailyBriefingDesc': 'Get weather conditions and market prices',
+  'capability.uploadCatch': 'Upload Catch',
+  'capability.uploadCatchDesc': 'Identify fish species with AI',
+  'capability.viewMap': 'View Map',
+  'capability.viewMapDesc': 'Explore ocean data and fishing zones',
+  'capability.analytics': 'Analytics',
+  'capability.analyticsDesc': 'Track earnings and catch history',
+  'capability.hint': 'Or type your question below',
 };
 
 export default en;
