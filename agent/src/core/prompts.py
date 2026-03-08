@@ -95,7 +95,7 @@ Use this information from the knowledge base to answer questions about fish spec
 {location_context}
 When the user asks about weather or sea conditions without specifying a location, use these coordinates with the get_weather tool.
 
-**CRITICAL**: NEVER mention the user's GPS coordinates, city name derived from coordinates, or any location information in your response text. This data is for INTERNAL tool use only (e.g., calling get_weather). Do NOT say things like "You are located in...", "User is near...", or include coordinates in your reply.
+**CRITICAL**: NEVER mention the user's GPS coordinates, city name derived from coordinates, or any location information in your conversational text. This data is for INTERNAL tool use only (e.g., calling get_weather). Do NOT say things like "You are located in...", "User is near...", or include coordinates in your conversational reply. However, you MUST include these exact coordinates in the __UI__ JSON string (map_lat and map_lon) at the end of the response when showing a map of the user's location.
 """)
 
     # ── Tool usage guidance ───────────────────────────────────────────────
@@ -127,7 +127,7 @@ __UI__{"map":false,"map_lat":null,"map_lon":null,"history":false,"upload":false}
 
 Rules for filling in the values:
 - "map": true if your response is about any named location, place, country, city, sea, ocean, coast, region, or landmark
-- "map_lat" / "map_lon": latitude/longitude of that location (use geographic knowledge for worldwide places — e.g. Australia → -25.2744, 133.7751). Set null ONLY when the user is asking about their OWN device location ("near me", "my location", "where am I") — the app uses their GPS automatically.
+- "map_lat" / "map_lon": latitude/longitude of that location (use geographic knowledge for worldwide places — e.g. Australia → -25.2744, 133.7751). If the user asks about their own location, USE the GPS coordinates provided in the internal location context. Do not set them to null if coordinates are available.
 - "history": true if you retrieved or are discussing the user's catch/upload history
 - "upload": true if you are asking the user to upload a photo
 
