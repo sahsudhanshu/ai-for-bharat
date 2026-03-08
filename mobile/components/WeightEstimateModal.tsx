@@ -30,19 +30,16 @@ import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
 import { COLORS, FONTS, SPACING, RADIUS } from "../lib/constants";
 import {
-  predictWeight,
-  loadWeightModel,
-  isWeightModelLoaded,
-  type WeightInputs,
-  type WeightResult,
-} from "../lib/weight-inference";
+  estimateFishWeightOnline,
+  type OnlineWeightResult,
+} from "../lib/api-client";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onConfirm: (weightG: number) => void;
+  onConfirm: (weightG: number, fullResult?: OnlineWeightResult) => void;
   species: string;
   fishIndex: number;
 }
@@ -52,7 +49,7 @@ type Phase = "input" | "loading" | "result" | "error";
 // ── Field definitions ──────────────────────────────────────────────────────────
 
 const FIELDS: {
-  key: keyof Omit<WeightInputs, "species">;
+  key: "length1" | "length3" | "height" | "width";
   label: string;
   hint: string;
   placeholder: string;
@@ -100,7 +97,7 @@ export function WeightEstimateModal({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [phase, setPhase] = useState<Phase>("input");
-  const [result, setResult] = useState<WeightResult | null>(null);
+  const [result, setResult] = useState<OnlineWeightResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
   const handleClose = useCallback(() => {
@@ -138,21 +135,16 @@ export function WeightEstimateModal({
     setPhase("loading");
 
     try {
-      if (!isWeightModelLoaded()) {
-        await loadWeightModel();
-      }
-
-      const inputs: WeightInputs = {
+      const onlineResult = await estimateFishWeightOnline({
         species,
         length1: parseFloat(values.length1),
         length3: parseFloat(values.length3),
         height: parseFloat(values.height),
         width: parseFloat(values.width),
-      };
+      });
 
-      const weightResult = await predictWeight(inputs);
-      // Auto-confirm: update parent and close without a manual confirmation step
-      onConfirm(weightResult.predictedWeightG);
+      const weightG = onlineResult.estimated_weight_grams;
+      onConfirm(weightG, onlineResult);
       handleClose();
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
@@ -229,9 +221,9 @@ export function WeightEstimateModal({
               color={COLORS.primaryLight}
               style={styles.spinner}
             />
-            <Text style={styles.loadingText}>Running on-device model…</Text>
+            <Text style={styles.loadingText}>Estimating weight…</Text>
             <Text style={styles.loadingSubtext}>
-              XGBoost regression · LWR formula
+              ML model · Scientific formula · Gemini analysis
             </Text>
           </View>
         )}
