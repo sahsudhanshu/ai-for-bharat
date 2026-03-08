@@ -78,24 +78,12 @@ if RAG_AVAILABLE:
 def _get_llm():
     import os
 
-    # ── Primary: Amazon Nova Pro via AWS Bedrock Converse API ────────────────
-    if _BEDROCK_AVAILABLE:
-        model_id = os.getenv("BEDROCK_LLM_MODEL_ID", "us.amazon.nova-pro-v1:0")
-        region   = os.getenv("BEDROCK_REGION", "us-east-1")
-        api_key  = os.getenv("BEDROCK_API_KEY", "") or None
-        llm = _ChatBedrock(
-            model=model_id,
-            region_name=region,
-            temperature=0.7,
-            max_tokens=4096,
-            bedrock_api_key=api_key,
-        )
-        return llm.bind_tools(TOOLS)
+    use_gemini = os.getenv("USE_GEMINI", "true").strip().lower() in ("1", "true", "yes")
 
-    # ── Fallback: Google Gemini ──────────────────────────────────────────────
-    if _GEMINI_AVAILABLE:
-        import logging
-        logging.warning("langchain-aws not installed; falling back to Google Gemini")
+    # ── Google Gemini ────────────────────────────────────────────────────────
+    if use_gemini:
+        if not _GEMINI_AVAILABLE:
+            raise RuntimeError("USE_GEMINI=true but langchain-google-genai is not installed.")
         google_api_key = os.getenv("GOOGLE_API_KEY", "")
         model_id       = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
         llm = _ChatGemini(
@@ -107,10 +95,20 @@ def _get_llm():
         )
         return llm.bind_tools(TOOLS)
 
-    raise RuntimeError(
-        "No LLM backend available. Install langchain-aws (recommended) or "
-        "langchain-google-genai and set GOOGLE_API_KEY."
+    # ── AWS Bedrock ──────────────────────────────────────────────────────────
+    if not _BEDROCK_AVAILABLE:
+        raise RuntimeError("USE_GEMINI=false but langchain-aws is not installed.")
+    model_id = os.getenv("BEDROCK_LLM_MODEL_ID", "us.amazon.nova-pro-v1:0")
+    region   = os.getenv("BEDROCK_REGION", "us-east-1")
+    api_key  = os.getenv("BEDROCK_API_KEY", "") or None
+    llm = _ChatBedrock(
+        model=model_id,
+        region_name=region,
+        temperature=0.7,
+        max_tokens=4096,
+        bedrock_api_key=api_key,
     )
+    return llm.bind_tools(TOOLS)
 
 
 
@@ -275,53 +273,28 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def agent(state: AgentState) -> Dict[str, Any]:
-    """Invoke the LLM with the current message history. Falls back to mock if Gemini unavailable."""
+    """Invoke the LLM with the current message history."""
     import logging
-    import traceback
     lang = state.get("selected_language", "en")
-    
-    try:
-        # Rebuild system prompt with RAG context if available
-        messages = list(state["messages"])
-        
-        if state.get("rag_context"):
-            system_prompt = build_system_prompt(
-                selected_language=lang,
-                summary=state.get("summary"),
-                long_term_memory=state.get("long_term_memory"),
-                region_context=state.get("region_context"),
-                catch_context=state.get("catch_context"),
-                location_context=None,
-                rag_context=state.get("rag_context"),
-            )
-            if messages and isinstance(messages[0], SystemMessage):
-                messages[0] = SystemMessage(content=system_prompt)
 
-        llm = _get_llm()
-        response = await llm.ainvoke(messages)
-        logging.debug(f"LLM response: content_len={len(response.content) if response.content else 0}, tool_calls={len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0}")
-    except Exception as bedrock_err:
-        # Primary LLM failed (most likely Bedrock throttle) — try Gemini directly
-        logging.warning(f"Primary LLM failed ({type(bedrock_err).__name__}): {bedrock_err}. Trying Gemini fallback...")
-        try:
-            if not _GEMINI_AVAILABLE:
-                raise RuntimeError("langchain-google-genai not installed")
-            import os
-            from langchain_google_genai import ChatGoogleGenerativeAI as _FallbackGemini
-            _fallback = _FallbackGemini(
-                model=os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash"),
-                google_api_key=os.getenv("GOOGLE_API_KEY", ""),
-                temperature=0.7,
-                max_output_tokens=4096,
-            ).bind_tools(TOOLS)
-            response = await _fallback.ainvoke(messages)
-            logging.info("Gemini fallback succeeded.")
-        except Exception as gemini_err:
-            logging.error(f"Gemini fallback also failed ({type(gemini_err).__name__}): {gemini_err}\n{traceback.format_exc()}")
-            response = AIMessage(content=(
-                "I'm sorry, I'm having trouble connecting to my AI backend right now. "
-                "Please try again in a few moments. 🙏"
-            ))
+    messages = list(state["messages"])
+
+    if state.get("rag_context"):
+        system_prompt = build_system_prompt(
+            selected_language=lang,
+            summary=state.get("summary"),
+            long_term_memory=state.get("long_term_memory"),
+            region_context=state.get("region_context"),
+            catch_context=state.get("catch_context"),
+            location_context=None,
+            rag_context=state.get("rag_context"),
+        )
+        if messages and isinstance(messages[0], SystemMessage):
+            messages[0] = SystemMessage(content=system_prompt)
+
+    llm = _get_llm()
+    response = await llm.ainvoke(messages)
+    logging.debug(f"LLM response: content_len={len(response.content) if response.content else 0}")
     return {"messages": state["messages"] + [response]}
 
 
