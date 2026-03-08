@@ -2256,6 +2256,51 @@ export async function saveWeightEstimate(
   });
 }
 
+// ── Online Weight Estimation (Agent ML + Formula + Gemini) ────────────────────
+
+export interface OnlineWeightRequest {
+  species: string;
+  length1: number;
+  length3: number;
+  height: number;
+  width: number;
+}
+
+export interface OnlineWeightResult {
+  species: string;
+  estimated_weight_grams: number;
+  estimated_weight_range?: { min_grams: number; max_grams: number };
+  ml_predicted_weight_grams?: number;
+  formula_calculated_weight_grams?: number;
+  market_price_per_kg?: {
+    min_inr: number;
+    max_inr: number;
+    market_reference?: string;
+  };
+  estimated_fish_value?: { min_inr: number; max_inr: number };
+  quality_grade?: string;
+  notes?: string;
+}
+
+/**
+ * Estimate fish weight using the agent's ML + scientific-formula + Gemini pipeline.
+ */
+export async function estimateFishWeightOnline(
+  req: OnlineWeightRequest,
+): Promise<OnlineWeightResult> {
+  const res = await agentFetch<{ success: boolean; data: OnlineWeightResult }>(
+    "/fish-weight/estimate",
+    {
+      method: "POST",
+      body: JSON.stringify(req),
+    },
+  );
+  if (!res.success || !res.data) {
+    throw new Error("Weight estimation failed — no data returned");
+  }
+  return res.data;
+}
+
 /**
  * Sync an offline analysis record to the backend.
  * Returns the backend-assigned ID so the local record can be updated.

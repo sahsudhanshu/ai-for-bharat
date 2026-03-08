@@ -868,7 +868,7 @@ export default function HistoryDetailView({
                               <img
                                 src={resolveMLUrl(crop.species.gradcam_url)}
                                 alt="Species Grad-CAM"
-                                className="w-full rounded-xl border border-border/30 object-contain bg-black/10 max-h-[160px] shadow-sm hover:scale-[1.02] transition-transform"
+                                className="w-full h-auto rounded-xl border border-border/30 object-contain bg-black/10 shadow-sm hover:scale-[1.02] transition-transform"
                               />
                             </div>
                           )}
@@ -880,7 +880,7 @@ export default function HistoryDetailView({
                               <img
                                 src={resolveMLUrl(crop.disease.gradcam_url)}
                                 alt="Disease Grad-CAM"
-                                className="w-full rounded-xl border border-border/30 object-contain bg-black/10 max-h-[160px] shadow-sm hover:scale-[1.02] transition-transform"
+                                className="w-full h-auto rounded-xl border border-border/30 object-contain bg-black/10 shadow-sm hover:scale-[1.02] transition-transform"
                               />
                             </div>
                           )}

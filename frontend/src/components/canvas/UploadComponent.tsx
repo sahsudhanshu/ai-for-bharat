@@ -1134,7 +1134,7 @@ export default function UploadComponent({
                                 <img
                                   src={resolveMLUrl(crop.species.gradcam_url)}
                                   alt="Species Grad-CAM"
-                                  className="w-full rounded-xl border border-border/30 shadow-sm object-contain bg-black/5 max-h-[160px]"
+                                  className="w-full h-auto rounded-xl border border-border/30 shadow-sm object-contain bg-black/5"
                                 />
                               </div>
                             )}
@@ -1146,7 +1146,7 @@ export default function UploadComponent({
                                 <img
                                   src={resolveMLUrl(crop.disease.gradcam_url)}
                                   alt="Disease Grad-CAM"
-                                  className="w-full rounded-xl border border-border/30 shadow-sm object-contain bg-black/5 max-h-[160px]"
+                                  className="w-full h-auto rounded-xl border border-border/30 shadow-sm object-contain bg-black/5"
                                 />
                               </div>
                             )}

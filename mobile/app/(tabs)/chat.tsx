@@ -31,7 +31,10 @@ import { useLocalSearchParams, useNavigation, router } from "expo-router";
 import * as Speech from "expo-speech";
 import * as Location from "expo-location";
 import { Audio } from "expo-av";
-import { synthesizeSpeech } from "../../lib/api-client";
+import {
+  synthesizeSpeech,
+  type OnlineWeightResult,
+} from "../../lib/api-client";
 import { chatStreamClient } from "../../lib/chat-stream-client";
 import { StreamingText } from "../../components/chat/StreamingText";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -324,7 +327,30 @@ export default function ChatScreen() {
         const fishList: FishItem[] = [];
 
         if (analysisData?.mode === "online" && analysisData.groupAnalysis) {
-          const detections = analysisData.groupAnalysis.detections ?? [];
+          // Use detections if available, otherwise build from images[].crops
+          let detections = analysisData.groupAnalysis.detections ?? [];
+          if (detections.length === 0) {
+            const built: typeof detections = [];
+            for (const image of analysisData.groupAnalysis.images || []) {
+              if (image.error) continue;
+              for (const crop of Object.values(image.crops || {})) {
+                built.push({
+                  cropUrl: crop.crop_url || "",
+                  species: crop.species?.label || "Unknown",
+                  confidence: crop.species?.confidence || 0,
+                  diseaseStatus: crop.disease?.label || "Healthy",
+                  diseaseConfidence: crop.disease?.confidence || 0,
+                  weight: 0,
+                  value: 0,
+                  gradcamUrls: {
+                    species: crop.species?.gradcam_url || "",
+                    disease: crop.disease?.gradcam_url || "",
+                  },
+                });
+              }
+            }
+            detections = built;
+          }
           detections.forEach((d, i) => {
             fishList.push({
               index: i,
@@ -604,7 +630,10 @@ export default function ChatScreen() {
       type: "group",
     });
 
-  const handleWeightResult = (weightG: number) => {
+  const handleWeightResult = (
+    weightG: number,
+    fullResult?: OnlineWeightResult,
+  ) => {
     setWeightModalVisible(false);
 
     if (isScanChat) {
@@ -630,15 +659,51 @@ export default function ChatScreen() {
       const species =
         scanFishList.find((f) => f.index === weightFishIndex)?.species ||
         weightSpecies;
-      const kgStr = (weightG / 1000).toFixed(2);
-      sendMessage(
-        `I measured Fish #${weightFishIndex + 1} (${species}): estimated weight is ${kgStr} kg (${weightG.toFixed(0)}g). What is the current market price for this fish? Any storage or quality recommendations?`,
-      );
+
+      if (fullResult) {
+        const kgStr = (fullResult.estimated_weight_grams / 1000).toFixed(2);
+        const rangeStr = fullResult.estimated_weight_range
+          ? `${(fullResult.estimated_weight_range.min_grams / 1000).toFixed(2)}–${(fullResult.estimated_weight_range.max_grams / 1000).toFixed(2)} kg`
+          : "";
+        const priceStr = fullResult.market_price_per_kg
+          ? `\u20b9${fullResult.market_price_per_kg.min_inr}–${fullResult.market_price_per_kg.max_inr}/kg`
+          : "";
+        const valueStr = fullResult.estimated_fish_value
+          ? `\u20b9${fullResult.estimated_fish_value.min_inr}–${fullResult.estimated_fish_value.max_inr}`
+          : "";
+        const grade = fullResult.quality_grade || "";
+        sendMessage(
+          `Fish #${weightFishIndex + 1} (${species}) weight estimation results:\n` +
+            `• Estimated weight: ${kgStr} kg${rangeStr ? ` (range: ${rangeStr})` : ""}\n` +
+            (priceStr ? `• Market price: ${priceStr}\n` : "") +
+            (valueStr ? `• Estimated value: ${valueStr}\n` : "") +
+            (grade ? `• Quality grade: ${grade}\n` : "") +
+            (fullResult.notes ? `• Notes: ${fullResult.notes}\n` : "") +
+            `Any additional storage or quality recommendations?`,
+        );
+      } else {
+        const kgStr = (weightG / 1000).toFixed(2);
+        sendMessage(
+          `I measured Fish #${weightFishIndex + 1} (${species}): estimated weight is ${kgStr} kg (${weightG.toFixed(0)}g). What is the current market price for this fish? Any storage or quality recommendations?`,
+        );
+      }
     } else {
-      const kgStr = (weightG / 1000).toFixed(2);
-      sendMessage(
-        `I just measured a ${weightSpecies} and the on-device model estimated its weight at ${kgStr} kg (${weightG.toFixed(0)}g). What is the current market value? Any quality or storage recommendations?`,
-      );
+      if (fullResult) {
+        const kgStr = (fullResult.estimated_weight_grams / 1000).toFixed(2);
+        const priceStr = fullResult.market_price_per_kg
+          ? `\u20b9${fullResult.market_price_per_kg.min_inr}–${fullResult.market_price_per_kg.max_inr}/kg`
+          : "";
+        sendMessage(
+          `Weight estimation for ${weightSpecies}: ${kgStr} kg.` +
+            (priceStr ? ` Market price: ${priceStr}.` : "") +
+            ` Any quality or storage recommendations?`,
+        );
+      } else {
+        const kgStr = (weightG / 1000).toFixed(2);
+        sendMessage(
+          `I just measured a ${weightSpecies} and the estimated weight is ${kgStr} kg (${weightG.toFixed(0)}g). What is the current market value? Any quality or storage recommendations?`,
+        );
+      }
     }
   };
 
