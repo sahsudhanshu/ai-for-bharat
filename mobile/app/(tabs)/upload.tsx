@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import {
@@ -65,16 +65,21 @@ import {
 } from "../../lib/offline-inference";
 import { BoundingBoxOverlay } from "../../components/BoundingBoxOverlay";
 import { generateMockSupplement } from "../../lib/species-data";
-import { setAnalysisData } from "../../lib/analysis-store";
+import { setAnalysisData, getAnalysisData } from "../../lib/analysis-store";
 import { toastService } from "../../lib/toast-service";
-import { saveLocalAnalysis } from "../../lib/local-history";
+import { saveLocalAnalysis, updateLocalDetectionWeight } from "../../lib/local-history";
+import { SyncService } from "../../lib/sync-service";
 import { WeightEstimateModal } from "../../components/WeightEstimateModal";
 import { ProfileMenu } from "../../components/ui/ProfileMenu";
 
 const YOLO_CONFIDENCE_THRESHOLD = 0.3;
 const SCREEN_WIDTH = Dimensions.get("window").width;
+const IS_COMPACT_SCREEN = SCREEN_WIDTH < 390;
 
 type Step = "idle" | "uploading" | "processing" | "done" | "error";
+
+const CACHE_HINT_MESSAGE =
+  "If you think this error is incorrect, try clearing your cache and retrying.";
 
 export default function UploadScreen() {
   const { t, locale, isLoaded } = useLanguage();
@@ -102,8 +107,8 @@ export default function UploadScreen() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // ── Detection state ──
-  const [detections, setDetections] = useState<BoundingBox[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
+  const [detections, setDetections] = useState<BoundingBox[]>([]);
   const [detectionTime, setDetectionTime] = useState<number | null>(null);
   const [cropUris, setCropUris] = useState<string[]>([]);
   const [modelError, setModelError] = useState(false);
@@ -150,6 +155,17 @@ export default function UploadScreen() {
   const refreshTfliteStatus = () => {
     setTfliteInfo(getTFLiteModelDebugInfo());
   };
+
+  // Re-sync offlineResults from the store when the tab is focused again.
+  // This ensures weights entered in the detail screen propagate back here.
+  useFocusEffect(
+    useCallback(() => {
+      const stored = getAnalysisData();
+      if (stored?.mode === "offline") {
+        setOfflineResults([...stored.offlineResults]);
+      }
+    }, []),
+  );
 
   // Preload all models on mount
   useEffect(() => {
@@ -383,7 +399,18 @@ export default function UploadScreen() {
           processingTime,
           imageUri: targetUri,
           location,
-        }).catch((e) => console.warn("[Upload] Local history save failed:", e));
+        })
+          .then((record) => {
+            // Patch the local record ID into the store so the detail screen
+            // can update the persisted record when the user enters measurements.
+            const current = getAnalysisData();
+            if (current?.mode === "offline") {
+              current.localRecordId = record.id;
+            }
+            // Push fresh counts to the sync indicator in the header.
+            SyncService.refreshStatus();
+          })
+          .catch((e) => console.warn("[Upload] Local history save failed:", e));
 
         // Extract detection boxes for the BoundingBoxOverlay
         if (offlineDets.length > 0) {
@@ -428,7 +455,11 @@ export default function UploadScreen() {
         setIsDetecting(false);
         setStep("error");
         console.error("[Upload] ❌ Offline analysis failed:", e.message);
-        Alert.alert("Offline Analysis Failed", e.message || t("common.error"));
+        const errorMessage = e.message || t("common.error");
+        Alert.alert(
+          "Offline Analysis Failed",
+          `${errorMessage}\n\n${CACHE_HINT_MESSAGE}`,
+        );
       }
     } else if (isMultiImage) {
       // ═══════════════════════════════════════════════════
@@ -655,6 +686,26 @@ export default function UploadScreen() {
             location,
           });
 
+          // Persist to local history and attach the record ID to the store
+          saveLocalAnalysis({
+            mode: "offline",
+            offlineResults: offlineDets,
+            processingTime,
+            imageUri: targetUri,
+            location,
+          })
+            .then((record) => {
+              const current = getAnalysisData();
+              if (current?.mode === "offline") {
+                current.localRecordId = record.id;
+              }
+              // Push fresh counts to the sync indicator in the header.
+              SyncService.refreshStatus();
+            })
+            .catch((e) =>
+              console.warn("[Upload] Local history save failed:", e),
+            );
+
           if (offlineDets.length > 0) {
             // Reconstruct boxes for overlay
             const imgDims = await new Promise<{ w: number; h: number }>(
@@ -691,9 +742,12 @@ export default function UploadScreen() {
             fallbackErr.message,
           );
           setStep("error");
+          const cloudErrorMessage = e.message || t("common.error");
+          const offlineErrorMessage =
+            fallbackErr.message || t("common.error");
           Alert.alert(
             "Analysis Failed",
-            `Cloud: ${e.message}\nOffline: ${fallbackErr.message}`,
+            `Cloud: ${cloudErrorMessage}\nOffline: ${offlineErrorMessage}\n\n${CACHE_HINT_MESSAGE}`,
           );
         }
       }
@@ -1565,12 +1619,15 @@ export default function UploadScreen() {
             const avgConf =
               offlineResults.reduce((s, d) => s + d.speciesConfidence, 0) /
               totalFish;
-            const totalWeightKg =
-              offlineResults.reduce((s, d) => s + d.weightG, 0) / 1000;
-            const totalValue = offlineResults.reduce(
-              (s, d) => s + d.estimatedValue,
-              0,
+            // Only count fish where the user has manually entered a measurement.
+            // bbox-estimated weights are not shown (they're unreliable for display).
+            const userWeightedFish = offlineResults.filter(
+              (d) => d.weightUserEntered,
             );
+            const hasUserWeights = userWeightedFish.length > 0;
+            const totalWeightKg =
+              userWeightedFish.reduce((s, d) => s + d.weightG, 0) / 1000;
+            // Prices are unavailable in offline mode — never show estimated value.
             const anyDisease = offlineResults.some(
               (d) => d.disease !== "Healthy Fish",
             );
@@ -1601,14 +1658,21 @@ export default function UploadScreen() {
                   </Text>
                 </View>
                 <Card style={styles.aggregateCard} padding={SPACING.xl}>
-                  <View style={styles.aggregateHeader}>
-                    <Text style={styles.aggregateTitle}>
-                      {totalFish} Fish Detected (On-Device)
-                    </Text>
-                    {offlineProcessingTime !== null && (
-                      <Text style={styles.aggregateTime}>
-                        {offlineProcessingTime}ms
+                  <View style={styles.offlineAggregateHeader}>
+                    <View style={styles.offlineAggregateTitleBlock}>
+                      <Text style={styles.offlineAggregateTitle}>
+                        {totalFish} Fish Detected
                       </Text>
+                      <Text style={styles.offlineAggregateSubtitle}>
+                        On-device inference
+                      </Text>
+                    </View>
+                    {offlineProcessingTime !== null && (
+                      <View style={styles.offlineAggregateTimeBadge}>
+                        <Text style={styles.offlineAggregateTime}>
+                          {offlineProcessingTime}ms
+                        </Text>
+                      </View>
                     )}
                   </View>
 
@@ -1624,19 +1688,16 @@ export default function UploadScreen() {
                     </Text>
                   </View>
 
-                  <View style={styles.aggregateRow}>
-                    <Text style={styles.aggregateLabel}>Total Weight</Text>
-                    <Text style={styles.aggregateValue}>
-                      {totalWeightKg.toFixed(2)} kg
-                    </Text>
-                  </View>
+                  {hasUserWeights && (
+                    <View style={styles.aggregateRow}>
+                      <Text style={styles.aggregateLabel}>Total Weight</Text>
+                      <Text style={styles.aggregateValue}>
+                        {totalWeightKg.toFixed(2)} kg
+                      </Text>
+                    </View>
+                  )}
 
-                  <View style={styles.aggregateRow}>
-                    <Text style={styles.aggregateLabel}>Total Value</Text>
-                    <Text style={styles.aggregateValue}>
-                      ₹{totalValue.toLocaleString("en-IN")}
-                    </Text>
-                  </View>
+                  {/* Total Value is hidden in offline mode — market prices require connectivity */}
 
                   <View style={styles.aggregateRow}>
                     <Text style={styles.aggregateLabel}>Disease Status</Text>
@@ -1733,7 +1794,10 @@ export default function UploadScreen() {
                   label="Ask AI About This Catch"
                   onPress={() => {
                     const speciesList = Object.keys(speciesDist).join(", ");
-                    const prompt = `I just analyzed ${totalFish} fish using offline detection. Total weight: ${totalWeightKg.toFixed(2)} kg, Total value: ₹${totalValue}. Species: ${speciesList}. What are the current market prices and any recommendations?`;
+                    const weightNote = hasUserWeights
+                      ? `Total weight: ${totalWeightKg.toFixed(2)} kg. `
+                      : "";
+                    const prompt = `I just analyzed ${totalFish} fish using offline detection. ${weightNote}Species: ${speciesList}. What are the current market prices and any recommendations?`;
                     router.push({
                       pathname: "/(tabs)/chat",
                       params: { initialMessage: prompt },
@@ -2327,6 +2391,43 @@ const styles = StyleSheet.create({
   aggregateCard: {
     marginBottom: SPACING.md,
   },
+  offlineAggregateHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: SPACING.md,
+    marginBottom: SPACING.md,
+    paddingBottom: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  offlineAggregateTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  offlineAggregateTitle: {
+    fontSize: FONTS.sizes["2xl"],
+    lineHeight: 32,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.primaryLight,
+  },
+  offlineAggregateSubtitle: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textMuted,
+    marginTop: SPACING.xs,
+  },
+  offlineAggregateTimeBadge: {
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.bgSurface,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    alignSelf: "flex-start",
+  },
+  offlineAggregateTime: {
+    fontSize: FONTS.sizes.sm,
+    color: COLORS.textMuted,
+    fontWeight: FONTS.weights.semibold,
+  },
   aggregateHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2394,6 +2495,8 @@ const styles = StyleSheet.create({
     fontSize: FONTS.sizes.sm,
     color: COLORS.textSecondary,
     flex: 1,
+    minWidth: 0,
+    paddingRight: SPACING.sm,
   },
   speciesDistRight: {
     flexDirection: "row",
@@ -2571,12 +2674,13 @@ const styles = StyleSheet.create({
 
   // Action buttons
   actionButtonsRow: {
-    flexDirection: "row",
+    flexDirection: IS_COMPACT_SCREEN ? "column" : "row",
+    alignItems: "stretch",
     gap: SPACING.md,
     marginTop: SPACING.md,
     marginBottom: SPACING.md,
   },
   actionButton: {
-    flex: 1,
+    ...(IS_COMPACT_SCREEN ? { width: "100%" } : { flex: 1 }),
   },
 });

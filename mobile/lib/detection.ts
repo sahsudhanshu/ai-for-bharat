@@ -278,7 +278,7 @@ export async function runDetection(imageUri: string): Promise<BoundingBox[]> {
   let outputs: Awaited<ReturnType<TensorflowModel["run"]>>;
   for (let attempt = 0; ; attempt++) {
     try {
-      outputs = await _model!.run([inputTensor]);
+      outputs =  _model!.runSync([inputTensor]);
       break;
     } catch (runErr) {
       if (attempt < MAX_RUN_RETRIES && isNativeHandleError(runErr)) {

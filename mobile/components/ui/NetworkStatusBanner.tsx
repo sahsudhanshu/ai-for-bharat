@@ -3,13 +3,15 @@
  * Displays offline mode banner and connection quality indicator
  */
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNetwork } from "../../lib/network-context";
 import { SPACING } from "../../lib/constants";
 
 export function NetworkStatusBanner() {
   const { isOnline, connectionQuality, effectiveMode } = useNetwork();
+  const insets = useSafeAreaInsets();
 
   // Don't show banner if online with good connection
   if (isOnline && connectionQuality !== "poor" && effectiveMode === "online") {
@@ -42,7 +44,7 @@ export function NetworkStatusBanner() {
   if (!config) return null;
 
   return (
-    <View style={[styles.banner, { backgroundColor: `${config.color}15` }]}>
+    <View style={[styles.banner, { backgroundColor: `${config.color}15`, paddingTop: insets.top + SPACING.sm }]}>
       <View style={styles.content}>
         <Ionicons name={config.icon} size={20} color={config.color} />
         <View style={styles.textContainer}>

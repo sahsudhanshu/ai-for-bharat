@@ -2225,6 +2225,7 @@ export async function getZoneInsights(zoneId: string): Promise<{
 // ── Weight Estimate Sync ──────────────────────────────────────────────────────
 
 export interface WeightEstimatePayload {
+  groupId?: string;
   imageUri: string;
   fishIndex: number;
   species: string;
@@ -2268,6 +2269,69 @@ export async function saveOfflineAnalysis(
   });
 }
 
+// ── Offline Session Sync (two-phase: prepare → S3 upload → commit) ────────────
+
+export interface OfflineSessionPreparePayload {
+  sessionType: "single" | "group";
+  files: { fileName: string; fileType: string }[];
+  location?: { lat: number; lng: number } | null;
+}
+
+export interface OfflineSessionCommitPayload {
+  sessionType: "single" | "group";
+  sessionId: string;
+  createdAt: string;
+  location?: { lat: number; lng: number } | null;
+  processingTime?: number;
+  // single
+  localId?: string;
+  detections?: unknown[];
+  fishCount?: number;
+  avgConfidence?: number;
+  speciesDistribution?: Record<string, number>;
+  diseaseDetected?: boolean;
+  s3Key?: string;
+  // group
+  localGroupId?: string;
+  images?: unknown[];
+}
+
+export interface OfflineSessionPrepareResult {
+  token: string;
+  sessionId: string;
+  sessionType: string;
+  presignedUrls: { uploadUrl: string; s3Key: string; index: number }[];
+}
+
+export interface OfflineSessionCommitResult {
+  imageId?: string;
+  groupId?: string;
+  remoteId?: string;
+}
+
+/**
+ * Two-phase offline session sync.
+ *
+ * action = "prepare" → returns presigned S3 URLs
+ * action = "commit"  → persists the session to DynamoDB (ai-bharat-images or ai-bharat-groups)
+ */
+export async function syncOfflineSession(
+  action: "prepare" | "commit",
+  payload: OfflineSessionPreparePayload | OfflineSessionCommitPayload,
+): Promise<OfflineSessionPrepareResult & OfflineSessionCommitResult> {
+  if (IS_DEMO_MODE) {
+    return { token: "", sessionId: "", sessionType: "single", presignedUrls: [] };
+  }
+  const endpoint =
+    action === "prepare"
+      ? ENDPOINTS.syncOfflineSessionPrepare
+      : ENDPOINTS.syncOfflineSessionCommit;
+  return apiFetch(endpoint, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 /**
  * Convenience object that bundles the most common API calls.
  * Matches the shape expected by integration tests and allows easy mocking.
@@ -2288,4 +2352,5 @@ export const apiClient = {
   changePassword,
   exportUserData,
   deleteUserAccount,
+  syncOfflineSession,
 };

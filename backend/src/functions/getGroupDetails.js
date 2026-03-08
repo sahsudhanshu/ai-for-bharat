@@ -10,7 +10,7 @@ const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { verifyToken } = require("../utils/auth");
 const { ok, unauthorized, notFound, serverError, badRequest } = require("../utils/response");
-const { getGroup } = require("../utils/groupsDb");
+const { getGroupAnywhere } = require("../utils/groupsDb");
 const { s3 } = require("../utils/s3");
 
 const BUCKET = process.env.S3_BUCKET_NAME;
@@ -53,8 +53,8 @@ exports.handler = async (event) => {
     }
 
     try {
-        // Get group record from DynamoDB
-        const group = await getGroup(groupId);
+        // Get group record from DynamoDB (checking both tables)
+        const group = await getGroupAnywhere(groupId);
 
         if (!group) {
             return notFound("Group not found");

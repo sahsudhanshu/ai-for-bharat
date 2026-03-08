@@ -205,8 +205,12 @@ export class SyncService {
     const offlinePending = offlineQueue.getCount();
     const offlineFailed = offlineQueue.getFailedCount();
 
+    // Include local history pending counts
+    const { getPendingLocalRecords } = await import("./local-history");
+    const localPending = (await getPendingLocalRecords()).length;
+
     return {
-      pending: pending + offlinePending,
+      pending: pending + offlinePending + localPending,
       failed: failed + offlineFailed,
       syncing: this.isSyncing,
       syncStatus: this.syncStatus,
@@ -239,6 +243,14 @@ export class SyncService {
     this.getSyncStatus().then((status) => {
       this.listeners.forEach((listener) => listener(status));
     });
+  }
+
+  /**
+   * Public wrapper used by external modules (e.g. local-history, upload)
+   * to push a fresh status to all subscribers without running a sync.
+   */
+  static refreshStatus(): void {
+    this.notifyListeners();
   }
 }
 

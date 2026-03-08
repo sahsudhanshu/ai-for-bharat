@@ -14,7 +14,7 @@ const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { ddb } = require("./dynamodb");
 const { s3 } = require("./s3");
-const { queryGroupsByUserId } = require("./groupsDb");
+const { transformLegacyToGroup, queryGroupsByUserId } = require("./groupsDb");
 
 const BUCKET = process.env.S3_BUCKET_NAME;
 const URL_EXPIRY_SECONDS = 3600; // 1 hour for viewing
@@ -55,40 +55,6 @@ async function queryLegacyImages(userId, options = {}) {
     }
 }
 
-/**
- * Transform a legacy single-image record to group format
- * 
- * @param {Object} legacyRecord - Legacy image record from ai-bharat-images table
- * @returns {Object} Transformed group history item
- * 
- * Validates: Requirements 6.6, 6.7
- */
-function transformLegacyToGroup(legacyRecord) {
-    // Extract species and fish count from analysisResult if available
-    let primarySpecies = null;
-    let totalFishCount = 0;
-
-    if (legacyRecord.analysisResult) {
-        // Legacy records store single fish analysis
-        primarySpecies = legacyRecord.analysisResult.species;
-        totalFishCount = 1; // Legacy records are single fish
-    }
-
-    return {
-        groupId: legacyRecord.imageId, // Use imageId as groupId
-        userId: legacyRecord.userId,
-        imageCount: 1, // Legacy records always have 1 image
-        status: legacyRecord.status || "completed",
-        createdAt: legacyRecord.createdAt,
-        updatedAt: legacyRecord.updatedAt || legacyRecord.createdAt,
-        primarySpecies,
-        totalFishCount,
-        // Include analysisResult for compatibility
-        analysisResult: legacyRecord.analysisResult,
-        // Mark as legacy for frontend differentiation
-        isLegacy: true,
-    };
-}
 
 /**
  * Query and merge group history from both Groups_Table and legacy images table
@@ -131,9 +97,6 @@ async function getMergedHistory(userId, options = {}) {
             let keysToSign = [];
             if (item.s3Keys && item.s3Keys.length > 0) {
                 keysToSign = item.s3Keys.slice(0, 3);
-            } else if (item.isLegacy && item.groupId) {
-                // For legacy records where imageId = groupId and might exist in bucket
-                keysToSign = [`protected/${userId}/${item.groupId}/${item.groupId}.jpg`]; // Fallback effort, though legacy might not conform
             }
 
             const presignedViewUrls = await Promise.all(
