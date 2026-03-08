@@ -2,8 +2,10 @@
 DynamoDB persistence for conversations, messages, and long-term memory.
 """
 from __future__ import annotations
+import json
 import time
 import uuid
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from boto3.dynamodb.conditions import Key
@@ -16,8 +18,18 @@ from src.config.settings import (
 )
 from src.utils.dynamodb import dynamodb
 
+def _float_to_decimal(obj: Any) -> Any:
+    """Recursively convert float to Decimal to avoid Boto3 TypeError."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: _float_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_float_to_decimal(v) for v in obj]
+    return obj
 
 # ─────────────────────────────────────────────────────────────────────────────
+
 # Conversations
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -35,6 +47,7 @@ def create_conversation(user_id: str, title: str = "New Chat", language: str = "
         "createdAt": now,
         "updatedAt": now,
     }
+    item = _float_to_decimal(item)
     table.put_item(Item=item)
     return item
 
@@ -67,6 +80,10 @@ def update_conversation(conversation_id: str, **kwargs) -> None:
     attr_values[":now"] = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
     attr_names["#updatedAt"] = "updatedAt"
     expr_parts.append("#updatedAt = :now")
+    
+    # Convert floats to Decimal for DynamoDB compatibility
+    attr_values = _float_to_decimal(attr_values)
+    
     table.update_item(
         Key={"conversationId": conversation_id},
         UpdateExpression="SET " + ", ".join(expr_parts),
@@ -119,6 +136,10 @@ def save_message(
         item["toolCalls"] = tool_calls
     if metadata:
         item["metadata"] = metadata
+        
+    # Convert floats to Decimal for DynamoDB compatibility
+    item = _float_to_decimal(item)
+        
     table.put_item(Item=item)
     return item
 
@@ -217,8 +238,9 @@ def update_long_term_memory(user_id: str, facts: str) -> None:
     """Replace the long-term memory blob for a user."""
     table = dynamodb.Table(MEMORY_TABLE)
     now = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime())
-    table.put_item(Item={
+    item = _float_to_decimal({
         "userId": user_id,
         "facts": facts,
         "updatedAt": now,
     })
+    table.put_item(Item=item)
