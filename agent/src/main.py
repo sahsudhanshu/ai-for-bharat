@@ -179,6 +179,9 @@ app.include_router(conversations_router, prefix="/conversations", tags=["convers
 app.include_router(messages_router, prefix="/conversations", tags=["messages"])
 app.include_router(compat_router, prefix="/chat", tags=["chat-compat"])
 
+from src.routes.fishing_spots import router as fishing_spots_router
+app.include_router(fishing_spots_router, prefix="/fishing-spots", tags=["fishing-spots"])
+
 # Telegram admin routes (only active when token is set)
 from src.routes.telegram_admin import router as telegram_router
 app.include_router(telegram_router, prefix="/telegram", tags=["telegram"])

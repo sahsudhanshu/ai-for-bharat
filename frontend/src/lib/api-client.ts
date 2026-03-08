@@ -356,6 +356,45 @@ export async function getMapData(filters?: {
   return apiFetch(`${ENDPOINTS.getMapData}${query}`);
 }
 
+export interface FishingSpot {
+  name: string;
+  parent_water_body: string;
+  latitude: number;
+  longitude: number;
+  type: string;
+  is_sub_point: boolean;
+  distance_km: number;
+  weather_score: number;
+  fish_density_score: number;
+  transport_score: number;
+  chlorophyll_available: boolean;
+  confidence: number;
+  color: string; // "#10b981" | "#f59e0b" | "#ef4444"
+}
+
+export interface FishingSpotsResponse {
+  spots: FishingSpot[];
+  user_location: { lat: number; lon: number };
+  total_bodies_found: number;
+  summary: string;
+}
+
+/**
+ * Fetch scored nearby fishing spots from the agent (calls OSM + weather + chlorophyll).
+ */
+export async function getFishingSpots(
+  lat: number,
+  lon: number,
+  radiusKm = 50,
+): Promise<FishingSpotsResponse> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    radius_km: String(radiusKm),
+  });
+  return agentFetch<FishingSpotsResponse>(`/fishing-spots?${params}`);
+}
+
 /**
  * Send a chat message and receive an AI response.
  * Routes to the Python agent (LangGraph) when available.

@@ -6,7 +6,7 @@ import {
   TrendingUp, Calendar, Droplets, Maximize2, Navigation,
   Crosshair, Loader2, MapPin, Wind, X, AlertTriangle,
   Anchor, ArrowUpRight, ArrowDownRight, Minus, Heart,
-  Sun, Moon, CloudRain, Clock, Compass
+  Sun, Moon, CloudRain, Clock, Compass, Target
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,8 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getMapData } from "@/lib/api-client";
-import type { MapMarker } from "@/lib/api-client";
+import { getMapData, getFishingSpots } from "@/lib/api-client";
+import type { MapMarker, FishingSpot } from "@/lib/api-client";
 import { FISH_SPECIES } from "@/lib/constants";
 import { useLanguage } from "@/lib/i18n";
 import {
@@ -204,6 +204,9 @@ export default function MapComponent({
   const [isMobile, setIsMobile] = useState(false);
   const [showLegend, setShowLegend] = useState(true);
   const [isClientMounted, setIsClientMounted] = useState(false);
+  const [fishingSpots, setFishingSpots] = useState<FishingSpot[]>([]);
+  const [fishingSpotsLoading, setFishingSpotsLoading] = useState(false);
+  const [showFishingSpots, setShowFishingSpots] = useState(false);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const openWeatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHERMAP_API_KEY || "";
@@ -368,6 +371,21 @@ export default function MapComponent({
   const handleLocationFound = useCallback((lat: number, lng: number) => {
     setUserLocation({ lat, lng });
   }, []);
+
+  const handleFetchFishingSpots = useCallback(async () => {
+    const loc = userLocation ?? (mapInstanceRef.current ? (() => { const c = mapInstanceRef.current.getCenter(); return { lat: c.lat, lng: c.lng }; })() : null);
+    if (!loc) return;
+    setFishingSpotsLoading(true);
+    setShowFishingSpots(true);
+    try {
+      const res = await getFishingSpots(loc.lat, loc.lng, 50);
+      setFishingSpots(res.spots || []);
+    } catch (e) {
+      console.error('Fishing spots error:', e);
+    } finally {
+      setFishingSpotsLoading(false);
+    }
+  }, [userLocation]);
 
   // Handle layer change with PaneMessage
   const handleLayerChange = useCallback((layerId: string) => {
@@ -559,6 +577,32 @@ export default function MapComponent({
                   <p className="text-[9px] text-muted-foreground">Wave 1.2m • Wind NW 15 km/h • Visibility 8 km</p>
                 </div>
               </div>
+
+              {/* Fishing Spots Button */}
+              <Button
+                variant={showFishingSpots ? "secondary" : "ghost"}
+                className={cn(
+                  "w-full justify-start gap-2 rounded-xl h-9 transition-all text-xs",
+                  showFishingSpots ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : "text-muted-foreground"
+                )}
+                onClick={handleFetchFishingSpots}
+                disabled={fishingSpotsLoading}
+              >
+                {fishingSpotsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
+                <span className="font-semibold">{fishingSpotsLoading ? 'Scanning...' : 'Fishing Spots'}</span>
+                {fishingSpots.length > 0 && !fishingSpotsLoading && (
+                  <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">
+                    {fishingSpots.length}
+                  </span>
+                )}
+              </Button>
+              {showFishingSpots && fishingSpots.length > 0 && (
+                <div className="flex items-center gap-3 px-1 text-[9px] text-muted-foreground">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" />Good (≥68)</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" />Fair (45-67)</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" />Low (&lt;45)</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -659,6 +703,69 @@ export default function MapComponent({
               }}>
               <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
                 <OceanCatchPopup pt={pt} />
+              </Popup>
+            </Circle>
+          ))}
+
+          {/* ── Fishing Spots (scored, color-coded) ─────────── */}
+          {showFishingSpots && fishingSpots.map((spot, i) => (
+            <Circle
+              key={`spot-${i}`}
+              center={[spot.latitude, spot.longitude]}
+              radius={4000}
+              pathOptions={{
+                fillColor: spot.color,
+                fillOpacity: 0.55,
+                color: spot.color,
+                weight: 2,
+                opacity: 0.9,
+              }}
+            >
+              <Popup className="rounded-xl overflow-hidden shadow-xl p-0">
+                <div className="p-3 space-y-2.5 min-w-[240px]">
+                  {/* Header: name + type */}
+                  <div>
+                    <h3 className="font-bold text-sm text-primary leading-tight">{spot.name}</h3>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{spot.type} • {spot.distance_km} km away</p>
+                  </div>
+
+                  {/* Confidence score — large, prominent */}
+                  <div className="rounded-lg p-2 border" style={{ borderColor: spot.color + '55', background: spot.color + '12' }}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
+                      <span className="text-xl font-extrabold" style={{ color: spot.color }}>{spot.confidence}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{ width: `${spot.confidence}%`, background: spot.color }} />
+                    </div>
+                  </div>
+
+                  {/* Fish Density — primary metric */}
+                  <div className="rounded-lg p-2 border border-cyan-500/30 bg-cyan-500/8">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wide">🐟 Fish Density</span>
+                      <span className="text-lg font-extrabold text-cyan-300">{spot.fish_density_score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${spot.fish_density_score}%` }} />
+                    </div>
+                    {spot.chlorophyll_available && (
+                      <p className="text-[9px] text-cyan-400 mt-1">🌊 Chlorophyll data included</p>
+                    )}
+                  </div>
+
+                  {/* Secondary stats: Weather + Transport */}
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-border/50">
+                    <div className="text-center">
+                      <p className="text-[9px] text-muted-foreground">☁️ Weather</p>
+                      <p className="text-xs font-bold text-foreground">{spot.weather_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[9px] text-muted-foreground">📍 Transport</p>
+                      <p className="text-xs font-bold text-foreground">{spot.transport_score}<span className="text-[9px] font-normal text-muted-foreground">/100</span></p>
+                    </div>
+                  </div>
+                </div>
               </Popup>
             </Circle>
           ))}

@@ -12,9 +12,9 @@ Data sources
 
 Confidence (0–100) per point
 ────────────────────────────
-  Weather       35 %  — wind, rain, clouds
-  Fish Density  40 %  — chlorophyll (marine) + recency-weighted DynamoDB catches
-  Transport     25 %  — distance from user
+  Fish Density  60 %  — chlorophyll (marine) + recency-weighted DynamoDB catches
+  Weather       25 %  — wind, rain, clouds
+  Transport     15 %  — distance from user
 
 Color
 ─────
@@ -378,7 +378,7 @@ async def get_nearby_fishing_spots(
                 transport_s = _transport_score(dist)
                 dynamo_s = _fish_density_score(pt["lat"], pt["lon"], catch_markers)
                 fish_s = _combined_density(chl_score, dynamo_s)
-                confidence = round(weather_s * 0.35 + fish_s * 0.40 + transport_s * 0.25, 1)
+                confidence = round(fish_s * 0.60 + weather_s * 0.25 + transport_s * 0.15, 1)
 
                 all_spots.append({
                     "name": pt["name"],
@@ -403,7 +403,7 @@ async def get_nearby_fishing_spots(
     lines = [
         f"🎣 **{len(top_spots)} fishing points across {len(bodies_sorted)} water bodies** "
         f"(within {radius_km:.0f} km)\n",
-        "Score: Weather 35% | Fish Density 40% (chlorophyll + catches) | Transport 25%\n",
+        "Score: Fish Density 60% (chlorophyll + catches) | Weather 25% | Transport 15%\n",
     ]
     for i, s in enumerate(top_spots[:8], 1):
         e = "🟢" if s["confidence"] >= 68 else ("🟡" if s["confidence"] >= 45 else "🔴")
