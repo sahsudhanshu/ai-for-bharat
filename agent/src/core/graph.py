@@ -248,12 +248,19 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
     }
 
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY", ""))
-        model = genai.GenerativeModel("models/gemini-2.5-flash")
+        if not _GEMINI_AVAILABLE:
+            raise RuntimeError("langchain-google-genai not installed")
+        from langchain_core.messages import HumanMessage as _HumanMessage
+        _classifier_llm = _ChatGemini(
+            model=os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash"),
+            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
+            temperature=0.0,
+            max_output_tokens=256,
+        )
         prompt = _INTENT_CLASSIFIER_PROMPT.format(message=human_input.replace('"', "'"))
-        resp = await model.generate_content_async(prompt)
-        raw = resp.text.strip()
+        resp = await _classifier_llm.ainvoke([_HumanMessage(content=prompt)])
+        raw = resp.content if isinstance(resp.content, str) else str(resp.content)
+        raw = raw.strip()
         # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
