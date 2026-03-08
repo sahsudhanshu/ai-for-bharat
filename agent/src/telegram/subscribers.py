@@ -4,7 +4,7 @@ DynamoDB store for Telegram subscriptions.
 Table: ai-bharat-telegram-subs
   PK: telegramChatId (str)  — Telegram chat ID
   Attributes:
-    userId         — OceanAI user ID (linked account)
+    userId         — matsya AI user ID (linked account)
     latitude       — user's home location
     longitude      — user's home location
     locationName   — human-readable place name

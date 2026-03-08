@@ -230,7 +230,7 @@ exports.handler = async (event) => {
             headers: {
                 ...CORS_HEADERS,
                 "Content-Type": "text/csv",
-                "Content-Disposition": `attachment; filename="oceanai-catch-data-${new Date().toISOString().slice(0, 10)}.csv"`,
+                "Content-Disposition": `attachment; filename="matsya-ai-catch-data-${new Date().toISOString().slice(0, 10)}.csv"`,
             },
             body: csv,
         };

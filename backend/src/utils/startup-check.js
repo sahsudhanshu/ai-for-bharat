@@ -1,5 +1,5 @@
 /**
- * Development-mode startup diagnostics for OceanAI Backend.
+ * Development-mode startup diagnostics for matsya AI Backend.
  * Validates required environment variables and probes external service connectivity.
  * Only runs when NODE_ENV !== 'production'.
  */
@@ -54,7 +54,7 @@ async function runStartupChecks() {
 
     console.log('');
     console.log(`${c.cyan}${c.bold}╔══════════════════════════════════════════════════════════════════╗${c.reset}`);
-    console.log(`${c.cyan}${c.bold}║  🐟 OceanAI Backend — Development Startup Diagnostics          ║${c.reset}`);
+    console.log(`${c.cyan}${c.bold}║  🐟 matsya AI Backend — Development Startup Diagnostics        ║${c.reset}`);
     console.log(`${c.cyan}${c.bold}╠══════════════════════════════════════════════════════════════════╣${c.reset}`);
 
     // ── 1. Environment Variables ─────────────────────────────────────────────

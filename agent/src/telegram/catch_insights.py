@@ -129,7 +129,7 @@ async def get_catch_insights(user_id: str) -> Optional[str]:
             max_output_tokens=500,
         )
         prompt = (
-            "You are SagarMitra, an AI fishing companion for Indian fishermen.\n"
+            "You are matsya AI, an AI fishing companion for Indian fishermen.\n"
             "Given the user's capture stats below, write a SHORT, encouraging\n"
             "Telegram welcome summary (4-6 lines max). Use emojis. Mention their\n"
             "top species, total catches, weight, and estimated earnings.\n"
@@ -137,7 +137,7 @@ async def get_catch_insights(user_id: str) -> Optional[str]:
             f"Stats:\n{stats_text}"
         )
         response = await llm.ainvoke([
-            SystemMessage(content="You are SagarMitra, a concise Telegram bot for Indian fishermen."),
+            SystemMessage(content="You are matsya AI, a concise Telegram bot for Indian fishermen."),
             HumanMessage(content=prompt),
         ])
         text = response.content

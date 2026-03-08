@@ -51,7 +51,7 @@ async function detectOceanLocation(latitude, longitude) {
         const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1`;
         const response = await fetch(url, {
             headers: {
-                "User-Agent": "OceanAI/1.0 (AI-for-Bharat)",
+                "User-Agent": "matsya AI/1.0 (AI-for-Bharat)",
                 "Accept": "application/json",
             },
         });

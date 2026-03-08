@@ -45,7 +45,7 @@ LANG_LABELS = {
     "gu": "Gujarati", "or": "Odia",
 }
 
-SYSTEM_ROLE = "You are SagarMitra, a concise Telegram alert bot for Indian fishermen."
+SYSTEM_ROLE = "You are matsya AI, a concise Telegram alert bot for Indian fishermen."
 
 
 # ── Helper to call LLM with fallback ────────────────────────────────────────

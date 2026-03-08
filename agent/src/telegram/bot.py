@@ -71,7 +71,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Build welcome message with timing details
             welcome = (
-                f"🌊 *Welcome to SagarMitra Alerts!*\n\n"
+                f"🌊 *Welcome to matsya AI Alerts!*\n\n"
                 f"✅ You're subscribed with location from the app!\n"
                 f"📍 Location: {location_name} ({lat:.4f}°N, {lon:.4f}°E)\n\n"
                 f"You'll receive *8 automated updates* daily:\n"
@@ -120,7 +120,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Fallback: no deep link — show timing + app intro (no location prompt)
     await update.message.reply_text(
-        "🌊 *Welcome to SagarMitra — Your AI Fishing Companion!*\n\n"
+        "🌊 *Welcome to matsya AI — Your AI Fishing Companion!*\n\n"
         "I'll send you *8 personalised updates* every day:\n\n"
         "🌙 *05:00* — Pre-dawn safety & sea conditions\n"
         "🌅 *07:00* — Morning weather forecast\n"
@@ -130,14 +130,14 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🌆 *17:00* — Evening forecast & tips\n"
         "🌊 *19:30* — Night fishing advisory\n"
         "📋 *22:00* — Tomorrow's preview & prep\n\n"
-        "📲 To activate alerts, tap *Connect to Telegram* in the SagarMitra app — "
+        "📲 To activate alerts, tap *Connect to Telegram* in the matsya AI app — "
         "it will link your location & account automatically!",
         parse_mode="Markdown",
     )
 
     # Send app insights intro
     await update.message.reply_text(
-        "📈 *What SagarMitra Tracks For You*\n\n"
+        "📈 *What matsya AI Tracks For You*\n\n"
         "🐟 *Catch History* — Every fish you scan is logged with species, "
         "weight, quality grade & confidence score\n"
         "📊 *Analytics Dashboard* — Total catches, earnings, weekly trends, "
@@ -292,7 +292,7 @@ async def cmd_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show available commands."""
     await update.message.reply_text(
-        "🎣 *SagarMitra Bot Commands*\n\n"
+        "🎣 *matsya AI Bot Commands*\n\n"
         "/start — Subscribe to daily alerts\n"
         "/weather — Get current weather & fishing forecast\n"
         "/language — Change alert language\n"

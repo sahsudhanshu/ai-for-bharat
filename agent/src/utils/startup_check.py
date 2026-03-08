@@ -1,5 +1,5 @@
 """
-Development-mode startup diagnostics for OceanAI Agent.
+Development-mode startup diagnostics for matsya AI Agent.
 Validates required environment variables and probes external service connectivity.
 Only runs when APP_ENV != 'production'.
 """
@@ -53,7 +53,7 @@ async def run_startup_checks() -> dict:
 
     lines.append('')
     lines.append(f'{C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════════════╗{C.RESET}')
-    lines.append(f'{C.CYAN}{C.BOLD}║  🤖 OceanAI Agent — Development Startup Diagnostics            ║{C.RESET}')
+    lines.append(f'{C.CYAN}{C.BOLD}║  🤖 matsya AI Agent — Development Startup Diagnostics          ║{C.RESET}')
     lines.append(f'{C.CYAN}{C.BOLD}╠══════════════════════════════════════════════════════════════════╣{C.RESET}')
 
     # ── 1. Environment Variables ─────────────────────────────────────────────

@@ -1,5 +1,5 @@
 """
-FastAPI application — HTTP layer for the OceanAI agent.
+FastAPI application — HTTP layer for the matsya AI agent.
 
 Routes:
   POST /conversations               → create conversation
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="OceanAI Agent",
+    title="matsya AI Agent",
     description="AI-powered fisherman's companion — LangGraph + Gemini",
     version="1.1.0",
     lifespan=lifespan,
@@ -193,4 +193,4 @@ app.include_router(fish_weight_router, prefix="/fish-weight", tags=["fish-weight
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "service": "oceanai-agent"}
+    return {"status": "ok", "service": "matsya-ai-agent"}

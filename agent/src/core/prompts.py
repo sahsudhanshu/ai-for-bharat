@@ -1,5 +1,5 @@
 """
-System prompt for the OceanAI fisherman companion agent.
+System prompt for the matsya AI fisherman companion agent.
 """
 from __future__ import annotations
 from src.utils.languages import LANGUAGE_LABELS
@@ -22,7 +22,7 @@ def build_system_prompt(
     sections: list[str] = []
 
     # ── Core identity ────────────────────────────────────────────────────────
-    sections.append(f"""You are **SagarMitra** (सागरमित्र) — an AI-powered companion for Indian fishermen.
+    sections.append(f"""You are **matsya AI** — an AI-powered companion for Indian fishermen.
 
 You are friendly, practical, and deeply knowledgeable about:
 - Fishing techniques, species, seasons, and regulations in Indian coastal waters

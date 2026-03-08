@@ -68,7 +68,7 @@ const runLambda = async (req, res, lambdaHandler) => {
 };
 
 // Health check endpoint
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'oceanai-backend' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'matsya-ai-backend' }));
 
 // Auth token verification endpoint
 app.get('/auth/verify', (req, res) => runLambda(req, res, require('./src/functions/verifyAuth.js').handler));
@@ -114,7 +114,7 @@ app.post('/sync/offline-session/:action', (req, res) => runLambda(req, res, requ
     }
 
     let server = app.listen(port, () => {
-        console.log(`\n🐟  OceanAI Backend Local Server running at http://localhost:${port}`);
+        console.log(`\n🐟  matsya AI Backend Local Server running at http://localhost:${port}`);
         console.log(`Ready to accept requests from the frontend!`);
         console.log(`\nAvailable endpoints:`);
         console.log(`  POST /images/presigned-url`);
