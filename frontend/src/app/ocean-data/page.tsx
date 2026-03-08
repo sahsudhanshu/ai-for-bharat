@@ -110,6 +110,9 @@ interface FishingSpot {
   transportScore: number;
   confidence: number;
   color: string;
+  chlorophyllAvailable: boolean;
+  isSubPoint: boolean;
+  parentWaterBody: string;
 }
 
 // ── Scoring helpers (mirrors agent/src/tools/fishing_spots.py) ────────────────
@@ -130,11 +133,25 @@ function calcWeatherScore(windSpeed: number, rain1h: number, clouds: number): nu
   return Math.max(0, Math.min(100, windS * 0.55 + cloudS * 0.25 - rainPen));
 }
 
+/** Recency-weighted catch density score 0-100. */
 function calcFishDensityScore(spotLat: number, spotLon: number, markers: MapMarker[]): number {
-  const nearby = markers.filter(
-    m => _haversineJS(spotLat, spotLon, Number(m.latitude), Number(m.longitude)) <= 30
-  ).length;
-  return nearby === 0 ? 20 : nearby <= 2 ? 40 : nearby <= 7 ? 60 : nearby <= 20 ? 80 : 95;
+  let weighted = 0;
+  const now = Date.now();
+  for (const m of markers) {
+    const dist = _haversineJS(spotLat, spotLon, Number(m.latitude), Number(m.longitude));
+    if (dist > 30) continue;
+    const distW = Math.max(0.05, 1 - dist / 30);
+    const daysAgo = Math.max(0, (now - new Date(m.createdAt).getTime()) / 86400000);
+    const timeW = daysAgo <= 7 ? 3 : daysAgo <= 30 ? 2 : daysAgo <= 90 ? 1.5 : 1;
+    weighted += distW * timeW;
+  }
+  if (weighted === 0) return 20;
+  return Math.min(95, Math.round(20 + weighted * 7.5));
+}
+
+function calcCombinedFishDensity(chlScore: number | null, dynamoScore: number): number {
+  if (chlScore !== null) return Math.round(chlScore * 0.6 + dynamoScore * 0.4);
+  return dynamoScore;
 }
 
 function calcTransportScore(distKm: number): number {
@@ -143,6 +160,50 @@ function calcTransportScore(distKm: number): number {
 
 function confidenceColor(score: number): string {
   return score >= 68 ? '#10b981' : score >= 45 ? '#f59e0b' : '#ef4444';
+}
+
+/** Sample up to nSub evenly-spaced points along OSM geometry + centroid. */
+function sampleGeometryPoints(
+  geometry: { lat: number; lon: number }[],
+  name: string,
+  waterType: string,
+  nSub = 3,
+): { name: string; lat: number; lon: number; type: string; isSubPoint: boolean; parentName: string }[] {
+  if (!geometry.length) return [];
+  const total = geometry.length;
+  const cLat = geometry.reduce((s, g) => s + g.lat, 0) / total;
+  const cLon = geometry.reduce((s, g) => s + g.lon, 0) / total;
+  const pts = [{ name, lat: cLat, lon: cLon, type: waterType, isSubPoint: false, parentName: name }];
+  if (total >= 4) {
+    const step = Math.max(1, Math.floor(total / (nSub + 1)));
+    for (let i = 1; i <= nSub; i++) {
+      const idx = Math.min(i * step, total - 1);
+      pts.push({
+        name: `${name} — section ${i}`,
+        lat: geometry[idx].lat, lon: geometry[idx].lon,
+        type: waterType, isSubPoint: true, parentName: name,
+      });
+    }
+  }
+  return pts;
+}
+
+/** Fetch chlorophyll-a from NASA MODIS via ERDDAP (free, no key). Returns 0-100 or null. */
+async function fetchChlorophyllScore(lat: number, lon: number): Promise<number | null> {
+  const d = 0.1;
+  const url =
+    `https://coastwatch.pfeg.noaa.gov/erddap/griddap/erdMH1chla1day.json` +
+    `?chlorophyll%5B(last)%5D%5B(${(lat - d).toFixed(5)}):(${(lat + d).toFixed(5)})%5D` +
+    `%5B(${(lon - d).toFixed(5)}):(${(lon + d).toFixed(5)})%5D`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const rows: (number | null)[][] = (await r.json())?.table?.rows ?? [];
+    const vals = rows.map(row => row[row.length - 1]).filter(v => v !== null && isFinite(v as number) && (v as number) > 0) as number[];
+    if (!vals.length) return null;
+    const chl = vals.reduce((a, b) => a + b, 0) / vals.length;
+    return chl >= 10 ? 97 : chl >= 5 ? 87 : chl >= 2 ? 73 : chl >= 0.5 ? 55 : chl >= 0.1 ? 38 : 22;
+  } catch { return null; }
 }
 
 /* ── Fishing Spot Popup ───────────────────────────────────────────────────── */
@@ -176,11 +237,21 @@ function FishingSpotPopup({ spot }: { spot: FishingSpot }) {
         </div>
       </div>
 
+      {spot.chlorophyllAvailable && (
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+          <span className="text-cyan-400 text-sm">🌊</span>
+          <span className="text-[10px] text-cyan-300 font-semibold">Marine chlorophyll data used</span>
+        </div>
+      )}
+      {spot.isSubPoint && (
+        <p className="text-[9px] text-primary/70">Section of: {spot.parentWaterBody}</p>
+      )}
+
       <div className="space-y-2 pt-1 border-t border-border/50">
         <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Score Breakdown</p>
-        {scoreBar('🌤 Weather', spot.weatherScore, '#60a5fa')}
-        {scoreBar('🐟 Fish Density', spot.fishDensityScore, '#34d399')}
-        {scoreBar('🚗 Transport Cost', spot.transportScore, '#f59e0b')}
+        {scoreBar('🌤 Weather (35%)', spot.weatherScore, '#60a5fa')}
+        {scoreBar('🐟 Fish Density (40%)', spot.fishDensityScore, '#34d399')}
+        {scoreBar('🚗 Transport (25%)', spot.transportScore, '#f59e0b')}
       </div>
 
       <div
@@ -427,15 +498,19 @@ export default function OceanDataPage() {
 
     try {
       const radiusM = 50000;
+      // Fetch full geometry (out geom) + fishing-specific nodes
       const query =
-        `[out:json][timeout:25];\n` +
+        `[out:json][timeout:30];\n` +
         `(\n` +
-        `  way["natural"="water"](around:${radiusM},${userLat},${userLon});\n` +
-        `  way["waterway"~"river|canal"](around:${radiusM},${userLat},${userLon});\n` +
-        `  relation["natural"="water"](around:${radiusM},${userLat},${userLon});\n` +
-        `  node["natural"~"bay|beach|cape"](around:${radiusM},${userLat},${userLon});\n` +
+        `  way["waterway"~"river|stream|canal"]["name"](around:${radiusM},${userLat},${userLon});\n` +
+        `  way["natural"="water"]["name"](around:${radiusM},${userLat},${userLon});\n` +
         `  way["natural"~"beach|coastline"](around:${radiusM},${userLat},${userLon});\n` +
-        `);\nout center 30;`;
+        `  node["natural"~"bay|beach|cape"]["name"](around:${radiusM},${userLat},${userLon});\n` +
+        `  node["leisure"="fishing"](around:${radiusM},${userLat},${userLon});\n` +
+        `  node["sport"="fishing"](around:${radiusM},${userLat},${userLon});\n` +
+        `  node["amenity"="ferry_terminal"]["name"](around:${radiusM},${userLat},${userLon});\n` +
+        `  node["waterway"="dock"]["name"](around:${radiusM},${userLat},${userLon});\n` +
+        `);\nout geom 40;`;
 
       const overpassResp = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
@@ -443,76 +518,95 @@ export default function OceanDataPage() {
       });
       const overpassData = await overpassResp.json();
 
-      const rawSpots: { name: string; lat: number; lon: number; type: string }[] = [];
-      const seenNames = new Set<string>();
+      // Parse elements into bodies with geometry
+      type Body = {
+        name: string; waterType: string;
+        centroidLat: number; centroidLon: number;
+        geometry: { lat: number; lon: number }[];
+      };
+      const bodies: Body[] = [];
+      const seenKeys = new Set<string>();
 
       for (const elem of overpassData.elements || []) {
         const tags = elem.tags || {};
         const name =
           tags.name || tags['name:en'] || tags['name:hi'] ||
-          tags.waterway || tags.natural || 'Water Body';
+          tags.waterway || tags.natural || tags.leisure || 'Water Body';
+        const waterType = tags.natural || tags.waterway || tags.leisure || 'water';
 
-        let lat: number, lon: number;
+        let geom: { lat: number; lon: number }[];
         if (elem.type === 'node') {
-          lat = elem.lat;
-          lon = elem.lon;
+          geom = [{ lat: elem.lat, lon: elem.lon }];
         } else {
-          lat = elem.center?.lat;
-          lon = elem.center?.lon;
+          geom = (elem.geometry || []).map((g: { lat: number; lon: number }) => ({ lat: g.lat, lon: g.lon }));
+          if (!geom.length && elem.center) geom = [{ lat: elem.center.lat, lon: elem.center.lon }];
         }
-        if (!lat || !lon) continue;
+        if (!geom.length) continue;
 
-        const type = tags.natural || tags.waterway || 'water';
-        const key = `${name.toLowerCase().trim()}_${type}`;
-        if (seenNames.has(key)) continue;
-        seenNames.add(key);
-        rawSpots.push({ name, lat, lon, type });
+        const key = `${name.toLowerCase().trim()}_${waterType}`;
+        if (seenKeys.has(key)) continue;
+        seenKeys.add(key);
+
+        const centroidLat = geom.reduce((s, g) => s + g.lat, 0) / geom.length;
+        const centroidLon = geom.reduce((s, g) => s + g.lon, 0) / geom.length;
+        bodies.push({ name, waterType, centroidLat, centroidLon, geometry: geom });
       }
 
-      // Keep the 12 closest spots
-      const closest = rawSpots
-        .map(s => ({ ...s, distanceKm: _haversineJS(userLat!, userLon!, s.lat, s.lon) }))
-        .sort((a, b) => a.distanceKm - b.distanceKm)
-        .slice(0, 12);
+      // Keep 10 closest bodies
+      const closestBodies = bodies
+        .map(b => ({ ...b, dist: _haversineJS(userLat!, userLon!, b.centroidLat, b.centroidLon) }))
+        .sort((a, b) => a.dist - b.dist)
+        .slice(0, 10);
 
-      // Fetch weather for each spot in parallel
-      const weatherResults = await Promise.all(
-        closest.map(async (spot) => {
-          if (!openWeatherApiKey) return null;
+      // Fetch weather + chlorophyll per body (centroid), sub-sample points within each
+      const allSpots: FishingSpot[] = [];
+
+      await Promise.all(closestBodies.map(async (body) => {
+        // Weather at centroid
+        let wScore = 50;
+        if (openWeatherApiKey) {
           try {
-            const r = await fetch(
-              `https://api.openweathermap.org/data/2.5/weather?lat=${spot.lat}&lon=${spot.lon}&appid=${openWeatherApiKey}&units=metric`
+            const wr = await fetch(
+              `https://api.openweathermap.org/data/2.5/weather?lat=${body.centroidLat}&lon=${body.centroidLon}&appid=${openWeatherApiKey}&units=metric`
             );
-            if (!r.ok) return null;
-            return r.json();
-          } catch { return null; }
-        })
-      );
+            if (wr.ok) {
+              const wd = await wr.json();
+              wScore = calcWeatherScore(wd.wind?.speed ?? 5, wd.rain?.['1h'] ?? 0, wd.clouds?.all ?? 50);
+            }
+          } catch { /* use default */ }
+        }
 
-      const scored: FishingSpot[] = closest.map((spot, i) => {
-        const wd = weatherResults[i];
-        const wScore = wd?.main
-          ? calcWeatherScore(wd.wind?.speed ?? 5, wd.rain?.['1h'] ?? 0, wd.clouds?.all ?? 50)
-          : 50;
-        const fScore = calcFishDensityScore(spot.lat, spot.lon, validMarkers);
-        const tScore = calcTransportScore(spot.distanceKm);
-        const confidence = Math.round(wScore * 0.40 + fScore * 0.35 + tScore * 0.25);
-        return {
-          name: spot.name,
-          lat: spot.lat,
-          lon: spot.lon,
-          type: spot.type,
-          distanceKm: Math.round(spot.distanceKm * 10) / 10,
-          weatherScore: Math.round(wScore),
-          fishDensityScore: Math.round(fScore),
-          transportScore: Math.round(tScore),
-          confidence,
-          color: confidenceColor(confidence),
-        };
-      });
+        // Chlorophyll at centroid (marine proxy — null for inland)
+        const chlScore = await fetchChlorophyllScore(body.centroidLat, body.centroidLon);
 
-      scored.sort((a, b) => b.confidence - a.confidence);
-      setFishingSpots(scored);
+        // Sub-sample actual points within / along the geometry
+        const pts = sampleGeometryPoints(body.geometry, body.name, body.waterType, 3);
+
+        for (const pt of pts) {
+          const dist = _haversineJS(userLat!, userLon!, pt.lat, pt.lon);
+          const tScore = calcTransportScore(dist);
+          const dynamoScore = calcFishDensityScore(pt.lat, pt.lon, validMarkers);
+          const fScore = calcCombinedFishDensity(chlScore, dynamoScore);
+          const confidence = Math.round(wScore * 0.35 + fScore * 0.40 + tScore * 0.25);
+          allSpots.push({
+            name: pt.name,
+            lat: pt.lat, lon: pt.lon,
+            type: pt.type,
+            distanceKm: Math.round(dist * 10) / 10,
+            weatherScore: Math.round(wScore),
+            fishDensityScore: Math.round(fScore),
+            transportScore: Math.round(tScore),
+            confidence,
+            color: confidenceColor(confidence),
+            chlorophyllAvailable: chlScore !== null,
+            isSubPoint: pt.isSubPoint,
+            parentWaterBody: pt.parentName,
+          });
+        }
+      }));
+
+      allSpots.sort((a, b) => b.confidence - a.confidence);
+      setFishingSpots(allSpots.slice(0, 20));
 
       if (mapInstanceRef.current) {
         mapInstanceRef.current.flyTo([userLat, userLon], 9, { duration: 1.2 });
@@ -872,13 +966,13 @@ export default function OceanDataPage() {
               <Circle
                 key={`fspot-${i}`}
                 center={[spot.lat, spot.lon]}
-                radius={12000}
+                radius={3500}
                 pathOptions={{
                   fillColor: spot.color,
-                  fillOpacity: 0.55,
+                  fillOpacity: 0.50,
                   color: spot.color,
-                  weight: 2.5,
-                  opacity: 0.9,
+                  weight: 1.5,
+                  opacity: 0.85,
                 }}
               >
                 <Popup className="rounded-xl overflow-hidden shadow-xl p-0">

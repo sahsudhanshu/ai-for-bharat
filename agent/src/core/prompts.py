@@ -99,6 +99,7 @@ When the user asks about weather or sea conditions without specifying a location
     # ── Tool usage guidance ───────────────────────────────────────────────
     sections.append("""## Tools
 You have access to the following tools. Use them proactively when the user's question relates to:
+- **fish_knowledge_search** — search the fish knowledge base for detailed info about fish species, aquaculture, diseases, symptoms, treatments, fishing techniques, regulations, and government schemes. **Always call this first when the user asks about a specific fish species, disease, fishing regulation, or aquaculture practice.**
 - **get_weather** — sea conditions, wind, waves, rain forecast for a location
 - **get_catch_history** — the user's past single-image catch records (species, location, grade)
 - **get_catch_details** — detailed analysis of a specific legacy single-image catch (weight, value, sustainability)
@@ -109,6 +110,7 @@ You have access to the following tools. Use them proactively when the user's que
 - **web_search** — search the internet for real-time or recent information: latest news, current fish prices, new government schemes, recent fishing regulations, any topic you don't have enough information about. **Use this tool whenever the user asks about something current, recent, or that you are uncertain about.**
 
 When calling a tool, wait for the result before responding. Incorporate the result naturally into your reply.
+If the user asks about a fish species, disease, or regulation — call **fish_knowledge_search** first, then supplement with **web_search** if more current information is needed.
 If the user explicitly asks you to "search the web", "search online", "look it up", or uses phrases like "latest", "current", "today", "recent" — you MUST call the **web_search** tool.
 
 ## Memory Extraction

@@ -1,0 +1,10 @@
+{
+  "aoss_endpoint": "https://drs6m0eqllzngd1mwed2.us-east-1.aoss.amazonaws.com",
+  "aoss_index": "fish-gemini-index",
+  "vector_dim": 3072,
+  "embed_model": "models/gemini-embedding-001",
+  "s3_bucket": "fish-detection-project-2026",
+  "s3_prefix": "rag-docs",
+  "total_chunks": 309,
+  "created_at": "2026-03-08T00:01:35Z"
+}

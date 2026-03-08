@@ -29,9 +29,22 @@ Graph flow:
 from __future__ import annotations
 from typing import Any, Dict, Literal
 
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
+
+# Primary LLM: Amazon Nova Pro via AWS Bedrock
+try:
+    from langchain_aws import ChatBedrockConverse as _ChatBedrock
+    _BEDROCK_AVAILABLE = True
+except ImportError:
+    _BEDROCK_AVAILABLE = False
+
+# Fallback LLM: Google Gemini (used when Bedrock is unavailable)
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI as _ChatGemini
+    _GEMINI_AVAILABLE = True
+except ImportError:
+    _GEMINI_AVAILABLE = False
 
 from src.core.state import AgentState
 from src.core.prompts import build_system_prompt
@@ -65,17 +78,39 @@ if RAG_AVAILABLE:
 def _get_llm():
     import os
 
-    google_api_key = os.getenv("GOOGLE_API_KEY", "")
-    model_id = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+    # ── Primary: Amazon Nova Pro via AWS Bedrock Converse API ────────────────
+    if _BEDROCK_AVAILABLE:
+        model_id = os.getenv("BEDROCK_LLM_MODEL_ID", "us.amazon.nova-pro-v1:0")
+        region   = os.getenv("BEDROCK_REGION", "us-east-1")
+        api_key  = os.getenv("BEDROCK_API_KEY", "") or None
+        llm = _ChatBedrock(
+            model=model_id,
+            region_name=region,
+            temperature=0.7,
+            max_tokens=4096,
+            bedrock_api_key=api_key,
+        )
+        return llm.bind_tools(TOOLS)
 
-    llm = ChatGoogleGenerativeAI(
-        model=model_id,
-        google_api_key=google_api_key,
-        temperature=0.7,
-        max_output_tokens=4096,
-        streaming=True,
+    # ── Fallback: Google Gemini ──────────────────────────────────────────────
+    if _GEMINI_AVAILABLE:
+        import logging
+        logging.warning("langchain-aws not installed; falling back to Google Gemini")
+        google_api_key = os.getenv("GOOGLE_API_KEY", "")
+        model_id       = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        llm = _ChatGemini(
+            model=model_id,
+            google_api_key=google_api_key,
+            temperature=0.7,
+            max_output_tokens=4096,
+            streaming=True,
+        )
+        return llm.bind_tools(TOOLS)
+
+    raise RuntimeError(
+        "No LLM backend available. Install langchain-aws (recommended) or "
+        "langchain-google-genai and set GOOGLE_API_KEY."
     )
-    return llm.bind_tools(TOOLS)
 
 
 
@@ -239,7 +274,7 @@ async def agent(state: AgentState) -> Dict[str, Any]:
         response = await llm.ainvoke(messages)
         logging.debug(f"Gemini response content length: {len(response.content) if response.content else 0}, tool_calls: {len(response.tool_calls) if hasattr(response, 'tool_calls') and response.tool_calls else 0}")
     except Exception as e:
-        logging.error(f"Gemini LLM call FAILED ({type(e).__name__}: {e})\n{traceback.format_exc()}")
+        logging.error(f"LLM call FAILED ({type(e).__name__}: {e})\n{traceback.format_exc()}")
         mock_text = _get_mock_response(state.get("human_input", ""), lang)
         response = AIMessage(content=mock_text)
     return {"messages": state["messages"] + [response]}
