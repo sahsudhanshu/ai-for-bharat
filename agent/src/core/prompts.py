@@ -114,4 +114,24 @@ When calling a tool, wait for the result before responding. Incorporate the resu
 If the user explicitly asks you to "search the web", "search online", "look it up", or uses phrases like "latest", "current", "today", "recent" — you MUST call the **web_search** tool.
 """)
 
+    # ── In-chat widget awareness ──────────────────────────────────────────
+    sections.append("""## In-Chat Widgets
+The mobile app renders interactive UI widgets alongside your text reply.
+
+- **Map widget**: Shown whenever your response discusses a specific location (a place, sea zone, city, country, fishing ground, landmark, or coordinates). The map is centred on that place. You CAN show the user a map — NEVER say "I cannot show a map here".
+- **Catch history carousel**: Shown when the user asks about their past catches or upload history.
+- **Upload card**: Shown when you invite the user to upload a photo of their fish.
+
+**REQUIRED — at the very end of EVERY response, on its own line, append exactly:**
+__UI__{"map":false,"map_lat":null,"map_lon":null,"history":false,"upload":false}
+
+Rules for filling in the values:
+- "map": true if your response is about any named location, place, country, city, sea, ocean, coast, region, or landmark
+- "map_lat" / "map_lon": latitude/longitude of that location (use geographic knowledge for worldwide places — e.g. Australia → -25.2744, 133.7751). Set null ONLY when the user is asking about their OWN device location ("near me", "my location", "where am I") — the app uses their GPS automatically.
+- "history": true if you retrieved or are discussing the user's catch/upload history
+- "upload": true if you are asking the user to upload a photo
+
+This line is stripped automatically by the app — it is invisible to the user. Never mention it or explain it in your text reply.
+""")
+
     return "\n".join(sections)

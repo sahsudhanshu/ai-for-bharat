@@ -52,7 +52,6 @@ async def web_search(query: str, max_results: int = 5) -> str:
             lines.append(f"**Summary:** {data['answer']}\n")
 
         results = data.get("results", [])
-        print("web search used" , results);
         if not results:
             return "\n".join(lines) + "\nNo results found."
         

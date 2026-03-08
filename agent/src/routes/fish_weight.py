@@ -64,7 +64,7 @@ async def estimate_fish_weight(
     """Estimate fish weight via ML API + formula, then ask Gemini for analysis."""
     print(f"🐟  [ROUTE] /fish-weight/estimate called by user={user.sub} → species={body.species!r}")
 
-    api_base = os.getenv("FISH_WEIGHT_API_URL", "https://kyanmahajan-fish-weight.hf.space")
+    api_base = os.getenv("FISH_WEIGHT_API_URL")
 
     # ── 1. ML API call ───────────────────────────────────────────────────────
     ml_weight = None

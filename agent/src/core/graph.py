@@ -220,10 +220,10 @@ You are a classifier for a fisherman assistant app. Given the user's message, re
 Message: "{message}"
 
 Rules:
-- "map": true if the user wants to see a map, find fishing spots, navigate to a location, or asks about a specific place
+- "map": true if the user wants to see a map, find fishing spots, navigate to a location, or asks about a specific place or country
 - "history": true if the user wants to see their catch history, past catches, previous records, or past uploads
 - "upload": true if the user wants to upload a photo, image, or picture (e.g. of a fish)
-- "map_lat" / "map_lon": if map=true and the user mentions a specific location, return its approximate latitude/longitude (Indian coastal cities); otherwise null
+- "map_lat" / "map_lon": if map=true, resolve the latitude and longitude of the specific place mentioned in the message — this can be ANY location worldwide (a city, country, sea, ocean, coast, island, region, landmark). Use your geographic knowledge. Examples: Australia → (-25.2744, 133.7751), Arabian Sea → (14.5, 65.0), Mumbai → (19.0760, 72.8777), Bay of Bengal → (15.0, 87.0). Only return null when the user is asking about THEIR OWN current location (phrases like "show me on the map", "where am I", "near me", "my location") — in that case the app will use their GPS automatically.
 
 Return ONLY this JSON, no markdown, no explanation:
 {{"map": bool, "history": bool, "upload": bool, "map_lat": float_or_null, "map_lon": float_or_null}}
@@ -281,7 +281,9 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
                 raw = raw[4:]
         data = _json.loads(raw.strip())
 
-        # If map=true but no coordinates extracted, fall back to the user's GPS
+        # If map=true but no coordinates extracted (user asked about their own location),
+        # fall back to the user's GPS. This is intentional — null from the classifier
+        # means the user is asking about "my location" / "near me".
         map_lat = data.get("map_lat")
         map_lon = data.get("map_lon")
         if data.get("map") and map_lat is None:

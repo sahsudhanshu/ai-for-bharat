@@ -23,7 +23,7 @@ from src.memory.dynamodb_store import (
     update_conversation,
 )
 from src.memory.manager import maybe_update_summary
-from src.core.graph import graph, intent_classifier
+from src.core.graph import graph
 
 router = APIRouter()
 
@@ -52,6 +52,10 @@ def _extract_text(content) -> str:
 
 import re as _re
 
+# Matches the __UI__{...} sentinel line the agent appends
+_UI_LINE_RE = _re.compile(r'(?m)^__UI__(\{[^\n]+\})\s*$')
+
+# Legacy fallback: stray JSON blobs the agent may leak in error cases
 _JSON_BLOB_RE = _re.compile(
     r'\{\s*["\']?(?:map|history|upload|map_lat|map_lon)["\']?\s*:[^}]*\}'
 )
@@ -62,8 +66,37 @@ _NOISE_PATTERNS = [
 ]
 
 
+def _extract_ui_json(text: str) -> tuple[dict, str]:
+    """
+    Extract the __UI__{...} sentinel from the agent's output.
+    Uses str.find() so it works even if the model inserts whitespace between
+    __UI__ and the JSON, or adds formatting around it.
+    Returns (ui_dict, cleaned_text_without_the_sentinel_and_everything_after).
+    Falls back to (empty dict, original text) if absent or malformed.
+    """
+    idx = text.find("__UI__")
+    if idx != -1:
+        cleaned = text[:idx].strip()
+        # Pull the JSON object out of whatever follows __UI__
+        m = _re.search(r'\{[^}]+\}', text[idx:])
+        if m:
+            try:
+                data = json.loads(m.group(0))
+                return data, cleaned
+            except Exception:
+                pass
+        # Sentinel present but JSON malformed — still strip the line
+        return {}, cleaned
+    return {}, text
+
+
 def _sanitise_agent_text(text: str) -> str:
-    """Strip leaked JSON UI blobs and memory-system noise from agent output."""
+    """Strip __UI__ sentinel, legacy JSON blobs, and memory-system noise."""
+    # Cut from __UI__ onwards (primary path — normally _extract_ui_json already did this)
+    idx = text.find("__UI__")
+    if idx != -1:
+        text = text[:idx]
+    # Remove stray JSON blobs
     result = _JSON_BLOB_RE.sub("", text)
     for pattern in _NOISE_PATTERNS:
         result = pattern.sub("", result)
@@ -163,16 +196,36 @@ async def send_message(
 
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
+
+    # ── Parse embedded __UI__ widget intent, then sanitise ───────────────
+    ui_data, ai_content = _extract_ui_json(ai_content)
     ai_content = _sanitise_agent_text(ai_content)
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
 
     # ── Persist assistant message ────────────────────────────────────────
+    map_open = bool(ui_data.get("map", False))
+    map_lat = ui_data.get("map_lat")
+    map_lon = ui_data.get("map_lon")
+    # When the agent sets null coords it means "use the user's GPS" —
+    # fill in the coordinates from the request body.
+    if map_open and map_lat is None and body.latitude is not None:
+        map_lat = body.latitude
+        map_lon = body.longitude
+    ui_payload = {
+        "map":     map_open,
+        "history": bool(ui_data.get("history", False)),
+        "upload":  bool(ui_data.get("upload", False)),
+        "mapLat":  float(map_lat) if map_lat is not None else None,
+        "mapLon":  float(map_lon) if map_lon is not None else None,
+    }
+    print(f"[MSG] ui_payload → {json.dumps(ui_payload)}")
     saved_msg = save_message(
         conversation_id,
         role="assistant",
         content=ai_content,
         tool_calls=tool_calls_meta if tool_calls_meta else None,
+        metadata={"ui": ui_payload}
     )
 
     # ── Update conversation metadata ─────────────────────────────────────
@@ -198,13 +251,7 @@ async def send_message(
             "messageId": saved_msg.get("messageId"),
             "toolCalls": tool_calls_meta if tool_calls_meta else None,
         },
-        "ui": {
-            "map":     result.get("ui_map", False),
-            "history": result.get("ui_history", False),
-            "upload":  result.get("ui_upload", False),
-            "mapLat":  result.get("map_lat"),
-            "mapLon":  result.get("map_lon"),
-        },
+        "ui": ui_payload,
     }
 
 
@@ -251,26 +298,19 @@ async def send_message_stream(
 
     async def event_generator():
         try:
-            ai_content_chunks = []
+            ai_content_chunks: list[str] = []
+            tools_called: list[str] = []
 
-            # Run intent_classifier in parallel with the stream (adds ~0 latency)
-            classifier_task = asyncio.create_task(intent_classifier({
-                "human_input": body.message,
-                "latitude": body.latitude,
-                "longitude": body.longitude,
-            }))
+            start_event = "{\"type\": \"start\"}"
+            print(f"[SSE] → {start_event}")
+            yield f"data: {start_event}\n\n"
 
-            # Emit immediately so clients/proxies flush stream early.
-            yield "data: {\"type\": \"start\"}\n\n"
-
-            # Using astream_events handles yielding the tokens as they arrive.
-            # IMPORTANT: Only stream tokens from the "agent" node — other nodes
-            # (intent_classifier, memory_update) make internal LLM calls whose
-            # output must NOT be forwarded to the client.
+            # Stream only tokens from the "agent" node; ignore other nodes
+            # (memory_update etc.) which make their own internal LLM calls.
             async for event in graph.astream_events(initial_state, version="v2"):
                 kind = event["event"]
                 node = event.get("metadata", {}).get("langgraph_node")
-                
+
                 if kind == "on_chat_model_stream" and node == "agent":
                     chunk = event["data"]["chunk"]
                     if isinstance(chunk, AIMessageChunk) and chunk.content:
@@ -278,17 +318,20 @@ async def send_message_stream(
                         if text:
                             ai_content_chunks.append(text)
                             yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
-                            
+
                 elif kind == "on_tool_start" and node in ("agent", "tool_executor"):
                     tool_name = event.get("name")
-                    yield f"data: {json.dumps({'type': 'tool', 'name': tool_name})}\n\n"
+                    tools_called.append(tool_name)
+                    tool_event = json.dumps({'type': 'tool', 'name': tool_name})
+                    print(f"[SSE] → {tool_event}")
+                    yield f"data: {tool_event}\n\n"
 
-            ai_content = "".join(ai_content_chunks)
+            raw_content = "".join(ai_content_chunks)
 
             # ── Fallback: if streaming produced no text (can happen with
             #    non-Latin scripts like Bengali, Tamil, etc.), run the graph
             #    non-streaming and extract the final AI response. ──────────
-            if not ai_content:
+            if not raw_content:
                 logging.warning(
                     "[stream] Empty stream for conversation=%s, falling back to non-stream invoke",
                     conversation_id,
@@ -305,20 +348,41 @@ async def send_message_stream(
                 except Exception as fallback_err:
                     logging.error("[stream] Fallback invoke also failed: %s", fallback_err)
 
-            if not ai_content:
-                ai_content = "I processed your request but couldn't generate a text response."
+            print(f"[SSE]   streamed {len(ai_content_chunks)} chunks, {len(raw_content)} chars total")
+
+            if not raw_content:
+                raw_content = "I processed your request but couldn't generate a text response."
+
+            # Parse __UI__ sentinel from the agent's output, then sanitise display text
+            ui_data, ai_content = _extract_ui_json(raw_content)
             ai_content = _sanitise_agent_text(ai_content)
             if not ai_content:
                 ai_content = "I processed your request but couldn't generate a text response."
+
+            map_open = bool(ui_data.get("map", False))
+            map_lat = ui_data.get("map_lat")
+            map_lon = ui_data.get("map_lon")
+            # When the agent sets null coords it means "use the user's GPS" —
+            # fill in the coordinates from the request body.
+            if map_open and map_lat is None and body.latitude is not None:
+                map_lat = body.latitude
+                map_lon = body.longitude
+            ui_payload = {
+                "map":     map_open,
+                "history": bool(ui_data.get("history", False)),
+                "upload":  bool(ui_data.get("upload", False)),
+                "mapLat":  float(map_lat) if map_lat is not None else None,
+                "mapLon":  float(map_lon) if map_lon is not None else None,
+            }
 
             saved_msg = save_message(
                 conversation_id,
                 role="assistant",
                 content=ai_content,
                 tool_calls=None,
+                metadata={"ui": ui_payload}
             )
 
-            # Update conversation metadata
             msg_count = conv.get("messageCount", 0) + 2
             title = conv.get("title", "New Chat")
             if title == "New Chat" and body.message:
@@ -327,13 +391,16 @@ async def send_message_stream(
             update_conversation(conversation_id, messageCount=msg_count, title=title)
             asyncio.create_task(maybe_update_summary(conversation_id))
 
-            # Await parallel classifier result (should already be done by now)
-            ui_result = await classifier_task
-            yield f"data: {json.dumps({'type': 'end', 'messageId': saved_msg.get('messageId'), 'ui': {'map': ui_result.get('ui_map', False), 'history': ui_result.get('ui_history', False), 'upload': ui_result.get('ui_upload', False), 'mapLat': ui_result.get('map_lat'), 'mapLon': ui_result.get('map_lon')}})}\n\n"
+            end_payload = {'type': 'end', 'messageId': saved_msg.get('messageId'), 'ui': ui_payload}
+            end_event = json.dumps(end_payload)
+            print(f"[SSE] → {end_event}")
+            yield f"data: {end_event}\n\n"
         except Exception as e:
             error_msg = f"Error during streaming: {str(e)}"
             save_message(conversation_id, role="assistant", content=error_msg)
-            yield f"data: {json.dumps({'type': 'error', 'error': error_msg})}\n\n"
+            err_event = json.dumps({'type': 'error', 'error': error_msg})
+            print(f"[SSE] → {err_event}")
+            yield f"data: {err_event}\n\n"
 
     return StreamingResponse(
         event_generator(),
