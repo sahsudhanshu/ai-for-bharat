@@ -243,6 +243,11 @@ export default function UploadComponent({
     setStep("idle");
     setScanError(null);
     setExpandedCrops(new Set());
+    setWeightFormOpen({});
+    setWeightInputs({});
+    setWeightLoading({});
+    setWeightResults({});
+    setWeightErrors({});
 
     if ("geolocation" in navigator && files.length === 0) {
       navigator.geolocation.getCurrentPosition(
@@ -296,6 +301,11 @@ export default function UploadComponent({
       setScanError(null);
       setMlResults([]);
       setCurrentResultIndex(0);
+      setWeightFormOpen({});
+      setWeightInputs({});
+      setWeightLoading({});
+      setWeightResults({});
+      setWeightErrors({});
 
       // Dispatch upload:started PaneMessage
       if (onPaneMessage) {
@@ -480,6 +490,11 @@ export default function UploadComponent({
     setScanError(null);
     setCurrentGroupId(null);
     setExpandedCrops(new Set());
+    setWeightFormOpen({});
+    setWeightInputs({});
+    setWeightLoading({});
+    setWeightResults({});
+    setWeightErrors({});
   };
 
   const isAnalyzing = step === "uploading" || step === "processing";
