@@ -103,11 +103,16 @@ def create_rag_tool():
         Returns:
             Formatted knowledge base excerpts most relevant to the query.
         """
-        logger.info(f"[fish_knowledge_search] RAG disabled, redirecting to web_search: '{query}'")
-        return (
-            "The knowledge base is currently disabled. "
-            "Please use the web_search tool to find information about this topic."
-        )
+        try:
+            retriever = _get_retriever()
+            context = retriever.get_context_string(query, top_k=4)
+            if not context:
+                return "No relevant information found in the knowledge base for this query."
+            RAGLogger.log_retrieval(query=query, num_results=context.count("**["), context_length=len(context))
+            return context
+        except Exception as exc:
+            logger.warning(f"[fish_knowledge_search] failed: {exc}")
+            return f"Knowledge base search failed: {exc}"
 
     return fish_knowledge_search
 
@@ -129,10 +134,12 @@ async def retrieve_rag_context_async(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     human_input = state.get("human_input", "")
 
-    # RAG disabled
-    return {"rag_context": None, "rag_documents_count": 0, "rag_error": None}
+    # Topic gate — only invoke RAG for fish/disease-related queries
+    if not _mentions_fish_topic(human_input):
+        return {"rag_context": None, "rag_documents_count": 0, "rag_error": None}
 
     # Build a focused search query
+    detected_species = state.get("detected_species")
     if detected_species:
         query = RAGQueryBuilder.build_fish_query(detected_species)
         logger.info(f"[rag_retrieval] Species query: {query[:80]}")
