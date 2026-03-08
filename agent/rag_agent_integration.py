@@ -18,6 +18,55 @@ from rag_retriever import BedrockRAGRetriever, RAGQueryBuilder, RAGLogger, get_r
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+# ── Species / disease topic gate ------------------------------------------
+# RAG is only invoked when the query mentions one of the 31 ML species or
+# a fish disease/treatment keyword.
+_SPECIES_KEYWORDS: frozenset = frozenset({
+    # The 31 ML-model species (canonical names + common aliases)
+    "bangus", "milkfish",
+    "big head carp", "bighead carp",
+    "black spotted barb",
+    "catfish", "magur", "mangur", "singhi",
+    "climbing perch", "kawai",
+    "fourfinger threadfin", "rawas",
+    "freshwater eel", "eel", "baam",
+    "glass perchlet",
+    "goby",
+    "goldfish", "gold fish",
+    "gourami",
+    "grass carp",
+    "green spotted puffer", "puffer fish",
+    "indian carp", "rohu", "catla", "mrigal", "labeo",
+    "indo-pacific tarpon", "tarpon", "oxeye",
+    "jaguar guapote",
+    "janitor fish",
+    "knifefish", "featherback",
+    "pipefish",
+    "mosquito fish", "gambusia",
+    "mudfish", "snakehead", "murrel", "shol",
+    "mullet",
+    "pangasius", "basa",
+    "perch",
+    "scat fish",
+    "silver barb",
+    "silver carp",
+    "silver perch",
+    "tenpounder", "ladyfish",
+    "tilapia",
+    # Disease keywords (DISEASES.pdf is in the index)
+    "disease", "infection", "bacteria", "bacterial", "fungal",
+    "parasite", "parasitic", "viral", "sick fish", "dying fish",
+    "fin rot", "ulcer", "lesion", "symptom", "aeromoniasis",
+    "saprolegnia", "white tail", "red disease", "gill disease",
+})
+
+
+def _mentions_fish_topic(text: str) -> bool:
+    """Return True if the text mentions a known species or disease keyword."""
+    lower = text.lower()
+    return any(kw in lower for kw in _SPECIES_KEYWORDS)
+
+
 # ── Global retriever (lazy init) ------------------------------------------
 
 _retriever: Optional[BedrockRAGRetriever] = None
@@ -54,19 +103,11 @@ def create_rag_tool():
         Returns:
             Formatted knowledge base excerpts most relevant to the query.
         """
-        logger.info(f"[fish_knowledge_search] Query: '{query}'")
-        try:
-            retriever = _get_retriever()
-            context   = retriever.get_context_string(query, top_k=4)
-            RAGLogger.log_retrieval(
-                query=query,
-                num_results=context.count("**["),
-                context_length=len(context),
-            )
-            return context if context else "No relevant information found in the knowledge base."
-        except Exception as exc:
-            logger.warning(f"RAG tool error: {exc}")
-            return f"Knowledge base search unavailable: {exc}"
+        logger.info(f"[fish_knowledge_search] RAG disabled, redirecting to web_search: '{query}'")
+        return (
+            "The knowledge base is currently disabled. "
+            "Please use the web_search tool to find information about this topic."
+        )
 
     return fish_knowledge_search
 
@@ -88,8 +129,10 @@ async def retrieve_rag_context_async(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     human_input = state.get("human_input", "")
 
-    # Build a focused search query from state context
-    detected_species = state.get("detected_species")
+    # RAG disabled
+    return {"rag_context": None, "rag_documents_count": 0, "rag_error": None}
+
+    # Build a focused search query
     if detected_species:
         query = RAGQueryBuilder.build_fish_query(detected_species)
         logger.info(f"[rag_retrieval] Species query: {query[:80]}")

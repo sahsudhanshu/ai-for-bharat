@@ -42,6 +42,13 @@ class AgentState(TypedDict, total=False):
     detected_species: Optional[str]        # Fish species detected in user message
     rag_error: Optional[str]               # Error message if RAG retrieval failed
 
+    # ── UI action hints (set by intent_classifier node) ────────────────────
+    ui_map: bool                           # true → open map view in frontend
+    ui_history: bool                       # true → open catch history in frontend
+    ui_upload: bool                        # true → open upload dialog in frontend
+    map_lat: Optional[float]               # map centre latitude (when ui_map=True)
+    map_lon: Optional[float]               # map centre longitude (when ui_map=True)
+
     # ── Tool outputs ─────────────────────────────────────────────────────────
     tool_outputs: List[Dict[str, Any]]     # aggregated tool results
 

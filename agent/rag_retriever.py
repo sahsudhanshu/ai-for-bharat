@@ -20,11 +20,13 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── Config from env -------------------------------------------------------
-_AOSS_ENDPOINT  = os.getenv("AOSS_ENDPOINT",   "https://drs6m0eqllzngd1mwed2.us-east-1.aoss.amazonaws.com")
-_AOSS_REGION    = os.getenv("BEDROCK_REGION",   "us-east-1")
-_AOSS_INDEX     = os.getenv("AOSS_INDEX_NAME",  "fish-gemini-index")
-_GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY",   "")
-_GEMINI_EMBED   = os.getenv("GEMINI_EMBED_MODEL", "models/gemini-embedding-001")
+_AOSS_ENDPOINT        = os.getenv("AOSS_ENDPOINT",   "https://drs6m0eqllzngd1mwed2.us-east-1.aoss.amazonaws.com")
+_AOSS_REGION          = os.getenv("BEDROCK_REGION",   "us-east-1")
+_AOSS_INDEX           = os.getenv("AOSS_INDEX_NAME",  "fish-gemini-index")
+_GOOGLE_API_KEY       = os.getenv("GOOGLE_API_KEY",   "")
+_GEMINI_EMBED         = os.getenv("GEMINI_EMBED_MODEL", "models/gemini-embedding-001")
+# Minimum AOSS KNN score to consider a result relevant.
+_RELEVANCE_THRESHOLD  = 0.62
 
 
 def _aoss_client():
@@ -118,9 +120,20 @@ class BedrockRAGRetriever:
         return {"query": query, "documents": docs, "error": None}
 
     def get_context_string(self, query: str, top_k: int = 5) -> str:
-        """Return documents formatted as a plain-text context block for the LLM."""
+        """
+        Return documents formatted as a plain-text context block for the LLM.
+        Returns empty string if no results OR if top score < relevance threshold.
+        """
         result = self.retrieve(query, top_k=top_k)
         if result["error"] or not result["documents"]:
+            return ""
+
+        top_score = result["documents"][0]["score"]
+        if top_score < _RELEVANCE_THRESHOLD:
+            logger.info(
+                f"[RAG] Dropping results — top score {top_score:.3f} < "
+                f"threshold {_RELEVANCE_THRESHOLD} for query: '{query[:60]}'"
+            )
             return ""
 
         parts = ["### Relevant Knowledge Base Excerpts"]

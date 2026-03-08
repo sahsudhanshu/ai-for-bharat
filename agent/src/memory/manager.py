@@ -27,7 +27,7 @@ async def _call_bedrock_for_text(prompt: str) -> str:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         google_api_key = os.getenv("GOOGLE_API_KEY", "")
-        model_id = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+        model_id = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
 
         if not google_api_key:
             return "(Summary unavailable — GOOGLE_API_KEY not set)"

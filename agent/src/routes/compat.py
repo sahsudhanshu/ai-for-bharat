@@ -139,6 +139,13 @@ async def send_chat(
         "chatId": conversation_id,
         "response": ai_content,
         "timestamp": saved.get("timestamp", ""),
+        "ui": {
+            "map":     result.get("ui_map", False),
+            "history": result.get("ui_history", False),
+            "upload":  result.get("ui_upload", False),
+            "mapLat":  result.get("map_lat"),
+            "mapLon":  result.get("map_lon"),
+        },
     }
 
 

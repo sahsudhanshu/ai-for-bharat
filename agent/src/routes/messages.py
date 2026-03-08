@@ -21,7 +21,7 @@ from src.memory.dynamodb_store import (
     update_conversation,
 )
 from src.memory.manager import maybe_update_summary
-from src.core.graph import graph
+from src.core.graph import graph, intent_classifier
 
 router = APIRouter()
 
@@ -156,6 +156,13 @@ async def send_message(
             "messageId": saved_msg.get("messageId"),
             "toolCalls": tool_calls_meta if tool_calls_meta else None,
         },
+        "ui": {
+            "map":     result.get("ui_map", False),
+            "history": result.get("ui_history", False),
+            "upload":  result.get("ui_upload", False),
+            "mapLat":  result.get("map_lat"),
+            "mapLon":  result.get("map_lon"),
+        },
     }
 
 
@@ -193,9 +200,14 @@ async def send_message_stream(
     async def event_generator():
         try:
             ai_content_chunks = []
-            tool_calls_meta = []
-            final_ai_msg_id = ""
-            
+
+            # Run intent_classifier in parallel with the stream (adds ~0 latency)
+            classifier_task = asyncio.create_task(intent_classifier({
+                "human_input": body.message,
+                "latitude": body.latitude,
+                "longitude": body.longitude,
+            }))
+
             # Using astream_events handles yielding the tokens as they arrive
             async for event in graph.astream_events(initial_state, version="v2"):
                 kind = event["event"]
@@ -213,21 +225,15 @@ async def send_message_stream(
                     tool_name = event.get("name")
                     yield f"data: {json.dumps({'type': 'tool', 'name': tool_name})}\n\n"
 
-            # After stream finishes, we need to save the final message properly
-            # Run the graph again with invoke? No, since astream_events runs the graph completely,
-            # we just collected all parts.
-            
             ai_content = "".join(ai_content_chunks)
             if not ai_content:
                 ai_content = "I processed your request but couldn't generate a text response."
 
-            # We didn't collect tool_calls_meta properly from stream events so we might not have them easily,
-            # but for simplicity we save the text content.
             saved_msg = save_message(
                 conversation_id,
                 role="assistant",
                 content=ai_content,
-                tool_calls=None,  # Not extracting parsed tool calls in stream easily yet
+                tool_calls=None,
             )
 
             # Update conversation metadata
@@ -237,11 +243,11 @@ async def send_message_stream(
                 title = body.message[:60] + ("…" if len(body.message) > 60 else "")
 
             update_conversation(conversation_id, messageCount=msg_count, title=title)
-
-            # Re-summarize silently in background
             asyncio.create_task(maybe_update_summary(conversation_id))
 
-            yield f"data: {json.dumps({'type': 'end', 'messageId': saved_msg.get('messageId')})}\n\n"
+            # Await parallel classifier result (should already be done by now)
+            ui_result = await classifier_task
+            yield f"data: {json.dumps({'type': 'end', 'messageId': saved_msg.get('messageId'), 'ui': {'map': ui_result.get('ui_map', False), 'history': ui_result.get('ui_history', False), 'upload': ui_result.get('ui_upload', False), 'mapLat': ui_result.get('map_lat'), 'mapLon': ui_result.get('map_lon')}})}\n\n"
         except Exception as e:
             error_msg = f"Error during streaming: {str(e)}"
             save_message(conversation_id, role="assistant", content=error_msg)
