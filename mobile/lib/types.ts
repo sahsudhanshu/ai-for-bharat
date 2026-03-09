@@ -136,6 +136,7 @@ export interface UserProfile {
     | "Researcher";
   publicProfileEnabled: boolean;
   publicProfileSlug?: string;
+  showPublicStats?: boolean;
   preferences: UserPreferences; // Embedded preferences
   createdAt: string;
   updatedAt?: string;
@@ -264,6 +265,7 @@ export interface GroupRecord {
   locationMapped?: boolean;
   locationMapReason?: string;
   analysisResult?: GroupAnalysis;
+  weightEstimates?: Record<string, any>;
 }
 
 export interface FishDetection {

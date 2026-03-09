@@ -30,7 +30,89 @@ function transformLegacyToGroup(legacyRecord) {
     if (legacyRecord.analysisResult) {
         const ar = legacyRecord.analysisResult;
         primarySpecies = ar.species;
-        totalFishCount = 1;
+
+        // Handle multi-fish offline records (allDetections array)
+        const dets = ar.allDetections || [];
+        totalFishCount = dets.length || 1;
+
+        // Build per-fish crops map from allDetections if available
+        const crops = {};
+        const detectionsList = [];
+        const speciesDistribution = {};
+
+        if (dets.length > 0) {
+            dets.forEach((d, i) => {
+                crops[`crop_${i}`] = {
+                    crop_url: d.cropUrl || null,
+                    species: {
+                        label: d.species || ar.species,
+                        confidence: d.speciesConfidence || ar.confidence,
+                        gradcam_url: d.gradcamUrl || null,
+                    },
+                    disease: {
+                        label: d.disease || "Healthy",
+                        confidence: d.diseaseConfidence || 1.0,
+                        gradcam_url: d.gradcamUrl || null,
+                    },
+                    bbox: d.bbox,
+                    yolo_confidence: d.speciesConfidence || ar.confidence,
+                    measurements: d.measurements || ar.measurements,
+                    weight_kg: d.weightG ? d.weightG / 1000 : ar.weightEstimate,
+                    estimatedValue: d.estimatedValue || ar.marketEstimate?.estimated_value,
+                };
+                const sp = d.species || ar.species || "Unknown";
+                speciesDistribution[sp] = (speciesDistribution[sp] || 0) + 1;
+                detectionsList.push({
+                    cropUrl: d.cropUrl || "",
+                    species: sp,
+                    confidence: d.speciesConfidence || ar.confidence || 0,
+                    diseaseStatus: d.disease || "Healthy",
+                    diseaseConfidence: d.diseaseConfidence || 1.0,
+                    weight: d.weightG ? d.weightG / 1000 : ar.weightEstimate || 0,
+                    value: d.estimatedValue || ar.marketEstimate?.estimated_value || 0,
+                    gradcamUrls: {
+                        species: d.gradcamUrl || "",
+                        disease: d.gradcamUrl || "",
+                    },
+                });
+            });
+        } else {
+            // Fallback for truly legacy records with no allDetections
+            crops["0"] = {
+                crop_url: ar.debugUrls?.cropImageUrl || ar.cropUrl || null,
+                species: {
+                    label: ar.species,
+                    confidence: ar.confidence,
+                    gradcam_url: ar.debugUrls?.gradcamUrl || ar.gradcamUrl || null,
+                },
+                disease: {
+                    label: ar.disease || "Healthy",
+                    confidence: ar.diseaseConfidence || 1.0,
+                    gradcam_url: ar.debugUrls?.gradcamUrl || ar.gradcamUrl || null,
+                },
+                weight_kg: ar.weightEstimate,
+                estimatedValue: ar.marketEstimate?.estimated_value,
+            };
+            speciesDistribution[ar.species] = 1;
+            detectionsList.push({
+                cropUrl: ar.debugUrls?.cropImageUrl || ar.cropUrl || "",
+                species: ar.species || "Unknown",
+                confidence: ar.confidence || 0,
+                diseaseStatus: ar.disease || "Healthy",
+                diseaseConfidence: ar.diseaseConfidence || 1.0,
+                weight: ar.weightEstimate || 0,
+                value: ar.marketEstimate?.estimated_value || 0,
+                gradcamUrls: {
+                    species: ar.debugUrls?.gradcamUrl || ar.gradcamUrl || "",
+                    disease: "",
+                },
+            });
+        }
+
+        const diseaseDetected = detectionsList.some(d => {
+            const status = (d.diseaseStatus || "").toLowerCase();
+            return status !== "healthy" && status !== "healthy fish";
+        });
 
         // Map legacy flat analysis to modern GroupAnalysis structure
         transformedAnalysis = {
@@ -39,48 +121,18 @@ function transformLegacyToGroup(legacyRecord) {
                     imageIndex: 0,
                     s3Key: legacyRecord.s3Key,
                     yolo_image_url: ar.debugUrls?.yoloImageUrl,
-                    crops: {
-                        "0": {
-                            crop_url: ar.debugUrls?.cropImageUrl,
-                            species: {
-                                label: ar.species,
-                                confidence: ar.confidence,
-                                gradcam_url: ar.debugUrls?.gradcamUrl,
-                            },
-                            disease: {
-                                label: "Healthy",
-                                confidence: 1.0,
-                                gradcam_url: "",
-                            },
-                            weight_kg: ar.weightEstimate,
-                            estimatedValue: ar.marketEstimate?.estimated_value,
-                        },
-                    },
+                    crops,
                 },
             ],
             aggregateStats: {
-                totalFishCount: 1,
-                speciesDistribution: { [ar.species]: 1 },
+                totalFishCount,
+                speciesDistribution,
                 averageConfidence: ar.confidence,
-                diseaseDetected: false,
+                diseaseDetected,
                 totalEstimatedWeight: ar.weightEstimate,
                 totalEstimatedValue: ar.marketEstimate?.estimated_value || 0,
             },
-            detections: [
-                {
-                    cropUrl: ar.debugUrls?.cropImageUrl || "",
-                    species: ar.species || "Unknown",
-                    confidence: ar.confidence || 0,
-                    diseaseStatus: "Healthy",
-                    diseaseConfidence: 1.0,
-                    weight: ar.weightEstimate || 0,
-                    value: ar.marketEstimate?.estimated_value || 0,
-                    gradcamUrls: {
-                        species: ar.debugUrls?.gradcamUrl || "",
-                        disease: "",
-                    },
-                },
-            ],
+            detections: detectionsList,
             yoloVisualizationUrls: ar.debugUrls?.yoloImageUrl
                 ? [ar.debugUrls.yoloImageUrl]
                 : [],
@@ -100,6 +152,12 @@ function transformLegacyToGroup(legacyRecord) {
         s3Keys: legacyRecord.s3Key ? [legacyRecord.s3Key] : [],
         analysisResult: transformedAnalysis,
         isLegacy: true,
+        // Carry over weight estimates and location data
+        ...(legacyRecord.weightEstimates && { weightEstimates: legacyRecord.weightEstimates }),
+        ...(legacyRecord.latitude !== undefined && { latitude: legacyRecord.latitude }),
+        ...(legacyRecord.longitude !== undefined && { longitude: legacyRecord.longitude }),
+        ...(legacyRecord.locationMapped !== undefined && { locationMapped: legacyRecord.locationMapped }),
+        ...(legacyRecord.locationMapReason && { locationMapReason: legacyRecord.locationMapReason }),
     };
 }
 

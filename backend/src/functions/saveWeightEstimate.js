@@ -22,6 +22,7 @@ const { verifyToken } = require("../utils/auth");
 const { ok, badRequest, unauthorized, serverError } = require("../utils/response");
 
 const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
 
 exports.handler = async (event) => {
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -59,16 +60,35 @@ exports.handler = async (event) => {
     const userId = decoded.sub;
 
     try {
-        // Fetch the group to verify ownership and read the current weightEstimates map.
+        // Fetch the record — could be in groups table (group sessions) or images table (single sessions).
+        let record = null;
+        let tableName = GROUPS_TABLE;
+        let keyAttr = "groupId";
+
         const { Item: group } = await ddb.send(new GetCommand({
             TableName: GROUPS_TABLE,
             Key: { groupId },
         }));
 
-        if (!group) {
+        if (group) {
+            record = group;
+        } else {
+            // Fallback: check the images table (single offline sessions use imageId = groupId)
+            const { Item: image } = await ddb.send(new GetCommand({
+                TableName: IMAGES_TABLE,
+                Key: { imageId: groupId },
+            }));
+            if (image) {
+                record = image;
+                tableName = IMAGES_TABLE;
+                keyAttr = "imageId";
+            }
+        }
+
+        if (!record) {
             return badRequest("Group not found");
         }
-        if (group.userId !== userId) {
+        if (record.userId !== userId) {
             return unauthorized();
         }
 
@@ -90,7 +110,7 @@ exports.handler = async (event) => {
 
         // Merge the new weight into the existing per-fish estimates map and
         // recompute the aggregate total.
-        const existing = group.weightEstimates || {};
+        const existing = record.weightEstimates || {};
         const updatedMap = { ...existing, [fishKey]: estimateEntry };
 
         // Calculate total weight from all entries (handle both old numeric and new object format)
@@ -109,14 +129,14 @@ exports.handler = async (event) => {
         }, 0);
 
         // Build the update — also patch aggregateStats if they exist on the record.
-        const hasAggregateStats = group.analysisResult?.aggregateStats !== undefined;
+        const hasAggregateStats = record.analysisResult?.aggregateStats !== undefined;
         const updateExpr = hasAggregateStats
             ? "SET weightEstimates = :wm, analysisResult.aggregateStats.totalEstimatedWeight = :tw, analysisResult.aggregateStats.totalEstimatedValue = :tv, updatedAt = :ua"
             : "SET weightEstimates = :wm, updatedAt = :ua";
 
         await ddb.send(new UpdateCommand({
-            TableName: GROUPS_TABLE,
-            Key: { groupId },
+            TableName: tableName,
+            Key: { [keyAttr]: groupId },
             UpdateExpression: updateExpr,
             ExpressionAttributeValues: {
                 ":wm": updatedMap,

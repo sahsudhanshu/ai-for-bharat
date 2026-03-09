@@ -471,6 +471,14 @@ export default function UploadScreen() {
             .filter((d) => d.cropUri)
             .map((d) => d.cropUri!);
           setCropUris(crops);
+        } else if (errors && errors.length > 0) {
+          // Inference pipeline hit an error (e.g. TFLite model corruption)
+          // — distinguish from a genuine "no fish" result.
+          console.warn("[Upload] ⚠️ Offline inference errors — not a real detection result");
+          Alert.alert(
+            "Analysis Error",
+            `The on-device model encountered an error.\n\n${CACHE_HINT_MESSAGE}`,
+          );
         } else {
           console.warn("[Upload] ⚠️ No fish detected in image");
           Alert.alert(
@@ -1663,14 +1671,10 @@ export default function UploadScreen() {
             const avgConf =
               offlineResults.reduce((s, d) => s + d.speciesConfidence, 0) /
               totalFish;
-            // Only count fish where the user has manually entered a measurement.
-            // bbox-estimated weights are not shown (they're unreliable for display).
-            const userWeightedFish = offlineResults.filter(
-              (d) => d.weightUserEntered,
-            );
-            const hasUserWeights = userWeightedFish.length > 0;
+            // Sum the weight of all detected fish (either bbox-estimated or user-entered)
+            const hasUserWeights = offlineResults.some(d => d.weightG > 0);
             const totalWeightKg =
-              userWeightedFish.reduce((s, d) => s + d.weightG, 0) / 1000;
+              offlineResults.reduce((s, d) => s + d.weightG, 0) / 1000;
             // Prices are unavailable in offline mode — never show estimated value.
             const anyDisease = offlineResults.some(
               (d) => d.disease !== "Healthy Fish",

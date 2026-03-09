@@ -369,6 +369,18 @@ export default function MapScreen() {
         setScanState("done");
         setScanSummary(result.summary);
 
+        // Center map on the mean of all spot locations
+        if (result.spots.length > 0 && mapRef.current) {
+          const coords = result.spots.map((s) => ({
+            latitude: s.latitude,
+            longitude: s.longitude,
+          }));
+          mapRef.current.fitToCoordinates(coords, {
+            edgePadding: { top: 80, right: 60, bottom: 200, left: 60 },
+            animated: true,
+          });
+        }
+
         // Notify if user left the page
         if (appState.current !== "active") {
           const count = result.spots.length;
@@ -690,20 +702,27 @@ export default function MapScreen() {
 
           {spotsVisible &&
             fishingSpots.map((spot, i) => (
-              <MapCircle
-                key={`spot-${i}`}
-                center={{ latitude: spot.latitude, longitude: spot.longitude }}
-                radius={600}
-                fillColor={spot.color + "88"}
-                strokeColor={spot.color}
-                strokeWidth={1.5}
-                onStartShouldSetResponder={() => {
-                  setSelectedSpot(spot);
-                  setTapCard(null);
-                  setSelectedMarker(null);
-                  return true;
-                }}
-              />
+              <React.Fragment key={`spot-${i}`}>
+                <MapCircle
+                  center={{ latitude: spot.latitude, longitude: spot.longitude }}
+                  radius={600}
+                  fillColor={spot.color + "88"}
+                  strokeColor={spot.color}
+                  strokeWidth={1.5}
+                />
+                <Marker
+                  coordinate={{ latitude: spot.latitude, longitude: spot.longitude }}
+                  tracksViewChanges={false}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  onPress={() => {
+                    setSelectedSpot(spot);
+                    setTapCard(null);
+                    setSelectedMarker(null);
+                  }}
+                >
+                  <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: spot.color, borderWidth: 2, borderColor: "#fff", opacity: 0.85 }} />
+                </Marker>
+              </React.Fragment>
             ))}
 
           {/* Tap-on-map pin */}
@@ -1082,6 +1101,17 @@ export default function MapScreen() {
                   onPress={() => {
                     setSpotsVisible(true);
                     dismissScan();
+                    // Center map on all spots
+                    if (fishingSpots.length > 0 && mapRef.current) {
+                      const coords = fishingSpots.map((s) => ({
+                        latitude: s.latitude,
+                        longitude: s.longitude,
+                      }));
+                      mapRef.current.fitToCoordinates(coords, {
+                        edgePadding: { top: 80, right: 60, bottom: 200, left: 60 },
+                        animated: true,
+                      });
+                    }
                   }}
                 >
                   <Ionicons name="map-outline" size={13} color="#fff" />
@@ -1244,6 +1274,11 @@ export default function MapScreen() {
               <Text style={styles.infoSubtitle}>
                 {selectedSpot.type} · {selectedSpot.distance_km} km away
               </Text>
+              {selectedSpot.parent_water_body ? (
+                <Text style={[styles.infoSubtitle, { marginTop: 2 }]}>
+                  {selectedSpot.parent_water_body}
+                </Text>
+              ) : null}
             </View>
             <TouchableOpacity onPress={() => setSelectedSpot(null)}>
               <Ionicons name="close" size={18} color={COLORS.textMuted} />
@@ -1312,6 +1347,21 @@ export default function MapScreen() {
               </Text>
             </View>
           </View>
+          {selectedSpot.gemini_web_score != null && (
+            <View style={styles.infoStats}>
+              <View style={styles.scoreTile}>
+                <Ionicons
+                  name="globe-outline"
+                  size={12}
+                  color={COLORS.textMuted}
+                />
+                <Text style={styles.scoreTileLabel}>Web Score</Text>
+                <Text style={styles.scoreTileValue}>
+                  {selectedSpot.gemini_web_score}/100
+                </Text>
+              </View>
+            </View>
+          )}
           {selectedSpot.chlorophyll_available && (
             <View style={styles.chloTag}>
               <Ionicons name="water-outline" size={12} color="#22d3ee" />

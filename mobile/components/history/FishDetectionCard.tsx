@@ -29,7 +29,7 @@ export function FishDetectionCard({
   onExpand,
   expanded,
 }: FishDetectionCardProps) {
-  const isDiseased = detection.diseaseStatus !== "Healthy";
+  const isDiseased = !detection.diseaseStatus.toLowerCase().includes("healthy");
 
   return (
     <Card variant="default" padding={0} style={styles.cardContainer}>

@@ -8,6 +8,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { OfflineDetectionResult } from "./offline-inference";
 import type { OfflineAnalysisData } from "./analysis-store";
+import { syncLogger } from "./sync-logger";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,10 @@ export interface LocalDetection {
   lengthMm: number;
   pricePerKg: number;
   estimatedValue: number;
+  /** Local file URI of the cropped fish image */
+  cropUri?: string;
+  /** Local file URI of the GradCAM overlay image */
+  gradcamUri?: string;
 }
 
 /** One image inside a group offline session */
@@ -99,13 +104,16 @@ function toLocalDetection(d: OfflineDetectionResult): LocalDetection {
     isLegalSize: d.isLegalSize,
     minLegalSize: d.minLegalSize,
     bbox: d.bbox,
-    // Only persist weight when the user has manually entered a measurement.
-    // bbox-estimated weights are excluded to avoid showing inaccurate data.
-    weightG: d.weightUserEntered ? d.weightG : 0,
+    // Always persist the weight — bbox-estimated weights from offline inference
+    // are the best available estimate and must be synced to the backend so the
+    // web dashboard can display them instead of showing "Get Estimated Weight".
+    weightG: d.weightG,
     lengthMm: d.lengthMm,
     pricePerKg: d.pricePerKg,
     // Prices are unavailable in offline mode.
     estimatedValue: 0,
+    cropUri: d.cropUri,
+    gradcamUri: d.gradcamUri,
   };
 }
 
@@ -287,7 +295,11 @@ export async function markLocalRecordSyncing(id: string): Promise<void> {
  */
 export async function syncLocalHistory(): Promise<void> {
   const pending = await getPendingLocalRecords();
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    syncLogger.info("LocalHistory", "No pending offline scans to sync");
+    return;
+  }
+  syncLogger.info("LocalHistory", `Syncing ${pending.length} offline scan(s)`);
 
   const { syncOfflineSession, uploadToS3, saveWeightEstimate } = await import("./api-client");
 
@@ -295,30 +307,87 @@ export async function syncLocalHistory(): Promise<void> {
     if (record.syncStatus === "syncing") continue;
 
     try {
+      syncLogger.info("LocalHistory", `Processing scan ${record.id} (${record.sessionType ?? "single"})`);
       await markLocalRecordSyncing(record.id);
 
       if (record.sessionType !== "group") {
         // ── Single image ───────────────────────────────────────────────────
 
+        // Build file list: main image + per-fish crops and gradcams
+        const dets = record.detections || [];
+        const files: Array<{ fileName: string; fileType: string }> = [
+          { fileName: `offline_${record.id}.jpg`, fileType: record.fileType || "image/jpeg" },
+        ];
+        for (let i = 0; i < dets.length; i++) {
+          if (dets[i].cropUri) files.push({ fileName: `offline_${record.id}_crop_${i}.jpg`, fileType: "image/jpeg" });
+          if (dets[i].gradcamUri) files.push({ fileName: `offline_${record.id}_gradcam_${i}.jpg`, fileType: "image/jpeg" });
+        }
+
         const prepare = await syncOfflineSession("prepare", {
           sessionType: "single",
-          files: [{ fileName: `offline_${record.id}.jpg`, fileType: record.fileType || "image/jpeg" }],
+          files,
           location: record.location,
         });
 
         let s3Key: string | undefined;
-        if (record.imageUri && prepare.presignedUrls?.[0]) {
+        // Map: presigned URL index → what we uploaded
+        let urlIdx = 0;
+
+        // Upload main image
+        if (record.imageUri && prepare.presignedUrls?.[urlIdx]) {
           try {
+            syncLogger.info("LocalHistory", `Uploading image to S3 for scan ${record.id}`);
             await uploadToS3(
-              prepare.presignedUrls[0].uploadUrl,
+              prepare.presignedUrls[urlIdx].uploadUrl,
               record.imageUri,
               record.fileType || "image/jpeg",
             );
-            s3Key = prepare.presignedUrls[0].s3Key;
+            s3Key = prepare.presignedUrls[urlIdx].s3Key;
+            syncLogger.success("LocalHistory", `S3 upload complete for scan ${record.id}`);
           } catch (e) {
+            syncLogger.warn("LocalHistory", `S3 upload failed for scan ${record.id} — continuing without image`);
             console.warn("[syncLocalHistory] Image S3 upload failed, continuing:", e);
           }
         }
+        urlIdx++;
+
+        // Upload per-fish crop and gradcam images
+        const detectionExtras: Array<{ cropS3Key?: string; gradcamS3Key?: string }> = [];
+        for (let i = 0; i < dets.length; i++) {
+          const extras: { cropS3Key?: string; gradcamS3Key?: string } = {};
+          if (dets[i].cropUri) {
+            const slot = prepare.presignedUrls?.[urlIdx];
+            if (slot) {
+              try {
+                await uploadToS3(slot.uploadUrl, dets[i].cropUri!, "image/jpeg");
+                extras.cropS3Key = slot.s3Key;
+              } catch (e) {
+                console.warn(`[syncLocalHistory] Crop upload failed fish ${i}:`, e);
+              }
+            }
+            urlIdx++;
+          }
+          if (dets[i].gradcamUri) {
+            const slot = prepare.presignedUrls?.[urlIdx];
+            if (slot) {
+              try {
+                await uploadToS3(slot.uploadUrl, dets[i].gradcamUri!, "image/jpeg");
+                extras.gradcamS3Key = slot.s3Key;
+              } catch (e) {
+                console.warn(`[syncLocalHistory] GradCAM upload failed fish ${i}:`, e);
+              }
+            }
+            urlIdx++;
+          }
+          detectionExtras.push(extras);
+        }
+
+        // Enrich detections with S3 keys for crops/gradcams
+        const enrichedDetections = dets.map((d, i) => ({
+          ...d,
+          cropS3Key: detectionExtras[i]?.cropS3Key ?? null,
+          gradcamS3Key: detectionExtras[i]?.gradcamS3Key ?? null,
+        }));
 
         const result = await syncOfflineSession("commit", {
           sessionType: "single",
@@ -327,7 +396,7 @@ export async function syncLocalHistory(): Promise<void> {
           createdAt: record.createdAt,
           location: record.location,
           processingTime: record.processingTime,
-          detections: record.detections || [],
+          detections: enrichedDetections,
           fishCount: record.fishCount,
           avgConfidence: record.avgConfidence,
           speciesDistribution: record.speciesDistribution,
@@ -337,8 +406,9 @@ export async function syncLocalHistory(): Promise<void> {
 
         const remoteId = result?.remoteId ?? result?.imageId;
         await markLocalRecordSynced(record.id, remoteId);
+        syncLogger.success("LocalHistory", `Scan ${record.id} committed → remote ${remoteId ?? "unknown"}`);
 
-        // Push any user-entered fish weights now that we have a cloud ID.
+        // Push fish weight estimates now that we have a cloud ID.
         if (remoteId) {
           for (let i = 0; i < (record.detections || []).length; i++) {
             const det = record.detections![i];
@@ -350,9 +420,10 @@ export async function syncLocalHistory(): Promise<void> {
                 species: det.species,
                 weightG: det.weightG,
                 timestamp: record.createdAt,
-              }).catch((e) =>
-                console.warn(`[syncLocalHistory] Weight sync failed fish ${i}:`, e),
-              );
+              }).catch((e) => {
+                syncLogger.warn("LocalHistory", `Weight sync failed for fish ${i} of scan ${remoteId}`);
+                console.warn(`[syncLocalHistory] Weight sync failed fish ${i}:`, e);
+              });
             }
           }
         }
@@ -361,28 +432,76 @@ export async function syncLocalHistory(): Promise<void> {
         // ── Group ──────────────────────────────────────────────────────────
 
         const images = record.images || [];
+
+        // Build file list: main images + per-fish crops and gradcams
+        const files: Array<{ fileName: string; fileType: string }> = [];
+        for (let i = 0; i < images.length; i++) {
+          files.push({ fileName: `offline_${record.id}_${i}.jpg`, fileType: images[i].fileType || "image/jpeg" });
+          for (let j = 0; j < images[i].detections.length; j++) {
+            if (images[i].detections[j].cropUri) files.push({ fileName: `offline_${record.id}_${i}_crop_${j}.jpg`, fileType: "image/jpeg" });
+            if (images[i].detections[j].gradcamUri) files.push({ fileName: `offline_${record.id}_${i}_gradcam_${j}.jpg`, fileType: "image/jpeg" });
+          }
+        }
+
         const prepare = await syncOfflineSession("prepare", {
           sessionType: "group",
-          files: images.map((img, i) => ({
-            fileName: `offline_${record.id}_${i}.jpg`,
-            fileType: img.fileType || "image/jpeg",
-          })),
+          files,
           location: record.location,
         });
 
-        const s3Keys: (string | null)[] = await Promise.all(
-          images.map(async (img, i) => {
-            const slot = prepare.presignedUrls?.[i];
-            if (!slot || !img.imageUri) return null;
+        syncLogger.info("LocalHistory", `Uploading ${images.length} image(s) + crops/gradcams to S3 for group ${record.id}`);
+
+        let urlIdx = 0;
+        const s3Keys: (string | null)[] = [];
+        // Per-image, per-detection extras
+        const groupDetExtras: Array<Array<{ cropS3Key?: string; gradcamS3Key?: string }>> = [];
+
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          // Upload main image
+          const slot = prepare.presignedUrls?.[urlIdx];
+          if (slot && img.imageUri) {
             try {
               await uploadToS3(slot.uploadUrl, img.imageUri, img.fileType || "image/jpeg");
-              return slot.s3Key as string;
+              s3Keys.push(slot.s3Key);
             } catch (e) {
+              syncLogger.warn("LocalHistory", `Group image ${i} S3 upload failed for ${record.id}`);
               console.warn(`[syncLocalHistory] Group image ${i} S3 upload failed:`, e);
-              return null;
+              s3Keys.push(null);
             }
-          }),
-        );
+          } else {
+            s3Keys.push(null);
+          }
+          urlIdx++;
+
+          // Upload per-fish crops and gradcams
+          const detExtras: Array<{ cropS3Key?: string; gradcamS3Key?: string }> = [];
+          for (let j = 0; j < img.detections.length; j++) {
+            const extras: { cropS3Key?: string; gradcamS3Key?: string } = {};
+            if (img.detections[j].cropUri) {
+              const cslot = prepare.presignedUrls?.[urlIdx];
+              if (cslot) {
+                try {
+                  await uploadToS3(cslot.uploadUrl, img.detections[j].cropUri!, "image/jpeg");
+                  extras.cropS3Key = cslot.s3Key;
+                } catch (e) { console.warn(`[syncLocalHistory] Group img ${i} crop ${j} upload failed:`, e); }
+              }
+              urlIdx++;
+            }
+            if (img.detections[j].gradcamUri) {
+              const gslot = prepare.presignedUrls?.[urlIdx];
+              if (gslot) {
+                try {
+                  await uploadToS3(gslot.uploadUrl, img.detections[j].gradcamUri!, "image/jpeg");
+                  extras.gradcamS3Key = gslot.s3Key;
+                } catch (e) { console.warn(`[syncLocalHistory] Group img ${i} gradcam ${j} upload failed:`, e); }
+              }
+              urlIdx++;
+            }
+            detExtras.push(extras);
+          }
+          groupDetExtras.push(detExtras);
+        }
 
         const result = await syncOfflineSession("commit", {
           sessionType: "group",
@@ -395,14 +514,19 @@ export async function syncLocalHistory(): Promise<void> {
             imageIndex: i,
             localImageId: img.localImageId,
             s3Key: s3Keys[i] || null,
-            detections: img.detections,
+            detections: img.detections.map((d, j) => ({
+              ...d,
+              cropS3Key: groupDetExtras[i]?.[j]?.cropS3Key ?? null,
+              gradcamS3Key: groupDetExtras[i]?.[j]?.gradcamS3Key ?? null,
+            })),
           })),
         });
 
         const remoteGroupId = result?.remoteId ?? result?.groupId;
         await markLocalRecordSynced(record.id, remoteGroupId);
+        syncLogger.success("LocalHistory", `Group ${record.id} committed → remote ${remoteGroupId ?? "unknown"}`);
 
-        // Push any user-entered fish weights now that we have a cloud group ID.
+        // Push fish weight estimates now that we have a cloud group ID.
         if (remoteGroupId) {
           for (const img of (record.images || [])) {
             for (let i = 0; i < img.detections.length; i++) {
@@ -415,15 +539,18 @@ export async function syncLocalHistory(): Promise<void> {
                   species: det.species,
                   weightG: det.weightG,
                   timestamp: record.createdAt,
-                }).catch((e) =>
-                  console.warn(`[syncLocalHistory] Weight sync failed:`, e),
-                );
+                }).catch((e) => {
+                  syncLogger.warn("LocalHistory", `Weight sync failed for fish ${i} of group ${remoteGroupId}`);
+                  console.warn(`[syncLocalHistory] Weight sync failed:`, e);
+                });
               }
             }
           }
         }
       }
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      syncLogger.error("LocalHistory", `Failed to sync scan ${record.id}: ${msg}`);
       console.error(`[syncLocalHistory] Failed to sync ${record.id}:`, err);
       await markLocalRecordFailed(record.id);
     }

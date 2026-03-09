@@ -74,6 +74,31 @@ function normalizeAnalysisResult(
   return result;
 }
 
+/**
+ * Merge weight estimates from the group record into individual detections
+ * so that FishDetectionCard can display per-fish weight and value.
+ */
+function mergeWeightEstimates(data: GroupRecord) {
+  const estimates = data.weightEstimates;
+  const detections = data.analysisResult?.detections;
+  if (!estimates || !detections) return;
+
+  for (let i = 0; i < detections.length; i++) {
+    const entry = estimates[`fish_${i}`];
+    if (!entry) continue;
+    if (typeof entry === "number") {
+      // Legacy: plain numeric kg value
+      detections[i] = { ...detections[i], weight: entry };
+    } else if (typeof entry === "object") {
+      const weightKg = entry.weightKg ?? (entry.estimated_weight_grams ? entry.estimated_weight_grams / 1000 : 0);
+      const value = entry.estimated_fish_value
+        ? Math.round((entry.estimated_fish_value.min_inr + entry.estimated_fish_value.max_inr) / 2)
+        : 0;
+      detections[i] = { ...detections[i], weight: weightKg, value };
+    }
+  }
+}
+
 export default function HistoryDetailScreen() {
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
   const [group, setGroup] = useState<GroupRecord | null>(null);
@@ -106,6 +131,7 @@ export default function HistoryDetailScreen() {
             parsedData.analysisResult = normalizeAnalysisResult(
               parsedData.analysisResult,
             );
+            mergeWeightEstimates(parsedData);
             setGroup(parsedData);
             setLoading(false);
           } catch (parseError) {
@@ -118,6 +144,7 @@ export default function HistoryDetailScreen() {
       // Fetch fresh data
       const data = await getGroupDetails(groupId);
       data.analysisResult = normalizeAnalysisResult(data.analysisResult);
+      mergeWeightEstimates(data);
       setGroup(data);
 
       // Cache the data
@@ -313,8 +340,8 @@ export default function HistoryDetailScreen() {
               speciesCount: Object.keys(stats.speciesDistribution).length,
               totalWeight: stats.totalEstimatedWeight,
               totalValue: stats.totalEstimatedValue,
-              diseaseDetected: detections.some(
-                (d) => d.diseaseStatus !== "Healthy",
+              diseaseDetected: stats.diseaseDetected ?? detections.some(
+                (d) => !d.diseaseStatus.toLowerCase().includes("healthy"),
               ),
             }}
           />

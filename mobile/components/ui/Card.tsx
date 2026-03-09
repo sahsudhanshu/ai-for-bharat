@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, ViewStyle, TextStyle } from "react-native";
+import { View, Text, StyleSheet, ViewStyle, TextStyle, StyleProp } from "react-native";
 import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { Colors } from "../../lib/colors";
 
@@ -17,7 +17,7 @@ import { Colors } from "../../lib/colors";
  */
 interface CardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   variant?: "default" | "outlined" | "elevated";
   size?: "small" | "default" | "large";
   shadow?: "none" | "sm" | "md" | "lg";

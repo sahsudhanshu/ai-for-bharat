@@ -49,18 +49,20 @@ function buildGroupAnalysisFromDetections(imageDetections) {
     const images = imageDetections.map((img) => {
         const crops = {};
         (img.detections || []).forEach((d, i) => {
+            const cropS3Url = d.cropS3Key ? `https://${BUCKET}.s3.amazonaws.com/${d.cropS3Key}` : null;
+            const gradcamS3Url = d.gradcamS3Key ? `https://${BUCKET}.s3.amazonaws.com/${d.gradcamS3Key}` : null;
             crops[`crop_${i}`] = {
                 bbox: d.bbox,
-                crop_url: null, // local crop URIs are not accessible on backend
+                crop_url: cropS3Url,
                 species: {
                     label: d.species,
                     confidence: d.speciesConfidence,
-                    gradcam_url: null,
+                    gradcam_url: gradcamS3Url,
                 },
                 disease: {
                     label: d.disease,
                     confidence: d.diseaseConfidence,
-                    gradcam_url: null,
+                    gradcam_url: gradcamS3Url,
                 },
                 yolo_confidence: d.speciesConfidence,
                 measurements: {
@@ -131,6 +133,8 @@ function buildSingleAnalysisResult(detections) {
     // Mirror the shape produces by analyzeImage.js
     if (!detections || detections.length === 0) return null;
     const best = detections.reduce((b, d) => d.speciesConfidence > b.speciesConfidence ? d : b, detections[0]);
+    const bestCropUrl = best.cropS3Key ? `https://${BUCKET}.s3.amazonaws.com/${best.cropS3Key}` : null;
+    const bestGradcamUrl = best.gradcamS3Key ? `https://${BUCKET}.s3.amazonaws.com/${best.gradcamS3Key}` : null;
     return {
         species: best.species,
         confidence: best.speciesConfidence,
@@ -154,8 +158,14 @@ function buildSingleAnalysisResult(detections) {
         marketPriceEstimate: best.pricePerKg,
         disease: best.disease,
         diseaseConfidence: best.diseaseConfidence,
+        cropUrl: bestCropUrl,
+        gradcamUrl: bestGradcamUrl,
         // All detections stored for completeness
-        allDetections: detections,
+        allDetections: detections.map(d => ({
+            ...d,
+            cropUrl: d.cropS3Key ? `https://${BUCKET}.s3.amazonaws.com/${d.cropS3Key}` : null,
+            gradcamUrl: d.gradcamS3Key ? `https://${BUCKET}.s3.amazonaws.com/${d.gradcamS3Key}` : null,
+        })),
         timestamp: new Date().toISOString(),
         source: "offline",
     };
@@ -188,9 +198,9 @@ async function handlePrepare(event, userId) {
         const presignedUrls = await Promise.all(
             files.map(async (file, index) => {
                 const ext = file.fileName.split(".").pop() || "jpg";
-                const s3Key = sessionType === "group"
-                    ? `uploads/${userId}/${groupId}_${index}.${ext}`
-                    : `uploads/${userId}/${groupId}.${ext}`;
+                const s3Key = files.length === 1 && sessionType === "single"
+                    ? `uploads/${userId}/${groupId}.${ext}`
+                    : `uploads/${userId}/${groupId}_${index}.${ext}`;
 
                 const cmd = new PutObjectCommand({
                     Bucket: BUCKET,

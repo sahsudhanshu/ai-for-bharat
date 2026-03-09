@@ -44,6 +44,8 @@ interface Props {
   onConfirm: (weightG: number, fullResult?: OnlineWeightResult) => void;
   species: string;
   fishIndex: number;
+  /** Force offline inference regardless of network state (mirrors the upload screen toggle) */
+  forceOffline?: boolean;
 }
 
 type Phase = "input" | "loading" | "result" | "error";
@@ -90,6 +92,7 @@ export function WeightEstimateModal({
   onConfirm,
   species,
   fishIndex,
+  forceOffline = false,
 }: Props) {
   const [values, setValues] = useState<Record<string, string>>({
     length1: "",
@@ -102,6 +105,7 @@ export function WeightEstimateModal({
   const [result, setResult] = useState<OnlineWeightResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const { effectiveMode } = useNetwork();
+  const useOffline = forceOffline || effectiveMode === "offline";
 
   const handleClose = useCallback(() => {
     // Reset state when closing
@@ -138,7 +142,7 @@ export function WeightEstimateModal({
     setPhase("loading");
 
     try {
-      if (effectiveMode === "offline") {
+      if (useOffline) {
         const offlineResult = await predictWeight({
           species,
           length1: parseFloat(values.length1),
@@ -148,6 +152,7 @@ export function WeightEstimateModal({
         });
         const weightG = offlineResult.predictedWeightG;
         onConfirm(weightG, undefined);
+        handleClose();
       } else {
         const onlineResult = await estimateFishWeightOnline({
           species,
@@ -157,15 +162,22 @@ export function WeightEstimateModal({
           width: parseFloat(values.width),
         });
 
-        const weightG = onlineResult.estimated_weight_grams;
-        onConfirm(weightG, onlineResult);
+        // Show the result in the modal before closing
+        setResult(onlineResult);
+        setPhase("result");
       }
-      handleClose();
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
-  }, [values, species, onConfirm, handleClose, effectiveMode]);
+  }, [values, species, onConfirm, handleClose, useOffline]);
+
+  const handleAcceptResult = useCallback(() => {
+    if (result) {
+      onConfirm(result.estimated_weight_grams, result);
+    }
+    handleClose();
+  }, [result, onConfirm, handleClose]);
 
   const handleTryAgain = () => {
     setPhase("input");
@@ -240,6 +252,57 @@ export function WeightEstimateModal({
             <Text style={styles.loadingSubtext}>
               ML model · Scientific formula · Gemini analysis
             </Text>
+          </View>
+        )}
+
+        {/* ── Result phase (online) ── */}
+        {phase === "result" && result && (
+          <View style={styles.resultSection}>
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>Estimated Weight</Text>
+              <Text style={styles.resultWeight}>
+                {(result.estimated_weight_grams / 1000).toFixed(2)} kg
+              </Text>
+              <Text style={styles.resultWeightKg}>
+                {result.estimated_weight_grams.toFixed(0)} g
+              </Text>
+            </View>
+
+            {result.estimated_weight_range && (
+              <ResultRow
+                label="Weight Range"
+                value={`${(result.estimated_weight_range.min_grams / 1000).toFixed(2)}–${(result.estimated_weight_range.max_grams / 1000).toFixed(2)} kg`}
+              />
+            )}
+
+            {result.market_price_per_kg && (
+              <ResultRow
+                label="Market Price"
+                value={`₹${result.market_price_per_kg.min_inr}–${result.market_price_per_kg.max_inr}/kg`}
+              />
+            )}
+
+            {result.estimated_fish_value && (
+              <ResultRow
+                label="Estimated Value"
+                value={`₹${result.estimated_fish_value.min_inr}–${result.estimated_fish_value.max_inr}`}
+              />
+            )}
+
+            {result.quality_grade && (
+              <ResultRow label="Quality Grade" value={result.quality_grade} />
+            )}
+
+            {result.notes && (
+              <ResultRow label="Notes" value={result.notes} muted />
+            )}
+
+            <Button
+              label="Done"
+              onPress={handleAcceptResult}
+              variant="primary"
+              style={styles.submitBtn}
+            />
           </View>
         )}
 
