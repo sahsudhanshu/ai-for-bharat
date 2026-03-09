@@ -5,7 +5,7 @@ build:
     build:
       - pip install -r requirements.txt
 run:
-  command: uvicorn run_local:app --host 0.0.0.0 --port 8080
+  command: uvicorn src.main:app --host 0.0.0.0 --port 8080
   network:
     port: 8080
     env: PORT
