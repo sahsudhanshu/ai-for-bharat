@@ -1,5 +1,5 @@
 // MatsyaAI Service Worker — Basic offline caching for static assets
-const CACHE_NAME = 'matsyaai-v1';
+const CACHE_NAME = 'matsyaai-v2';
 const STATIC_URLS = [
     '/',
     '/manifest.json',
@@ -30,6 +30,10 @@ self.addEventListener('fetch', (event) => {
 
     // Skip API calls – let them go to network (the app handles offline queuing)
     if (event.request.url.includes('/api/')) return;
+
+    // Skip Next.js internal assets – these change on every build/HMR cycle and
+    // must never be served from a stale cache.
+    if (event.request.url.includes('/_next/')) return;
 
     event.respondWith(
         fetch(event.request)

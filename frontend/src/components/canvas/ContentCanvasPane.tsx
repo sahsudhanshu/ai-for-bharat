@@ -1,18 +1,25 @@
-"use client"
+"use client";
 
-import React, { Suspense, lazy } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAgentFirstStore, selectActiveComponent, selectComponentState } from '@/lib/stores/agent-first-store';
-import PlaceholderState from './PlaceholderState';
-import LoadingState from './LoadingState';
-import ErrorState from './ErrorState';
-import { cn } from '@/lib/utils';
+import React, { Suspense, lazy } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  useAgentFirstStore,
+  selectActiveComponent,
+  selectComponentState,
+} from "@/lib/stores/agent-first-store";
+import PlaceholderState from "./PlaceholderState";
+import LoadingState from "./LoadingState";
+import ErrorState from "./ErrorState";
+import { cn } from "@/lib/utils";
+import { lazyRetry } from "@/lib/lazy-retry";
 
 // ── Lazy load canvas components ───────────────────────────────────────────────
-const UploadComponent = lazy(() => import('./UploadComponent'));
-const MapComponent = lazy(() => import('./MapComponent'));
-const AnalyticsComponent = lazy(() => import('./AnalyticsComponent'));
-const HistoryComponent = lazy(() => import('./HistoryComponent'));
+const UploadComponent = lazy(lazyRetry(() => import("./UploadComponent")));
+const MapComponent = lazy(lazyRetry(() => import("./MapComponent")));
+const AnalyticsComponent = lazy(
+  lazyRetry(() => import("./AnalyticsComponent")),
+);
+const HistoryComponent = lazy(lazyRetry(() => import("./HistoryComponent")));
 
 interface ContentCanvasPaneProps {
   className?: string;
@@ -29,7 +36,7 @@ const canvasVariants = {
   active: {
     opacity: 1,
     scale: 1,
-    transition: { duration: 0.3, ease: 'easeOut' },
+    transition: { duration: 0.3, ease: "easeOut" },
   },
   exit: {
     opacity: 0,
@@ -38,13 +45,19 @@ const canvasVariants = {
   },
 };
 
-export default function ContentCanvasPane({ className }: ContentCanvasPaneProps) {
+export default function ContentCanvasPane({
+  className,
+}: ContentCanvasPaneProps) {
   const activeComponent = useAgentFirstStore(selectActiveComponent);
   const componentState = useAgentFirstStore(selectComponentState);
   const componentProps = useAgentFirstStore((state) => state.componentProps);
-  const dispatchPaneMessage = useAgentFirstStore((state) => state.dispatchPaneMessage);
+  const dispatchPaneMessage = useAgentFirstStore(
+    (state) => state.dispatchPaneMessage,
+  );
 
-  const [mountedComponents, setMountedComponents] = React.useState<Set<string>>(new Set());
+  const [mountedComponents, setMountedComponents] = React.useState<Set<string>>(
+    new Set(),
+  );
 
   React.useEffect(() => {
     if (activeComponent) {
@@ -58,9 +71,14 @@ export default function ContentCanvasPane({ className }: ContentCanvasPaneProps)
   };
 
   return (
-    <div className={cn("w-full h-full min-h-0 relative overflow-hidden bg-background", className)}>
+    <div
+      className={cn(
+        "w-full h-full min-h-0 relative overflow-hidden bg-background",
+        className,
+      )}
+    >
       <AnimatePresence>
-        {componentState.type === 'error' && (
+        {componentState.type === "error" && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -68,10 +86,12 @@ export default function ContentCanvasPane({ className }: ContentCanvasPaneProps)
             className="absolute inset-0 z-50 bg-background"
           >
             <ErrorState
-              error={componentState.error || ''}
+              error={componentState.error || ""}
               componentName={activeComponent || undefined}
               onRetry={() => {
-                useAgentFirstStore.getState().setActiveComponent(activeComponent, componentProps);
+                useAgentFirstStore
+                  .getState()
+                  .setActiveComponent(activeComponent, componentProps);
               }}
               onGoBack={() => {
                 useAgentFirstStore.getState().goBack();
@@ -80,7 +100,7 @@ export default function ContentCanvasPane({ className }: ContentCanvasPaneProps)
           </motion.div>
         )}
 
-        {componentState.type === 'loading' && (
+        {componentState.type === "loading" && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -94,7 +114,7 @@ export default function ContentCanvasPane({ className }: ContentCanvasPaneProps)
           </motion.div>
         )}
 
-        {!activeComponent && componentState.type !== 'error' && (
+        {!activeComponent && componentState.type !== "error" && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -107,23 +127,43 @@ export default function ContentCanvasPane({ className }: ContentCanvasPaneProps)
       </AnimatePresence>
 
       <Suspense fallback={<LoadingState componentName={activeComponent} />}>
-        {mountedComponents.has('upload') && (
-          <div className={cn("w-full h-full min-h-0", activeComponent === 'upload' ? 'block' : 'hidden')}>
+        {mountedComponents.has("upload") && (
+          <div
+            className={cn(
+              "w-full h-full min-h-0",
+              activeComponent === "upload" ? "block" : "hidden",
+            )}
+          >
             <UploadComponent {...commonProps} />
           </div>
         )}
-        {mountedComponents.has('map') && (
-          <div className={cn("w-full h-full min-h-0", activeComponent === 'map' ? 'block' : 'hidden')}>
+        {mountedComponents.has("map") && (
+          <div
+            className={cn(
+              "w-full h-full min-h-0",
+              activeComponent === "map" ? "block" : "hidden",
+            )}
+          >
             <MapComponent {...commonProps} />
           </div>
         )}
-        {mountedComponents.has('analytics') && (
-          <div className={cn("w-full h-full min-h-0", activeComponent === 'analytics' ? 'block' : 'hidden')}>
+        {mountedComponents.has("analytics") && (
+          <div
+            className={cn(
+              "w-full h-full min-h-0",
+              activeComponent === "analytics" ? "block" : "hidden",
+            )}
+          >
             <AnalyticsComponent {...commonProps} />
           </div>
         )}
-        {mountedComponents.has('history') && (
-          <div className={cn("w-full h-full min-h-0", activeComponent === 'history' ? 'block' : 'hidden')}>
+        {mountedComponents.has("history") && (
+          <div
+            className={cn(
+              "w-full h-full min-h-0",
+              activeComponent === "history" ? "block" : "hidden",
+            )}
+          >
             <HistoryComponent {...commonProps} />
           </div>
         )}

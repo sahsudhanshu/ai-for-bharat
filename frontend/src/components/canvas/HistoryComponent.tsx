@@ -15,12 +15,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAgentFirstStore } from "@/lib/stores/agent-first-store";
 import { useAgentContext } from "@/lib/stores/agent-context-store";
 import HistoryDetailView from "./HistoryDetailView";
+import type { PaneMessage } from "@/types/agent-first";
 
-export default function HistoryComponent() {
+interface HistoryComponentProps {
+  onPaneMessage?: (message: PaneMessage) => void;
+  [key: string]: unknown;
+}
+
+export default function HistoryComponent(_props: HistoryComponentProps = {}) {
   const router = useRouter();
   const store = useAgentFirstStore();
   const setActiveComponent = store.setActiveComponent;
-  const setCurrentGroup = useAgentContext(s => s.setCurrentGroup);
+  const setCurrentGroup = useAgentContext((s) => s.setCurrentGroup);
   const [groups, setGroups] = useState<GroupRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
@@ -35,9 +41,12 @@ export default function HistoryComponent() {
   // Sync selected group to agent context
   useEffect(() => {
     if (selectedGroupId) {
-      const group = groups.find(g => g.groupId === selectedGroupId);
-      const topSpecies = group?.analysisResult?.aggregateStats?.speciesDistribution
-        ? Object.keys(group.analysisResult.aggregateStats.speciesDistribution)[0]
+      const group = groups.find((g) => g.groupId === selectedGroupId);
+      const topSpecies = group?.analysisResult?.aggregateStats
+        ?.speciesDistribution
+        ? Object.keys(
+            group.analysisResult.aggregateStats.speciesDistribution,
+          )[0]
         : undefined;
       setCurrentGroup(selectedGroupId, 0, topSpecies);
     } else {
@@ -88,8 +97,6 @@ export default function HistoryComponent() {
     }
   };
 
-
-
   const handleExportPdf = (group: GroupRecord) => {
     if (!group.analysisResult) {
       toast.error("No analysis data to export");
@@ -101,29 +108,66 @@ export default function HistoryComponent() {
       let y = 20;
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.text("MatsyaAI - Analysis Report", 14, y); y += 10;
+      doc.text("MatsyaAI - Analysis Report", 14, y);
+      y += 10;
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100);
-      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, y); y += 5;
-      doc.text(`Group ID: ${group.groupId}`, 14, y); y += 5;
-      doc.text(`Date: ${new Date(group.createdAt).toLocaleString()}`, 14, y); y += 5;
-      doc.text(`Images: ${group.imageCount}`, 14, y); y += 10;
-      doc.setDrawColor(200); doc.line(14, y, 196, y); y += 8;
-      doc.setFontSize(13); doc.setFont("helvetica", "bold"); doc.setTextColor(0);
-      doc.text("Summary", 14, y); y += 8;
-      doc.setFontSize(10); doc.setFont("helvetica", "normal");
-      doc.text(`Total Fish: ${stats.totalFishCount}`, 18, y); y += 6;
-      doc.text(`Species: ${Object.keys(stats.speciesDistribution).length}`, 18, y); y += 6;
-      doc.text(`Est. Weight: ${stats.totalEstimatedWeight.toFixed(2)} kg`, 18, y); y += 6;
-      doc.text(`Est. Value: ₹${stats.totalEstimatedValue.toLocaleString()}`, 18, y); y += 6;
-      doc.text(`Confidence: ${(stats.averageConfidence * 100).toFixed(1)}%`, 18, y); y += 6;
-      doc.text(`Disease: ${stats.diseaseDetected ? 'Yes' : 'No'}`, 18, y); y += 10;
-      doc.setFontSize(11); doc.setFont("helvetica", "bold");
-      doc.text("Species Distribution", 14, y); y += 7;
-      doc.setFontSize(10); doc.setFont("helvetica", "normal");
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 14, y);
+      y += 5;
+      doc.text(`Group ID: ${group.groupId}`, 14, y);
+      y += 5;
+      doc.text(`Date: ${new Date(group.createdAt).toLocaleString()}`, 14, y);
+      y += 5;
+      doc.text(`Images: ${group.imageCount}`, 14, y);
+      y += 10;
+      doc.setDrawColor(200);
+      doc.line(14, y, 196, y);
+      y += 8;
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(0);
+      doc.text("Summary", 14, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Total Fish: ${stats.totalFishCount}`, 18, y);
+      y += 6;
+      doc.text(
+        `Species: ${Object.keys(stats.speciesDistribution).length}`,
+        18,
+        y,
+      );
+      y += 6;
+      doc.text(
+        `Est. Weight: ${stats.totalEstimatedWeight.toFixed(2)} kg`,
+        18,
+        y,
+      );
+      y += 6;
+      doc.text(
+        `Est. Value: ₹${stats.totalEstimatedValue.toLocaleString()}`,
+        18,
+        y,
+      );
+      y += 6;
+      doc.text(
+        `Confidence: ${(stats.averageConfidence * 100).toFixed(1)}%`,
+        18,
+        y,
+      );
+      y += 6;
+      doc.text(`Disease: ${stats.diseaseDetected ? "Yes" : "No"}`, 18, y);
+      y += 10;
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Species Distribution", 14, y);
+      y += 7;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
       Object.entries(stats.speciesDistribution).forEach(([sp, cnt]) => {
-        doc.text(`${sp}: ${cnt} fish`, 18, y); y += 6;
+        doc.text(`${sp}: ${cnt} fish`, 18, y);
+        y += 6;
       });
       doc.save(`matsyaai-${group.groupId.slice(0, 8)}.pdf`);
       toast.success("PDF exported!");
@@ -160,7 +204,11 @@ export default function HistoryComponent() {
       return (
         <div className="w-16 h-16 rounded-xl bg-black/10 shrink-0 overflow-hidden border border-border/20 shadow-sm">
           {url ? (
-            <img src={url === images[0].yolo_image_url ? resolveMLUrl(url) : url} alt="Catch" className="w-full h-full object-cover" />
+            <img
+              src={url === images[0].yolo_image_url ? resolveMLUrl(url) : url}
+              alt="Catch"
+              className="w-full h-full object-cover"
+            />
           ) : (
             <div className="w-full h-full flex items-center justify-center bg-primary/10">
               <Images className="w-6 h-6 text-primary/40" />
@@ -176,36 +224,52 @@ export default function HistoryComponent() {
 
     return (
       <div className="relative w-16 h-16 shrink-0 z-0">
-        {displayImages.map((img, idx) => {
-          // Stack offsets
-          const isLast = idx === displayImages.length - 1;
-          const offsetClasses = [
-            "z-30 translate-x-0 translate-y-0 relative",
-            "z-20 translate-x-1.5 -translate-y-1.5 absolute top-0 left-0 scale-95 opacity-80",
-            "z-10 translate-x-3 -translate-y-3 absolute top-0 left-0 scale-90 opacity-60",
-          ];
-          const imgUrl = presignedUrls[idx] || img.yolo_image_url;
-          return (
-            <div key={idx} className={cn(
-              "w-14 h-14 rounded-lg bg-card shadow-sm border border-border/40 overflow-hidden transition-all",
-              offsetClasses[idx]
-            )}>
-              {imgUrl ? (
-                <img src={imgUrl === img.yolo_image_url ? resolveMLUrl(imgUrl) : imgUrl} alt="Catch" className="w-full h-full object-cover bg-black/5" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-muted/50">
-                  <Images className="w-4 h-4 text-muted-foreground/30" />
-                </div>
-              )}
-              {/* Overlay count on last item if > 3 */}
-              {isLast && images.length > 3 && idx === 2 && (
-                <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
-                  <span className="text-white text-[10px] font-bold">+{images.length - 3}</span>
-                </div>
-              )}
-            </div>
-          );
-        }).reverse()} {/* Reverse so the first image is visually on top (z-index handlings) */}
+        {displayImages
+          .map((img, idx) => {
+            // Stack offsets
+            const isLast = idx === displayImages.length - 1;
+            const offsetClasses = [
+              "z-30 translate-x-0 translate-y-0 relative",
+              "z-20 translate-x-1.5 -translate-y-1.5 absolute top-0 left-0 scale-95 opacity-80",
+              "z-10 translate-x-3 -translate-y-3 absolute top-0 left-0 scale-90 opacity-60",
+            ];
+            const imgUrl = presignedUrls[idx] || img.yolo_image_url;
+            return (
+              <div
+                key={idx}
+                className={cn(
+                  "w-14 h-14 rounded-lg bg-card shadow-sm border border-border/40 overflow-hidden transition-all",
+                  offsetClasses[idx],
+                )}
+              >
+                {imgUrl ? (
+                  <img
+                    src={
+                      imgUrl === img.yolo_image_url
+                        ? resolveMLUrl(imgUrl)
+                        : imgUrl
+                    }
+                    alt="Catch"
+                    className="w-full h-full object-cover bg-black/5"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-muted/50">
+                    <Images className="w-4 h-4 text-muted-foreground/30" />
+                  </div>
+                )}
+                {/* Overlay count on last item if > 3 */}
+                {isLast && images.length > 3 && idx === 2 && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
+                    <span className="text-white text-[10px] font-bold">
+                      +{images.length - 3}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })
+          .reverse()}{" "}
+        {/* Reverse so the first image is visually on top (z-index handlings) */}
       </div>
     );
   };
@@ -213,7 +277,10 @@ export default function HistoryComponent() {
   if (selectedGroupId) {
     return (
       <div className="w-full h-full min-h-0">
-        <HistoryDetailView groupId={selectedGroupId} onBack={() => setSelectedGroupId(null)} />
+        <HistoryDetailView
+          groupId={selectedGroupId}
+          onBack={() => setSelectedGroupId(null)}
+        />
       </div>
     );
   }
@@ -234,7 +301,9 @@ export default function HistoryComponent() {
               <p className="text-sm text-muted-foreground mb-6">
                 Upload images to start analysing your catch
               </p>
-              <Button onClick={() => setActiveComponent('upload')}>Upload Now</Button>
+              <Button onClick={() => setActiveComponent("upload")}>
+                Upload Now
+              </Button>
             </CardContent>
           </Card>
         ) : (
@@ -287,8 +356,7 @@ export default function HistoryComponent() {
                         </div>
                       </div>
                       <div className="flex gap-2 shrink-0">
-
-                        {group.status === 'completed' && (
+                        {group.status === "completed" && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -315,13 +383,13 @@ export default function HistoryComponent() {
                           onClick={() => {
                             const summary = `Group ${group.groupId.slice(0, 8)}, ${group.imageCount} images, status: ${group.status}, created ${new Date(group.createdAt).toLocaleDateString()}`;
                             (window as any).__agentChatInject?.(
-                              'Analyze this catch scan',
+                              "Analyze this catch scan",
                               {
-                                label: 'Analyze this catch scan',
+                                label: "Analyze this catch scan",
                                 detail: `Group ${group.groupId.slice(0, 8)} · ${group.imageCount} images`,
-                                icon: 'history' as const,
+                                icon: "history" as const,
                                 backendText: `Analyze my catch scan: ${summary}. What species were detected? Any diseases? Give me insights.`,
-                              }
+                              },
                             );
                           }}
                         >
