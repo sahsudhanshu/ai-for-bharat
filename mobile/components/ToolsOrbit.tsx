@@ -1,5 +1,5 @@
 /**
- * ToolsOrbit — Vertical slide-up navigation menu FAB.
+ * ToolsOrbit - Vertical slide-up navigation menu FAB.
  * Opens as a vertical list anchored to the left of the screen.
  */
 import React, { useRef, useState } from "react";
@@ -211,7 +211,7 @@ export function ToolsOrbit({ onChatPress, isChatActive }: Props) {
           </Text>
         </TouchableOpacity>
 
-        {/* Home FAB — center */}
+        {/* Home FAB - center */}
         <Animated.View style={styles.agentFabOuter}>
           <TouchableOpacity
             style={styles.agentFab}

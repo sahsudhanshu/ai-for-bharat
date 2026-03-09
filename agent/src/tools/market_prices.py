@@ -1,5 +1,5 @@
 """
-Market prices tool — provides indicative fish market prices.
+Market prices tool - provides indicative fish market prices.
 
 Uses static seed data for the hackathon; in production this would
 query a real market-prices API or scraped data source.
@@ -110,7 +110,7 @@ async def get_market_prices(
         if found:
             lines.append(f"💰 **Prices for '{fish_species}' across ports:**")
             for port, species, price in sorted(found, key=lambda x: x[2]):
-                lines.append(f"  • {port}: {species} — ₹{price}/kg")
+                lines.append(f"  • {port}: {species} - ₹{price}/kg")
         else:
             lines.append(f"No price data for '{fish_species}'. Try a broader search.")
     else:

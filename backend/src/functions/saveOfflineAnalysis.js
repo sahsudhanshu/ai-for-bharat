@@ -5,25 +5,25 @@
  * Called by the mobile app when connectivity is restored after an offline scan.
  *
  * Body:
- *   localId          {string}   — client-generated ID for deduplication / callback
- *   createdAt        {string}   — ISO-8601 device timestamp of the scan
- *   imageUri         {string}   — local file URI (not accessible on backend, stored for reference)
- *   location         {object?}  — { lat, lng } GPS coordinates
- *   processingTime   {number}   — inference time in milliseconds
+ *   localId          {string}   - client-generated ID for deduplication / callback
+ *   createdAt        {string}   - ISO-8601 device timestamp of the scan
+ *   imageUri         {string}   - local file URI (not accessible on backend, stored for reference)
+ *   location         {object?}  - { lat, lng } GPS coordinates
+ *   processingTime   {number}   - inference time in milliseconds
  *   fishCount        {number}
- *   avgConfidence    {number}   — 0–1
- *   speciesDistribution {object} — { speciesName: count }
+ *   avgConfidence    {number}   - 0–1
+ *   speciesDistribution {object} - { speciesName: count }
  *   diseaseDetected  {boolean}
- *   detections       {array}    — per-fish detections (species, disease, quality, bbox, …)
+ *   detections       {array}    - per-fish detections (species, disease, quality, bbox, …)
  *
- * Returns: { id }  — backend-assigned record ID
+ * Returns: { id }  - backend-assigned record ID
  */
 const { PutCommand } = require("@aws-sdk/lib-dynamodb");
 const { ddb } = require("../utils/dynamodb");
 const { verifyToken } = require("../utils/auth");
 const { ok, badRequest, unauthorized, serverError } = require("../utils/response");
 
-const TABLE = process.env.DYNAMODB_OFFLINE_ANALYSES_TABLE || "ai-bharat-offline-analyses";
+const TABLE = process.env.DYNAMODB_OFFLINE_ANALYSES_TABLE || "";
 
 exports.handler = async (event) => {
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -62,7 +62,7 @@ exports.handler = async (event) => {
     try {
         await ddb.send(new PutCommand({
             TableName: TABLE,
-            // Idempotent — re-syncing the same localId just overwrites cleanly
+            // Idempotent - re-syncing the same localId just overwrites cleanly
             ConditionExpression: "attribute_not_exists(#id) OR #id = :id",
             ExpressionAttributeNames: { "#id": "id" },
             ExpressionAttributeValues: { ":id": id },
@@ -86,7 +86,7 @@ exports.handler = async (event) => {
 
         return ok({ id, remoteId: id });
     } catch (err) {
-        // PK already exists — treat as already synced (idempotent success)
+        // PK already exists - treat as already synced (idempotent success)
         if (err.name === "ConditionalCheckFailedException") {
             return ok({ id, remoteId: id });
         }

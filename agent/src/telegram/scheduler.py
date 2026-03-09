@@ -1,15 +1,15 @@
 """
-Scheduler — sends 8 automated alerts per day to Telegram subscribers.
+Scheduler - sends 8 automated alerts per day to Telegram subscribers.
 
 Schedule (IST = UTC+5:30):
-  05:00  — Pre-dawn conditions & safety check
-  07:00  — Morning weather forecast + fishing advisory
-  09:30  — Mid-morning update + best spots
-  12:00  — Noon market prices + conditions update
-  14:30  — Afternoon sea conditions + tide info
-  17:00  — Evening forecast + fishing tips
-  19:30  — Night fishing conditions
-  22:00  — Next day preview + overnight advisory
+  05:00  - Pre-dawn conditions & safety check
+  07:00  - Morning weather forecast + fishing advisory
+  09:30  - Mid-morning update + best spots
+  12:00  - Noon market prices + conditions update
+  14:30  - Afternoon sea conditions + tide info
+  17:00  - Evening forecast + fishing tips
+  19:30  - Night fishing conditions
+  22:00  - Next day preview + overnight advisory
 
 Uses APScheduler with AsyncIOScheduler that runs inside the FastAPI event loop.
 """
@@ -73,7 +73,7 @@ async def _send_telegram_message(chat_id: str, text: str) -> None:
 
 
 async def _dispatch_alert(generator_fn, alert_name: str) -> None:
-    """Generic dispatcher — runs the given generator for each active subscriber."""
+    """Generic dispatcher - runs the given generator for each active subscriber."""
     logger.info(f"Starting {alert_name} dispatch...")
     subscribers = get_all_active_subscribers()
     logger.info(f"Found {len(subscribers)} active subscribers for {alert_name}")
@@ -106,35 +106,35 @@ async def _dispatch_alert(generator_fn, alert_name: str) -> None:
 # ── 8 Daily Alert Jobs ───────────────────────────────────────────────────────
 
 async def send_predawn_alert():
-    """05:00 IST — Pre-dawn conditions & safety."""
+    """05:00 IST - Pre-dawn conditions & safety."""
     await _dispatch_alert(generate_predawn_alert, "Pre-dawn alert")
 
 async def send_morning_alerts():
-    """07:00 IST — Morning weather forecast."""
+    """07:00 IST - Morning weather forecast."""
     await _dispatch_alert(generate_weather_alert, "Morning weather")
 
 async def send_midmorning_spots():
-    """09:30 IST — Best fishing spots."""
+    """09:30 IST - Best fishing spots."""
     await _dispatch_alert(generate_best_spot_alert, "Mid-morning spots")
 
 async def send_noon_market():
-    """12:00 IST — Market prices & conditions."""
+    """12:00 IST - Market prices & conditions."""
     await _dispatch_alert(generate_market_update, "Noon market update")
 
 async def send_afternoon_conditions():
-    """14:30 IST — Afternoon sea conditions."""
+    """14:30 IST - Afternoon sea conditions."""
     await _dispatch_alert(generate_afternoon_conditions, "Afternoon conditions")
 
 async def send_evening_forecast():
-    """17:00 IST — Evening forecast + tips."""
+    """17:00 IST - Evening forecast + tips."""
     await _dispatch_alert(generate_evening_forecast, "Evening forecast")
 
 async def send_night_alert():
-    """19:30 IST — Night fishing conditions."""
+    """19:30 IST - Night fishing conditions."""
     await _dispatch_alert(generate_night_fishing_alert, "Night fishing")
 
 async def send_next_day_preview():
-    """22:00 IST — Next day preview."""
+    """22:00 IST - Next day preview."""
     await _dispatch_alert(generate_next_day_preview, "Next day preview")
 
 
@@ -166,7 +166,7 @@ def setup_scheduler() -> None:
         )
 
     logger.info(
-        "Alert scheduler configured — 8 messages/day:\n"
+        "Alert scheduler configured - 8 messages/day:\n"
         "  05:00 IST  Pre-dawn conditions\n"
         "  07:00 IST  Morning weather\n"
         "  09:30 IST  Best fishing spots\n"
@@ -183,7 +183,7 @@ def start_scheduler() -> None:
     if not scheduler.running:
         setup_scheduler()
         scheduler.start()
-        logger.info("Alert scheduler started — 8 daily messages")
+        logger.info("Alert scheduler started - 8 daily messages")
 
 
 def stop_scheduler() -> None:

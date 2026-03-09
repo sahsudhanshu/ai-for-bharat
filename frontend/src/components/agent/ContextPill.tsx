@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 
 /**
- * ContextPill — A subtle animated badge next to the chat input
+ * ContextPill - A subtle animated badge next to the chat input
  * showing what context the AI is currently "seeing".
  */
 export default function ContextPill({ className }: { className?: string }) {

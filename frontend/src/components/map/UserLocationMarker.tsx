@@ -76,7 +76,7 @@ export default function UserLocationMarker({
         }
       },
       () => {
-        // Permission denied or error — silent fail
+        // Permission denied or error - silent fail
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );

@@ -69,7 +69,7 @@ export default function HomeScreen() {
       icon: "sunny",
       label: "Daily Briefing",
       prompt:
-        "Give me my daily fishing briefing — weather, best zones, market prices, and safety alerts.",
+        "Give me my daily fishing briefing - weather, best zones, market prices, and safety alerts.",
       color: COLORS.secondary,
     },
     {
@@ -136,7 +136,7 @@ export default function HomeScreen() {
     if (hour < 6) return "Early start today! Here's what I've prepared for your trip.";
     if (hour < 10) return "Good morning! I've checked the weather and tides for you.";
     if (hour < 14) return "How's the catch going? I can check market prices for you.";
-    if (hour < 18) return "Afternoon update ready — market prices and tomorrow's forecast.";
+    if (hour < 18) return "Afternoon update ready - market prices and tomorrow's forecast.";
     return "Great day on the water! Let me help you log your catch.";
   };
 
@@ -182,7 +182,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Quick Ask Agent Prompts — Conversation starters */}
+        {/* Quick Ask Agent Prompts - Conversation starters */}
         <Text style={styles.sectionTitle}>What can I help with?</Text>
         <View style={styles.promptGrid}>
           {QUICK_PROMPTS.map((p) => (
@@ -211,7 +211,7 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        {/* Stats — Collapsible */}
+        {/* Stats - Collapsible */}
         <TouchableOpacity
           style={styles.statsToggle}
           onPress={() => setShowStats(!showStats)}
@@ -228,7 +228,7 @@ export default function HomeScreen() {
               value={
                 analytics
                   ? `₹${(analytics.totalEarnings / 1000).toFixed(0)}K`
-                  : "—"
+                  : "-"
               }
               icon={<Ionicons name="cash" size={20} color={COLORS.secondary} />}
               accentColor={COLORS.secondary}
@@ -236,7 +236,7 @@ export default function HomeScreen() {
             />
             <StatCard
               label={t("home.statCatches")}
-              value={analytics ? `${analytics.totalCatches}` : "—"}
+              value={analytics ? `${analytics.totalCatches}` : "-"}
               icon={<Ionicons name="fish" size={20} color={COLORS.primary} />}
               accentColor={COLORS.primary}
               style={styles.statCard}
@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
     fontWeight: FONTS.weights.medium,
   },
 
-  /* Quick ask prompts — vertical list style */
+  /* Quick ask prompts - vertical list style */
   promptGrid: {
     gap: 8,
     marginBottom: SPACING.lg,

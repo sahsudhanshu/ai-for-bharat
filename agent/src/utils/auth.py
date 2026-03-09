@@ -1,5 +1,5 @@
 """
-Auth utilities — JWT verification via Cognito JWKS.
+Auth utilities - JWT verification via Cognito JWKS.
 
 Matches the pattern used in the Node.js backend.
 """
@@ -13,7 +13,7 @@ import jwt
 from jwt import PyJWKClient
 
 # Optional: Cache the JWKS client securely if Region/Pool exist
-COGNITO_REGION = os.getenv("AWS_REGION", "ap-south-1")
+COGNITO_REGION = os.getenv("AWS_REGION", "")
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
 
 # We only init PyJWKClient if we have the pool ID

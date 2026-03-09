@@ -13,11 +13,11 @@
  * then calls this endpoint again with the s3Keys to finalise the write.
  *
  * Two-phase protocol:
- *   Phase 1 — POST /sync/offline-session/prepare
+ *   Phase 1 - POST /sync/offline-session/prepare
  *     Body:  { sessionType, files: [{fileName,fileType}], location? }
  *     Returns: { token, presignedUrls: [{uploadUrl, s3Key, index}] }
  *
- *   Phase 2 — POST /sync/offline-session/commit
+ *   Phase 2 - POST /sync/offline-session/commit
  *     Body:  { token, localId/localGroupId, createdAt, detections,
  *               processingTime, location?, sessionType, … }
  *     Returns: { imageId | groupId, remoteId }
@@ -35,9 +35,9 @@ const { s3 } = require("../utils/s3");
 const { verifyToken } = require("../utils/auth");
 const { ok, badRequest, unauthorized, serverError } = require("../utils/response");
 
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
 const BUCKET = process.env.S3_BUCKET_NAME;
-const URL_EXPIRY_SECONDS = 900; // 15 min — offline sessions may have large files
+const URL_EXPIRY_SECONDS = 900; // 15 min - offline sessions may have large files
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/heic", "image/webp"];
 
@@ -171,7 +171,7 @@ function buildSingleAnalysisResult(detections) {
     };
 }
 
-// ── Phase 1: prepare — generate presigned S3 PUT URLs ─────────────────────────
+// ── Phase 1: prepare - generate presigned S3 PUT URLs ─────────────────────────
 
 async function handlePrepare(event, userId) {
     let body;
@@ -220,7 +220,7 @@ async function handlePrepare(event, userId) {
     }
 }
 
-// ── Phase 2: commit — write to DynamoDB ───────────────────────────────────────
+// ── Phase 2: commit - write to DynamoDB ───────────────────────────────────────
 
 async function handleCommit(event, userId) {
     let body;
@@ -286,7 +286,7 @@ async function handleCommit(event, userId) {
         try {
             await ddb.send(new PutCommand({
                 TableName: IMAGES_TABLE,
-                // Idempotent — re-syncing the same localId just overwrites
+                // Idempotent - re-syncing the same localId just overwrites
                 ConditionExpression: "attribute_not_exists(#id) OR #id = :id",
                 ExpressionAttributeNames: { "#id": "imageId" },
                 ExpressionAttributeValues: { ":id": imageId },
@@ -294,7 +294,7 @@ async function handleCommit(event, userId) {
             }));
         } catch (err) {
             if (err.name === "ConditionalCheckFailedException") {
-                // Already synced — idempotent success
+                // Already synced - idempotent success
                 return ok({ imageId, remoteId: imageId });
             }
             console.error("[syncOfflineSession/commit/single] DynamoDB error:", err);
@@ -335,7 +335,7 @@ async function handleCommit(event, userId) {
 
         try {
             await ddb.send(new PutCommand({
-                TableName: process.env.GROUPS_TABLE || "ai-bharat-groups",
+                TableName: process.env.GROUPS_TABLE || "",
                 ConditionExpression: "attribute_not_exists(groupId) OR groupId = :gid",
                 ExpressionAttributeValues: { ":gid": groupId },
                 Item: groupItem,
@@ -368,7 +368,7 @@ exports.handler = async (event) => {
     const action = event.pathParameters?.action;
 
     if (action === "prepare") return handlePrepare(event, userId);
-    if (action === "commit")  return handleCommit(event, userId);
+    if (action === "commit") return handleCommit(event, userId);
 
     return badRequest("Unknown action. Use 'prepare' or 'commit'");
 };

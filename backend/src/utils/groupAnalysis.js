@@ -54,7 +54,7 @@ function generateMockSupplement(speciesLabel) {
     const weight_g = Math.round((length_mm / 1000) ** 3 * 1e6 * (0.012 + Math.random() * 0.004));
     const weight_kg = weight_g / 1000;
     const estimatedValue = Math.round(weight_kg * matched.pricePerKg);
-    
+
     return {
         weight_kg,
         estimatedValue,
@@ -77,39 +77,39 @@ function calculateAggregateStats(images) {
     let diseaseDetected = false;
     let totalEstimatedWeight = 0;
     let totalEstimatedValue = 0;
-    
+
     for (const image of images) {
         // Skip images with errors
         if (image.error) continue;
-        
+
         // Get all crops for this image
         const crops = Object.values(image.crops || {});
         totalFishCount += crops.length;
-        
+
         for (const crop of crops) {
             // Species distribution
             const species = crop.species?.label || "Unknown";
             speciesDistribution[species] = (speciesDistribution[species] || 0) + 1;
-            
+
             // Average confidence
             if (crop.species?.confidence !== undefined) {
                 totalConfidence += crop.species.confidence;
                 confidenceCount++;
             }
-            
+
             // Disease detection (any non-healthy disease label)
             const diseaseLabel = crop.disease?.label || "";
             if (diseaseLabel.toLowerCase() !== "healthy" && diseaseLabel.toLowerCase() !== "healthy fish") {
                 diseaseDetected = true;
             }
-            
+
             // Weight and value estimation using mock supplement logic
             const supplement = generateMockSupplement(species);
             totalEstimatedWeight += supplement.weight_kg;
             totalEstimatedValue += supplement.estimatedValue;
         }
     }
-    
+
     return {
         totalFishCount,
         speciesDistribution,
@@ -129,12 +129,12 @@ function calculateAggregateStats(images) {
  */
 function ensureAbsoluteUrl(url, mlApiBaseUrl) {
     if (!url) return url;
-    
+
     // Already absolute
     if (url.startsWith('http://') || url.startsWith('https://')) {
         return url;
     }
-    
+
     // Relative URL - convert to absolute using ML API base URL
     const cleanUrl = url.startsWith('/') ? url : `/${url}`;
     return `${mlApiBaseUrl}${cleanUrl}`;
@@ -150,9 +150,9 @@ function ensureAbsoluteUrl(url, mlApiBaseUrl) {
  */
 function combineMLResponses(mlResults) {
     // Get ML API base URL from environment
-    const ML_API_URL = process.env.ML_API_URL || "https://kyanmahajan-fish-pred.hf.space/predict";
+    const ML_API_URL = process.env.ML_API_URL || "";
     const ML_API_BASE = ML_API_URL.replace(/\/predict$/, ''); // Remove /predict endpoint
-    
+
     // Map each ML response to ImageAnalysis format
     const images = mlResults.map((result) => {
         // Convert all relative URLs to absolute URLs pointing to ML API
@@ -173,25 +173,25 @@ function combineMLResponses(mlResults) {
                 };
             }
         }
-        
+
         const imageAnalysis = {
             imageIndex: result.imageIndex,
             s3Key: result.s3Key,
             crops,
             yolo_image_url: ensureAbsoluteUrl(result.yolo_image_url, ML_API_BASE),
         };
-        
+
         // Add error information if present
         if (result.error) {
             imageAnalysis.error = result.error;
         }
-        
+
         return imageAnalysis;
     });
-    
+
     // Calculate aggregate statistics
     const aggregateStats = calculateAggregateStats(images);
-    
+
     // Return complete Group_Analysis
     return {
         images,

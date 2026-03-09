@@ -1,5 +1,5 @@
 /**
- * MapEventsWrapper — client component that wraps the useMapEvents hook.
+ * MapEventsWrapper - client component that wraps the useMapEvents hook.
  *
  * useMapEvents is a React hook and CANNOT be dynamically imported via next/dynamic.
  * This component is loaded client-side by the parent page via:

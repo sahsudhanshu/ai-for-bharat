@@ -585,6 +585,7 @@ export async function streamChat(
   language?: string,
   location?: { latitude: number; longitude: number },
   onToolCall?: (toolName: string) => void,
+  signal?: AbortSignal,
 ): Promise<StreamChatResult> {
   if (IS_AGENT_CONFIGURED && overrideChatId) {
     let streamEstablished = false;
@@ -607,6 +608,7 @@ export async function streamChat(
           latitude: location?.latitude,
           longitude: location?.longitude,
         }),
+        signal,
       });
 
       if (!res.ok) {

@@ -2,16 +2,16 @@
 DynamoDB store for Telegram subscriptions.
 
 Table: ai-bharat-telegram-subs
-  PK: telegramChatId (str)  — Telegram chat ID
+  PK: telegramChatId (str)  - Telegram chat ID
   Attributes:
-    userId         — matsya AI user ID (linked account)
-    latitude       — user's home location
-    longitude      — user's home location
-    locationName   — human-readable place name
-    language       — preferred language code (en, hi, ta, …)
-    alertsEnabled  — bool, master toggle
-    subscribedAt   — ISO timestamp
-    updatedAt      — ISO timestamp
+    userId         - matsya AI user ID (linked account)
+    latitude       - user's home location
+    longitude      - user's home location
+    locationName   - human-readable place name
+    language       - preferred language code (en, hi, ta, …)
+    alertsEnabled  - bool, master toggle
+    subscribedAt   - ISO timestamp
+    updatedAt      - ISO timestamp
 """
 from __future__ import annotations
 import time
@@ -53,7 +53,7 @@ def upsert_subscriber(
     if user_id:
         item["userId"] = user_id
 
-    # Check if exists already — preserve subscribedAt
+    # Check if exists already - preserve subscribedAt
     existing = get_subscriber(telegram_chat_id)
     if existing:
         item["subscribedAt"] = existing.get("subscribedAt", now)

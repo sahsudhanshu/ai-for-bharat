@@ -1,5 +1,5 @@
 """
-Compatibility route — matches the existing frontend API shape for chat.
+Compatibility route - matches the existing frontend API shape for chat.
 
 The frontend expects:
   POST /chat  → { chatId, response, timestamp }
@@ -30,7 +30,7 @@ router = APIRouter()
 
 
 def _extract_text(content) -> str:
-    """Normalize AIMessage.content — Gemini 2.5 may return a list of blocks."""
+    """Normalize AIMessage.content - Gemini 2.5 may return a list of blocks."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):

@@ -94,7 +94,7 @@ export async function runStartupChecks(): Promise<DiagnosticResult> {
     `${c.cyan}${c.bold}╔══════════════════════════════════════════════════════════════════╗${c.reset}`,
   );
   lines.push(
-    `${c.cyan}${c.bold}║  📱 OceanAI Mobile — Development Startup Diagnostics           ║${c.reset}`,
+    `${c.cyan}${c.bold}║  📱 OceanAI Mobile - Development Startup Diagnostics           ║${c.reset}`,
   );
   lines.push(
     `${c.cyan}${c.bold}╠══════════════════════════════════════════════════════════════════╣${c.reset}`,

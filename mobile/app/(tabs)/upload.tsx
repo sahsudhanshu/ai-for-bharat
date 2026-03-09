@@ -175,7 +175,7 @@ export default function UploadScreen() {
         setModelError(true);
         setModelSource("missing");
         toastService.error(
-          "Detection model unavailable — run: npm run deploy-models",
+          "Detection model unavailable - run: npm run deploy-models",
         );
       });
 
@@ -191,7 +191,7 @@ export default function UploadScreen() {
         const msg = err instanceof Error ? err.message : String(err);
         setTfliteError(msg);
         toastService.error(
-          "Species/disease models unavailable — run: npm run deploy-models",
+          "Species/disease models unavailable - run: npm run deploy-models",
         );
       })
       .finally(() => setTfliteLoading(false));
@@ -473,8 +473,8 @@ export default function UploadScreen() {
           setCropUris(crops);
         } else if (errors && errors.length > 0) {
           // Inference pipeline hit an error (e.g. TFLite model corruption)
-          // — distinguish from a genuine "no fish" result.
-          console.warn("[Upload] ⚠️ Offline inference errors — not a real detection result");
+          // - distinguish from a genuine "no fish" result.
+          console.warn("[Upload] ⚠️ Offline inference errors - not a real detection result");
           Alert.alert(
             "Analysis Error",
             `The on-device model encountered an error.\n\n${CACHE_HINT_MESSAGE}`,
@@ -1675,7 +1675,7 @@ export default function UploadScreen() {
             const hasUserWeights = offlineResults.some(d => d.weightG > 0);
             const totalWeightKg =
               offlineResults.reduce((s, d) => s + d.weightG, 0) / 1000;
-            // Prices are unavailable in offline mode — never show estimated value.
+            // Prices are unavailable in offline mode - never show estimated value.
             const anyDisease = offlineResults.some(
               (d) => d.disease !== "Healthy Fish",
             );
@@ -1745,7 +1745,7 @@ export default function UploadScreen() {
                     </View>
                   )}
 
-                  {/* Total Value is hidden in offline mode — market prices require connectivity */}
+                  {/* Total Value is hidden in offline mode - market prices require connectivity */}
 
                   <View style={styles.aggregateRow}>
                     <Text style={styles.aggregateLabel}>Disease Status</Text>

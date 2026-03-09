@@ -1,5 +1,5 @@
 """
-Shared DynamoDB resource — reused across all modules.
+Shared DynamoDB resource - reused across all modules.
 """
 import boto3
 from src.config.settings import AWS_REGION

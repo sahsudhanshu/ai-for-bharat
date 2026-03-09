@@ -1,6 +1,6 @@
 /**
  * Shared utilities for all Lambda functions.
- * response.js — standard JSON response helpers
+ * response.js - standard JSON response helpers
  */
 
 const headers = {

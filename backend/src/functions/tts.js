@@ -3,12 +3,12 @@ const { verifyToken } = require("../utils/auth");
 const { ok, unauthorized, badRequest, serverError } = require("../utils/response");
 
 // Uses the same AWS region as the rest of the app
-const polly = new PollyClient({ region: process.env.AWS_REGION || "ap-south-1" });
+const polly = new PollyClient({ region: process.env.AWS_REGION || "" });
 
 // ── AWS Polly voice map ─────────────────────────────────────────────────────
 // Polly only has NATIVE Indian-language support for English and Hindi.
 // "Kajal" (neural) supports en-IN and hi-IN.
-// For all other Indian languages, Polly has NO native voices — using a Hindi
+// For all other Indian languages, Polly has NO native voices - using a Hindi
 // voice to read Tamil/Bengali/Telugu text produces terrible results.
 // Instead, we tell the frontend to use browser-native speechSynthesis which
 // has much better Indian language support (Chrome/Android use Google TTS).
@@ -19,7 +19,7 @@ const VOICE_MAP = {
     "hi-IN": { VoiceId: "Kajal", Engine: "neural", LanguageCode: "hi-IN" },
 };
 
-// Languages where Polly has no native voice — delegate to browser TTS
+// Languages where Polly has no native voice - delegate to browser TTS
 const BROWSER_TTS_LANGUAGES = new Set([
     "bn-IN", "ta-IN", "te-IN", "mr-IN",
     "kn-IN", "ml-IN", "gu-IN", "or-IN",
@@ -80,7 +80,7 @@ exports.handler = async (event) => {
         // If it's a credentials / access error, log that clearly
         if (err.name === "CredentialsProviderError" || err.name === "AccessDeniedException") {
             console.error("[TTS ERROR] AWS credentials missing or IAM policy lacks polly:SynthesizeSpeech permission.");
-            return serverError("TTS unavailable — AWS credentials issue");
+            return serverError("TTS unavailable - AWS credentials issue");
         }
 
         return serverError("Failed to synthesize speech");

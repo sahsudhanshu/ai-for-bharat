@@ -6,11 +6,11 @@
  * displays the predicted weight.
  *
  * Props:
- *   visible      — controls modal visibility
- *   onClose      — called when the user dismisses without a result
- *   onConfirm    — called with the predicted weight (g) when the user taps Done
- *   species      — pre-filled from the TFLite species classifier result
- *   fishIndex    — used for the title ("Fish #N")
+ *   visible      - controls modal visibility
+ *   onClose      - called when the user dismisses without a result
+ *   onConfirm    - called with the predicted weight (g) when the user taps Done
+ *   species      - pre-filled from the TFLite species classifier result
+ *   fishIndex    - used for the title ("Fish #N")
  */
 
 import React, { useState, useCallback } from "react";
@@ -189,7 +189,7 @@ export function WeightEstimateModal({
     <Modal
       visible={visible}
       onClose={handleClose}
-      title={`Estimate Weight — Fish #${fishIndex + 1}`}
+      title={`Estimate Weight - Fish #${fishIndex + 1}`}
       size="lg"
     >
       <KeyboardAwareScrollView

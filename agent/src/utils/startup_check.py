@@ -34,11 +34,11 @@ ENV_CHECKS = [
     ('GOOGLE_API_KEY',              'GOOGLE_API_KEY',               'critical', 'Gemini API key for LLM'),
     ('COGNITO_USER_POOL_ID',        'COGNITO_USER_POOL_ID',         'critical', 'Cognito User Pool for auth'),
     ('COGNITO_CLIENT_ID',           'COGNITO_CLIENT_ID',            'warn',     'Cognito Client ID'),
-    ('AWS_REGION',                  'AWS_REGION',                   'warn',     'AWS region (has default)'),
-    ('DYNAMODB_CONVERSATIONS_TABLE','DYNAMODB_CONVERSATIONS_TABLE', 'warn',     'Conversations table (has default)'),
-    ('DYNAMODB_MESSAGES_TABLE',     'DYNAMODB_MESSAGES_TABLE',      'warn',     'Messages table (has default)'),
-    ('DYNAMODB_MEMORY_TABLE',       'DYNAMODB_MEMORY_TABLE',        'warn',     'Memory table (has default)'),
-    ('GROUPS_TABLE',                'GROUPS_TABLE',                 'warn',     'Groups table (has default)'),
+    ('AWS_REGION',                  'AWS_REGION',                   'warn',     'AWS region'),
+    ('DYNAMODB_CONVERSATIONS_TABLE','DYNAMODB_CONVERSATIONS_TABLE', 'warn',     'Conversations table'),
+    ('DYNAMODB_MESSAGES_TABLE',     'DYNAMODB_MESSAGES_TABLE',      'warn',     'Messages table'),
+    ('DYNAMODB_MEMORY_TABLE',       'DYNAMODB_MEMORY_TABLE',        'warn',     'Memory table'),
+    ('GROUPS_TABLE',                'GROUPS_TABLE',                 'warn',     'Groups table'),
     ('OPENWEATHERMAP_API_KEY',      'OPENWEATHERMAP_API_KEY',       'warn',     'Weather API key'),
 ]
 
@@ -53,7 +53,7 @@ async def run_startup_checks() -> dict:
 
     lines.append('')
     lines.append(f'{C.CYAN}{C.BOLD}╔══════════════════════════════════════════════════════════════════╗{C.RESET}')
-    lines.append(f'{C.CYAN}{C.BOLD}║  🤖 matsya AI Agent — Development Startup Diagnostics          ║{C.RESET}')
+    lines.append(f'{C.CYAN}{C.BOLD}║  🤖 matsya AI Agent - Development Startup Diagnostics          ║{C.RESET}')
     lines.append(f'{C.CYAN}{C.BOLD}╠══════════════════════════════════════════════════════════════════╣{C.RESET}')
 
     # ── 1. Environment Variables ─────────────────────────────────────────────
@@ -82,7 +82,7 @@ async def run_startup_checks() -> dict:
     # DynamoDB
     try:
         import boto3
-        ddb = boto3.client('dynamodb', region_name=os.getenv('AWS_REGION', 'ap-south-1'))
+        ddb = boto3.client('dynamodb', region_name=os.getenv('AWS_REGION', ''))
         res = ddb.list_tables()
         count = len(res.get('TableNames', []))
         lines.append(f'{C.CYAN}║{C.RESET}  {OK} {"DynamoDB":<30} = {C.GREEN}connected{C.RESET} {C.DIM}({count} tables){C.RESET}')
@@ -90,7 +90,7 @@ async def run_startup_checks() -> dict:
         lines.append(f'{C.CYAN}║{C.RESET}  {FAIL} {"DynamoDB":<30} = {C.RED}unreachable{C.RESET}  {C.DIM}{str(e)[:50]}{C.RESET}')
         results['critical_errors'] += 1
 
-    # Gemini API — lightweight HTTP check via REST endpoint
+    # Gemini API - lightweight HTTP check via REST endpoint
     api_key = os.getenv('GOOGLE_API_KEY', '')
     if api_key:
         try:

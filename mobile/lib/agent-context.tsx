@@ -1,5 +1,5 @@
 /**
- * AgentContext — Global context that silently tracks user actions across all screens.
+ * AgentContext - Global context that silently tracks user actions across all screens.
  *
  * Every screen updates this context as the user navigates. The "Ask Agent" button
  * on any screen sends the accumulated context alongside the user's question.

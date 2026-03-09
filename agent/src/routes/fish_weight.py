@@ -1,5 +1,5 @@
 """
-Fish weight estimation route — authenticated endpoint that:
+Fish weight estimation route - authenticated endpoint that:
   1. Calls the HuggingFace ML API for predicted weight
   2. Calculates weight via scientific formula W = a × L^b
   3. Asks Gemini for a structured analysis with price estimates

@@ -1,7 +1,7 @@
 import type { TranslationStrings } from "../types";
 import en from "./en";
 
-// Tamil — inherit from English, override with Tamil text
+// Tamil - inherit from English, override with Tamil text
 const ta: TranslationStrings = {
   ...en,
   "nav.dashboard": "டாஷ்போர்டு",

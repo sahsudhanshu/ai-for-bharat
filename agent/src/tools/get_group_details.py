@@ -1,5 +1,5 @@
 """
-Specific group catch tool — queries a single group analysis result from DynamoDB.
+Specific group catch tool - queries a single group analysis result from DynamoDB.
 """
 from __future__ import annotations
 from langchain_core.tools import tool
@@ -15,7 +15,7 @@ async def get_group_details(group_id: str, user_id: str = "") -> str:
     Get the detailed analysis of a specific group catch (multi-image batch) using its group_id.
     This provides detailed aggregate metrics like total fish count, species distribution, 
     total estimated weight, and total market value.
-    Do NOT pass user_id — it is injected automatically.
+    Do NOT pass user_id - it is injected automatically.
 
     Args:
         group_id: The unique identifier of the group catch to look up.

@@ -13,7 +13,7 @@ const { s3 } = require("../utils/s3");
 const { verifyToken } = require("../utils/auth");
 const { ok, unauthorized, serverError } = require("../utils/response");
 
-const USERS_TABLE = process.env.DYNAMODB_USERS_TABLE || "ai-bharat-users";
+const USERS_TABLE = process.env.DYNAMODB_USERS_TABLE || "";
 const BUCKET = process.env.S3_BUCKET_NAME;
 
 /**

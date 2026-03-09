@@ -1,6 +1,6 @@
 # OceanAI – AI for Bharat 🐟
 
-An offline-capable mobile app that helps Indian fishers identify fish species, detect diseases, and get market insights — all running **on-device** using TFLite models.
+An offline-capable mobile app that helps Indian fishers identify fish species, detect diseases, and get market insights - all running **on-device** using TFLite models.
 
 Built with **Expo (React Native)** + **react-native-fast-tflite** for GPU-accelerated inference.
 
@@ -74,7 +74,7 @@ mobile/
 - **Java 17** (for Gradle)
 - An Android device (USB debug enabled) **or** an emulator
 
-### 1 — Clone & install
+### 1 - Clone & install
 
 ```bash
 git clone https://github.com/<your-org>/ai-for-bharat.git
@@ -89,7 +89,7 @@ git lfs install
 git lfs pull        # downloads models/ into working tree
 ```
 
-### 2 — Environment setup
+### 2 - Environment setup
 
 ```bash
 cp .env.example .env.local
@@ -97,16 +97,16 @@ cp .env.example .env.local
 # Leave EXPO_PUBLIC_API_URL empty to run in demo / mock-data mode.
 ```
 
-### 3 — Generate native code (Expo CNG)
+### 3 - Generate native code (Expo CNG)
 
-The `ios/` and `android/` folders are **not committed** — they are generated from
+The `ios/` and `android/` folders are **not committed** - they are generated from
 `app.json` at build time.
 
 ```bash
 npx expo prebuild --clean
 ```
 
-### 4 — Build & run
+### 4 - Build & run
 
 ```bash
 # Android

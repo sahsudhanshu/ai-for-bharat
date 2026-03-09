@@ -1,21 +1,21 @@
 """
-Fishing Spots tool — finds nearby water bodies, sub-samples real points WITHIN
+Fishing Spots tool - finds nearby water bodies, sub-samples real points WITHIN
 each body, and scores every point for fishing viability.
 
 Data sources
 ────────────
-• Overpass API (OpenStreetMap)    — real water body geometries + sub-sampled points
-• ERDDAP / NASA MODIS (free)      — chlorophyll-a as marine fish-density proxy
-• OpenWeatherMap                  — live weather at each point
-• DynamoDB ai-bharat-images       — recency-weighted user catch history
-• Gemini + Google Search          — web-sourced fish activity per water body
-• User GPS                        — transport cost
+• Overpass API (OpenStreetMap)    - real water body geometries + sub-sampled points
+• ERDDAP / NASA MODIS (free)      - chlorophyll-a as marine fish-density proxy
+• OpenWeatherMap                  - live weather at each point
+• DynamoDB ai-bharat-images       - recency-weighted user catch history
+• Gemini + Google Search          - web-sourced fish activity per water body
+• User GPS                        - transport cost
 
 Confidence (0–100) per point
 ────────────────────────────
-  Fish Density  60 %  — chlorophyll (marine) + DynamoDB catches + Gemini web search
-  Weather       25 %  — wind, rain, clouds
-  Transport     15 %  — distance from user
+  Fish Density  60 %  - chlorophyll (marine) + DynamoDB catches + Gemini web search
+  Weather       25 %  - wind, rain, clouds
+  Transport     15 %  - distance from user
 
 Color
 ─────
@@ -79,7 +79,7 @@ def _sample_geometry_points(
             idx = min(i * step, total - 1)
             g = geometry[idx]
             points.append({
-                "name": f"{name} — section {i}",
+                "name": f"{name} - section {i}",
                 "lat": g["lat"], "lon": g["lon"],
                 "type": water_type, "is_sub": True, "parent_name": name,
             })
@@ -213,7 +213,7 @@ async def _fetch_gemini_web_score(
     """
     Ask Gemini (with Google Search grounding) for a fish activity score (0–100)
     for the given water body. Called once per body; shared across its sub-points.
-    Returns None on failure or missing API key — existing formula applies unchanged.
+    Returns None on failure or missing API key - existing formula applies unchanged.
     """
     if not GOOGLE_API_KEY:
         return None
@@ -330,9 +330,9 @@ async def get_nearby_fishing_spots(
     WITHIN each body (river bends, lake sections, coastal zones), and score every
     point for fishing viability using:
       • Live weather per body (OpenWeatherMap)
-      • Marine chlorophyll-a via NASA MODIS/ERDDAP — real phytoplankton/fish proxy
+      • Marine chlorophyll-a via NASA MODIS/ERDDAP - real phytoplankton/fish proxy
       • Recency-weighted historical catch records from the app database
-      • Transport cost — distance from the user's GPS location
+      • Transport cost - distance from the user's GPS location
 
     Also discovers named fishing spots, ghats, jetties, and ferry terminals nearby.
 
@@ -423,12 +423,12 @@ async def get_nearby_fishing_spots(
                 except Exception:
                     pass
 
-            # Chlorophyll at centroid — works for sea/coast, returns None inland
+            # Chlorophyll at centroid - works for sea/coast, returns None inland
             chl_score = await _fetch_chlorophyll_score(client, c_lat, c_lon)
             if chl_score is not None:
                 print(f"[fishing_spots] {body['name']}: chlorophyll score={chl_score}", flush=True)
 
-            # Gemini web search score — per water body name, shared by sub-points
+            # Gemini web search score - per water body name, shared by sub-points
             web_score = await _fetch_gemini_web_score(client, body["name"], c_lat, c_lon)
 
             # Sub-sample points within this body
@@ -471,7 +471,7 @@ async def get_nearby_fishing_spots(
         e = "🟢" if s["confidence"] >= 68 else ("🟡" if s["confidence"] >= 45 else "🔴")
         chl_tag = " 🌊" if s["chlorophyll_available"] else ""
         lines.append(
-            f"  {i}. {e} **{s['name']}** ({s['type']}) — {s['distance_km']} km{chl_tag}\n"
+            f"  {i}. {e} **{s['name']}** ({s['type']}) - {s['distance_km']} km{chl_tag}\n"
             f"     Confidence: **{s['confidence']}/100** | "
             f"Weather: {s['weather_score']} | Fish: {s['fish_density_score']} | "
             f"Transport: {s['transport_score']}"

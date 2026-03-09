@@ -75,7 +75,7 @@ for MODEL in "${MODELS[@]}"; do
   SRC="$MODELS_DIR/$MODEL"
 
   if [[ ! -f "$SRC" ]]; then
-    warn "Skipping $MODEL — not found at $SRC"
+    warn "Skipping $MODEL - not found at $SRC"
     ((FAILED++))
     continue
   fi
@@ -83,7 +83,7 @@ for MODEL in "${MODELS[@]}"; do
   SIZE=$(du -sh "$SRC" | cut -f1)
   info "Deploying $MODEL ($SIZE) ..."
 
-  # 1. Push to /data/local/tmp/ — world-readable, accessible by run-as processes.
+  # 1. Push to /data/local/tmp/ - world-readable, accessible by run-as processes.
   #    /sdcard/ (scoped storage on Android 11+) is NOT readable by run-as.
   TEMP_PATH="/data/local/tmp/${MODEL}"
   adb push "$SRC" "$TEMP_PATH" >/dev/null

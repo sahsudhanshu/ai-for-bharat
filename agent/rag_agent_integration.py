@@ -134,7 +134,7 @@ async def retrieve_rag_context_async(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     human_input = state.get("human_input", "")
 
-    # Topic gate — only invoke RAG for fish/disease-related queries
+    # Topic gate - only invoke RAG for fish/disease-related queries
     if not _mentions_fish_topic(human_input):
         return {"rag_context": None, "rag_documents_count": 0, "rag_error": None}
 
@@ -165,7 +165,7 @@ async def retrieve_rag_context_async(state: Dict[str, Any]) -> Dict[str, Any]:
         }
 
     except ValueError as exc:
-        # KB not configured — silently skip
+        # KB not configured - silently skip
         logger.debug(f"RAG not available (no KB ID): {exc}")
         return {"rag_context": None, "rag_documents_count": 0, "rag_error": str(exc)}
 

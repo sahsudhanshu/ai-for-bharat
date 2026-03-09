@@ -1,5 +1,5 @@
 """
-Catch insights generator — fetches a user's catch history and group batches
+Catch insights generator - fetches a user's catch history and group batches
 from DynamoDB and produces a concise Gemini-summarised snapshot for the
 Telegram /start welcome message.
 """
@@ -49,7 +49,7 @@ async def get_catch_insights(user_id: str) -> Optional[str]:
         )
         images = img_resp.get("Items", [])
     except Exception as e:
-        logger.error(f"Catch insights — images query failed: {e}")
+        logger.error(f"Catch insights - images query failed: {e}")
         images = []
 
     # ── 2. Fetch recent group batches ────────────────────────────────────
@@ -63,7 +63,7 @@ async def get_catch_insights(user_id: str) -> Optional[str]:
         )
         groups = grp_resp.get("Items", [])
     except Exception as e:
-        logger.error(f"Catch insights — groups query failed: {e}")
+        logger.error(f"Catch insights - groups query failed: {e}")
         groups = []
 
     if not images and not groups:
@@ -145,7 +145,7 @@ async def get_catch_insights(user_id: str) -> Optional[str]:
             text = "\n".join(str(c) for c in text)
         return text.strip()
     except Exception as e:
-        logger.error(f"Catch insights — LLM summary failed: {e}")
+        logger.error(f"Catch insights - LLM summary failed: {e}")
         # Fallback: raw stats
         lines = [
             f"📊 *Your Capture Insights*",

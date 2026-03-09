@@ -224,12 +224,12 @@ export default function UploadComponent({
                   totalEstimatedWeight: Math.max(
                     0,
                     group.analysisResult.aggregateStats.totalEstimatedWeight +
-                      weightDiff,
+                    weightDiff,
                   ),
                   totalEstimatedValue: Math.max(
                     0,
                     group.analysisResult.aggregateStats.totalEstimatedValue +
-                      priceDiff,
+                    priceDiff,
                   ),
                 },
               },
@@ -597,7 +597,7 @@ export default function UploadComponent({
         [
           `    Species: ${crop.species.label} (${(crop.species.confidence * 100).toFixed(1)}%)`,
           `    Disease: ${crop.disease.label} (${(crop.disease.confidence * 100).toFixed(1)}%)`,
-          `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "—"} KG`,
+          `    Weight: ${supplement?.weight_kg?.toFixed(2) ?? "-"} KG`,
         ].forEach((line) => {
           doc.text(line, 18, cursorY);
           cursorY += 5;
@@ -711,7 +711,7 @@ export default function UploadComponent({
                   label: "Analyze scan results",
                   detail: `${mlResults.length} images · ${cropEntries.length} fish`,
                   icon: "upload" as const,
-                  backendText: `${summary} Analyze these results — what species were found, any diseases, and recommendations?`,
+                  backendText: `${summary} Analyze these results - what species were found, any diseases, and recommendations?`,
                 });
               }}
               className="h-8 rounded-xl border-primary/30 text-primary text-xs font-medium hover:bg-primary/10"
@@ -1246,33 +1246,6 @@ export default function UploadComponent({
                   {t("upload.camera")}
                 </Button>
               </div>
-              <input
-                type="file"
-                ref={fileInputRef}
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    handleFiles(Array.from(e.target.files));
-                    e.target.value = "";
-                  }
-                }}
-                accept="image/*"
-                multiple
-              />
-              <input
-                type="file"
-                ref={mobileFileInputRef}
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files) {
-                    handleFiles(Array.from(e.target.files));
-                    e.target.value = "";
-                  }
-                }}
-                accept="image/*"
-                capture="environment"
-                multiple
-              />
             </div>
           ) : (
             <div>
@@ -1506,6 +1479,35 @@ export default function UploadComponent({
           </div>
         </div>
       )}
+
+      {/* Always-mounted hidden file inputs so refs are valid in all states */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) {
+            handleFiles(Array.from(e.target.files));
+            e.target.value = "";
+          }
+        }}
+        accept="image/*"
+        multiple
+      />
+      <input
+        type="file"
+        ref={mobileFileInputRef}
+        className="hidden"
+        onChange={(e) => {
+          if (e.target.files) {
+            handleFiles(Array.from(e.target.files));
+            e.target.value = "";
+          }
+        }}
+        accept="image/*"
+        capture="environment"
+        multiple
+      />
 
       {/* Camera Modal */}
       <CameraModal

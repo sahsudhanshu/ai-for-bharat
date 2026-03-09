@@ -35,7 +35,7 @@ export interface LocalDetection {
 export interface LocalGroupImage {
   /** Client-generated ID for this individual image */
   localImageId: string;
-  /** Local file URI — used to upload to S3 on sync */
+  /** Local file URI - used to upload to S3 on sync */
   imageUri: string;
   fileType: string;
   detections: LocalDetection[];
@@ -104,7 +104,7 @@ function toLocalDetection(d: OfflineDetectionResult): LocalDetection {
     isLegalSize: d.isLegalSize,
     minLegalSize: d.minLegalSize,
     bbox: d.bbox,
-    // Always persist the weight — bbox-estimated weights from offline inference
+    // Always persist the weight - bbox-estimated weights from offline inference
     // are the best available estimate and must be synced to the backend so the
     // web dashboard can display them instead of showing "Get Estimated Weight".
     weightG: d.weightG,
@@ -345,7 +345,7 @@ export async function syncLocalHistory(): Promise<void> {
             s3Key = prepare.presignedUrls[urlIdx].s3Key;
             syncLogger.success("LocalHistory", `S3 upload complete for scan ${record.id}`);
           } catch (e) {
-            syncLogger.warn("LocalHistory", `S3 upload failed for scan ${record.id} — continuing without image`);
+            syncLogger.warn("LocalHistory", `S3 upload failed for scan ${record.id} - continuing without image`);
             console.warn("[syncLocalHistory] Image S3 upload failed, continuing:", e);
           }
         }

@@ -66,7 +66,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SETTINGS OVERLAY — lightweight, no router, no page overhead
+// SETTINGS OVERLAY - lightweight, no router, no page overhead
 // ═══════════════════════════════════════════════════════════════════
 
 interface SettingsOverlayProps {

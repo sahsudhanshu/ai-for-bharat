@@ -21,7 +21,7 @@ const CHAT_API_KEY = process.env.CHAT_API_KEY || "";
 
 // Placeholder AI responses (remove once real API is connected)
 const PLACEHOLDER_RESPONSES = [
-    "Based on today's market data, Pomfret is trading at ₹440–₹480/kg at Vashi APMC — 12% above the weekly average. I recommend selling there today.",
+    "Based on today's market data, Pomfret is trading at ₹440–₹480/kg at Vashi APMC - 12% above the weekly average. I recommend selling there today.",
     "The freshness window for your catch is optimal right now. Delaying by 4+ hours could reduce your grade from Premium to Standard, costing ~₹120 per kg.",
     "I found 3 verified buyers interested in your Hilsa catch near Colaba. Would you like me to connect you with the highest bidder at ₹680/kg?",
     "Weather advisory: Rough sea conditions (2.5m waves) are expected tomorrow afternoon near Versova coast. Plan your return by 11 AM for safety.",

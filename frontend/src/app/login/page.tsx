@@ -113,7 +113,7 @@ export default function LoginPage() {
 
   return (
     <div className="h-[100dvh] bg-background flex overflow-hidden">
-      {/* Left Panel — Hero */}
+      {/* Left Panel - Hero */}
       <div className="hidden lg:flex lg:w-1/2 bg-ocean-gradient relative overflow-hidden flex-col justify-between p-12">
         {/* Decorative circles */}
         <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full border border-white/5" />
@@ -164,7 +164,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Panel — Form */}
+      {/* Right Panel - Form */}
       <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 overflow-y-auto">
         {/* Mobile Logo */}
         <div className="lg:hidden flex items-center gap-3 mb-10">
@@ -197,7 +197,7 @@ export default function LoginPage() {
             </AnimatePresence>
           </div>
 
-          {/* Mode Toggle — Sliding Pill */}
+          {/* Mode Toggle - Sliding Pill */}
           <div className="relative flex rounded-2xl bg-muted/30 p-1 border border-border/20">
             {/* Sliding pill background */}
             <motion.div
@@ -227,7 +227,7 @@ export default function LoginPage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Full Name — animated in/out */}
+            {/* Full Name - animated in/out */}
             <AnimatePresence initial={false}>
               {mode === "signup" && (
                 <motion.div

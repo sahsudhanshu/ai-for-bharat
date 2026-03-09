@@ -1,5 +1,5 @@
 """
-Weather tool — OpenWeatherMap free-tier API.
+Weather tool - OpenWeatherMap free-tier API.
 
 Provides current weather + 3-hour forecast for a lat/lon.
 Formats output for fishermen (wind, waves, rain, sea state).
@@ -17,10 +17,10 @@ BEAUFORT_DESCRIPTIONS = [
     (1.6, 3.3, "हल्की बयार (Light breeze)", "Small wavelets"),
     (3.4, 5.4, "मंद बयार (Gentle breeze)", "Large wavelets, some crests"),
     (5.5, 7.9, "तेज़ बयार (Moderate breeze)", "Small waves, frequent whitecaps"),
-    (8.0, 10.7, "ताज़ा हवा (Fresh breeze)", "Moderate waves — be cautious!"),
-    (10.8, 13.8, "तेज़ हवा (Strong breeze)", "Large waves — avoid deep sea!"),
-    (13.9, 17.1, "भारी हवा (Near gale)", "⚠️ Dangerous — return to shore!"),
-    (17.2, 100, "तूफ़ान (Gale+)", "🚨 DANGER — DO NOT GO TO SEA!"),
+    (8.0, 10.7, "ताज़ा हवा (Fresh breeze)", "Moderate waves - be cautious!"),
+    (10.8, 13.8, "तेज़ हवा (Strong breeze)", "Large waves - avoid deep sea!"),
+    (13.9, 17.1, "भारी हवा (Near gale)", "⚠️ Dangerous - return to shore!"),
+    (17.2, 100, "तूफ़ान (Gale+)", "🚨 DANGER - DO NOT GO TO SEA!"),
 ]
 
 
@@ -28,7 +28,7 @@ def _wind_advisory(speed_ms: float) -> str:
     """Return fishing-relevant wind advisory."""
     for low, high, label, desc in BEAUFORT_DESCRIPTIONS:
         if low <= speed_ms <= high:
-            return f"{label} — {desc}"
+            return f"{label} - {desc}"
     return "Unknown"
 
 
@@ -96,10 +96,10 @@ async def get_weather(latitude: float, longitude: float, location_name: Optional
     advisory = _wind_advisory(wind_speed)
 
     lines = [
-        f"📍 **{label}** — Current Conditions",
+        f"📍 **{label}** - Current Conditions",
         f"  🌤️ {description}",
         f"  🌡️ Temperature: {temp:.0f}°C | Humidity: {humidity}%",
-        f"  💨 Wind: {wind_speed:.1f} m/s ({wind_deg}°) — {advisory}",
+        f"  💨 Wind: {wind_speed:.1f} m/s ({wind_deg}°) - {advisory}",
         f"  ☁️ Cloud cover: {clouds}% | Visibility: {visibility:.1f} km",
     ]
     if rain_1h > 0:
@@ -114,7 +114,7 @@ async def get_weather(latitude: float, longitude: float, location_name: Optional
         f_desc = entry["weather"][0]["description"].title()
         f_rain = entry.get("rain", {}).get("3h", 0)
         adv = _wind_advisory(f_wind)
-        line = f"  {dt_txt[-8:-3]} — {f_desc}, {f_temp:.0f}°C, Wind {f_wind:.1f}m/s ({adv})"
+        line = f"  {dt_txt[-8:-3]} - {f_desc}, {f_temp:.0f}°C, Wind {f_wind:.1f}m/s ({adv})"
         if f_rain > 0:
             line += f", Rain {f_rain}mm"
         lines.append(line)

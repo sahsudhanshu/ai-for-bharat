@@ -1,5 +1,5 @@
 /**
- * SuggestionChips — Contextual follow-up suggestions shown after each agent
+ * SuggestionChips - Contextual follow-up suggestions shown after each agent
  * response based on the tools that were called.
  */
 import React from "react";

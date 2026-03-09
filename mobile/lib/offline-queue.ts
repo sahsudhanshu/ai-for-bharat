@@ -96,7 +96,7 @@ class OfflineQueue {
     await this.save();
     this.notifyListeners();
 
-    syncLogger.info("OfflineQueue", `Queued ${type} (${conflictStrategy}) — queue size: ${this.queue.length}`);
+    syncLogger.info("OfflineQueue", `Queued ${type} (${conflictStrategy}) - queue size: ${this.queue.length}`);
     console.log(
       `[OfflineQueue] Added ${type} operation to queue with ${conflictStrategy} strategy`,
     );
@@ -261,7 +261,7 @@ class OfflineQueue {
           console.warn(
             `[OfflineQueue] Max retries exceeded for ${operation.id}, moving to failed queue`,
           );
-          syncLogger.error("OfflineQueue", `✘ ${operation.type} exceeded max retries — moved to failed queue`);
+          syncLogger.error("OfflineQueue", `✘ ${operation.type} exceeded max retries - moved to failed queue`);
           this.failedQueue.push(operation);
           await this.remove(operation.id);
           await this.saveFailed();

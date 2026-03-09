@@ -1,5 +1,5 @@
 /**
- * InlineMapWidget — Satellite map mini card for in-chat location responses.
+ * InlineMapWidget - Satellite map mini card for in-chat location responses.
  * Mirrors the maps tab: PROVIDER_DEFAULT + mapType="none" + UrlTile overlay.
  */
 import React, { useMemo, useState } from "react";

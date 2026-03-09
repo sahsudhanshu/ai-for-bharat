@@ -1,5 +1,5 @@
 """
-Message routes — send a message (invokes LangGraph) and retrieve history.
+Message routes - send a message (invokes LangGraph) and retrieve history.
 
   POST /conversations/{id}/messages   → send message
   GET  /conversations/{id}/messages   → get history
@@ -28,7 +28,7 @@ router = APIRouter()
 
 
 def _extract_text(content) -> str:
-    """Normalize AIMessage.content — Gemini 2.5 may return a list of blocks."""
+    """Normalize AIMessage.content - Gemini 2.5 may return a list of blocks."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -77,14 +77,14 @@ def _extract_ui_json(text: str) -> tuple[dict, str]:
                 return data, cleaned
             except Exception:
                 pass
-        # Sentinel present but JSON malformed — still strip the line
+        # Sentinel present but JSON malformed - still strip the line
         return {}, cleaned
     return {}, text
 
 
 def _sanitise_agent_text(text: str) -> str:
     """Strip __UI__ sentinel, legacy JSON blobs, and memory-system noise."""
-    # Cut from __UI__ onwards (primary path — normally _extract_ui_json already did this)
+    # Cut from __UI__ onwards (primary path - normally _extract_ui_json already did this)
     idx = text.find("__UI__")
     if idx != -1:
         text = text[:idx]
@@ -104,7 +104,7 @@ class SendMessageRequest(BaseModel):
     longitude: float | None = None
 
 
-# ── Send message — invokes the full LangGraph pipeline ──────────────────────
+# ── Send message - invokes the full LangGraph pipeline ──────────────────────
 
 @router.post("/{conversation_id}/messages")
 async def send_message(
@@ -227,7 +227,7 @@ async def send_message(
     }
 
 
-# ── Stream message — SSE chunks of AI response ──────────────────────────────
+# ── Stream message - SSE chunks of AI response ──────────────────────────────
 
 @router.post("/{conversation_id}/messages/stream")
 async def send_message_stream(

@@ -1,6 +1,6 @@
 /**
  * Real-time disaster alert system for mobile.
- * Same logic as web — fetches live weather from OpenWeatherMap
+ * Same logic as web - fetches live weather from OpenWeatherMap
  * for Indian coastal monitoring stations and derives alerts.
  */
 

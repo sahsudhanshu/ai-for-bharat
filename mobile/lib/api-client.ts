@@ -1,5 +1,5 @@
 /**
- * API client for OceanAI backend — React Native port of the web api-client.ts
+ * API client for OceanAI backend - React Native port of the web api-client.ts
  * Uses AsyncStorage for token management. Demo mode when EXPO_PUBLIC_API_URL not set.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -406,7 +406,7 @@ export function mlResponseToAnalysisResult(
     curr.yolo_confidence > best.yolo_confidence ? curr : best,
   );
 
-  // Weight and price are not available from the ML API — mark as unavailable (0)
+  // Weight and price are not available from the ML API - mark as unavailable (0)
   const estimatedWeight = 0;
   const estimatedPricePerKg = 0;
   const estimatedLength = 0;
@@ -2341,7 +2341,7 @@ export async function saveWeightEstimate(
   payload: WeightEstimatePayload,
 ): Promise<void> {
   if (IS_DEMO_MODE) {
-    return; // No backend — persist locally only
+    return; // No backend - persist locally only
   }
   await apiFetch<void>(ENDPOINTS.saveWeightEstimate, {
     method: "POST",
@@ -2389,7 +2389,7 @@ export async function estimateFishWeightOnline(
     },
   );
   if (!res.success || !res.data) {
-    throw new Error("Weight estimation failed — no data returned");
+    throw new Error("Weight estimation failed - no data returned");
   }
   return res.data;
 }

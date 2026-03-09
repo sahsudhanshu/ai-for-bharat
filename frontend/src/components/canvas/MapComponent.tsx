@@ -6,7 +6,7 @@ import {
   Droplets, Maximize2, Navigation,
   Crosshair, Loader2, MapPin, Wind, X, AlertTriangle,
   Sun,
-  Sunset, Sparkles, CheckCircle2, Radio
+  Sunset, Sparkles, CheckCircle2, Radio, MessageSquare
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,7 @@ L.Icon.Default.mergeOptions({
 // ── Map Config ────────────────────────────────────────────────────────────────
 const MAP_URL = "https://mt1.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}";
 
-// India bounds — restrict panning to Indian subcontinent + surrounding ocean
+// India bounds - restrict panning to Indian subcontinent + surrounding ocean
 const INDIA_BOUNDS: [[number, number], [number, number]] = [
   [4.0, 64.0],   // SW corner
   [38.0, 100.0],  // NE corner
@@ -266,7 +266,7 @@ export default function MapComponent({
           setLocationResolved(true);
         },
         () => {
-          // Location permission denied or unavailable — fallback to default center
+          // Location permission denied or unavailable - fallback to default center
           setLocationResolved(true);
         },
         { timeout: 5000 }
@@ -776,6 +776,41 @@ export default function MapComponent({
                       </p>
                     </div>
                   )}
+
+                  {/* Ask Matsya AI about scan results */}
+                  {scanDone && scanSummary && (
+                    <div className="mx-3 mb-3">
+                      <button
+                        onClick={() => {
+                          const loc = userLocation ?? (mapInstanceRef.current
+                            ? (() => { const c = mapInstanceRef.current.getCenter(); return { lat: c.lat, lng: c.lng }; })()
+                            : null);
+                          if (loc) {
+                            setMapPointContext({ lat: loc.lat, lon: loc.lng });
+                            setContextPage('map');
+                          }
+                          const topSpots = fishingSpots
+                            .slice(0, 5)
+                            .map(s => `${s.name} (${s.type}, confidence: ${s.confidence}%, density: ${s.fish_density_score}, weather: ${s.weather_score}, distance: ${s.distance_km.toFixed(1)}km)`)
+                            .join('; ');
+                          const prompt = `Deep scan results summary: ${scanSummary}. Top spots: ${topSpots}. Based on these fishing spot scan results, which spot would you recommend and why? Include weather conditions and best time to go.`;
+                          (window as any).__agentChatInject?.(
+                            'Analyze my scan results',
+                            {
+                              label: 'Analyze my scan results',
+                              detail: `${fishingSpots.length} spots found`,
+                              icon: 'map' as const,
+                              backendText: prompt,
+                            }
+                          );
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-primary/10 border border-primary/20 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Ask Matsya AI about these results
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -858,7 +893,7 @@ export default function MapComponent({
                       <p className="text-[10px] text-muted-foreground mt-0.5">{spot.type} • {spot.distance_km} km away</p>
                     </div>
 
-                    {/* Confidence score — large, prominent */}
+                    {/* Confidence score - large, prominent */}
                     <div className="rounded-lg p-2.5 border bg-background" style={{ borderColor: spot.color + '55' }}>
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
@@ -869,7 +904,7 @@ export default function MapComponent({
                       </div>
                     </div>
 
-                    {/* Fish Density — primary metric */}
+                    {/* Fish Density - primary metric */}
                     <div className="rounded-lg p-2.5 border border-cyan-500/30 bg-cyan-500/5">
                       <div className="flex items-center justify-between mb-1.5">
                         <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wide flex items-center gap-1">🐟 Fish Density</span>

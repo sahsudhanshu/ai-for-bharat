@@ -1,5 +1,5 @@
 /**
- * AgentOnboarding — Conversational first-launch onboarding through the AI agent.
+ * AgentOnboarding - Conversational first-launch onboarding through the AI agent.
  * Shows a chat-like interface where the agent asks the user about preferences.
  */
 import React, { useState, useRef, useEffect } from "react";
@@ -54,7 +54,7 @@ const STEPS: OnboardingStep[] = [
   {
     type: "info",
     agentMessage:
-      "Great! I'll personalize your experience based on your preferences. You can always talk to me anytime — just tap the chat button. Let's get started! 🎣",
+      "Great! I'll personalize your experience based on your preferences. You can always talk to me anytime - just tap the chat button. Let's get started! 🎣",
   },
 ];
 

@@ -1,8 +1,8 @@
 """
-Specific catch tool — queries a single image analysis result from DynamoDB.
+Specific catch tool - queries a single image analysis result from DynamoDB.
 
 Schema note: analysis data is stored under item["analysisResult"] (nested object).
-Legacy records may have flat top-level fields — both are supported.
+Legacy records may have flat top-level fields - both are supported.
 """
 from __future__ import annotations
 from langchain_core.tools import tool
@@ -22,7 +22,7 @@ async def get_catch_details(image_id: str, user_id: str = "") -> str:
     """
     Get the detailed analysis of a specific catch (fish upload) using its image_id.
     This provides detailed metrics like length, weight, quality grade, and market value.
-    Do NOT pass user_id — it is injected automatically.
+    Do NOT pass user_id - it is injected automatically.
 
     Args:
         image_id: The unique identifier of the catch/image to look up.

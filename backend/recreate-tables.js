@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { DynamoDBClient, DeleteTableCommand, CreateTableCommand, DescribeTableCommand, waitUntilTableNotExists, waitUntilTableExists } = require("@aws-sdk/client-dynamodb");
 
-const client = new DynamoDBClient({ region: "ap-south-1" });
+const client = new DynamoDBClient({ region: process.env.AWS_REGION || "" });
 
 async function run() {
     const rawData = fs.readFileSync("../infrastructure/dynamodb-tables.json");

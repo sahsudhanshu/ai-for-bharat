@@ -68,7 +68,7 @@ const en: TranslationStrings = {
   'upload.legalSize': 'Legal Size',
   'upload.belowLimit': 'Below Limit',
   'upload.sustainability': 'Sustainability Verdict',
-  'upload.sustainable': 'This species is thriving in this region. Safe for harvesting — continue responsible fishing practices.',
+  'upload.sustainable': 'This species is thriving in this region. Safe for harvesting - continue responsible fishing practices.',
   'upload.notSustainable': 'Warning: This specimen may be undersized. Consider releasing to preserve stock health and comply with regulations.',
   'upload.sustainableBadge': '✓ Sustainable',
   'upload.limitedBadge': '⚠ Limited Species',

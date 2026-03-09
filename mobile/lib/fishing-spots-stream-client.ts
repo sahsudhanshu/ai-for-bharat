@@ -4,7 +4,7 @@
  * Connects to GET /fishing-spots/stream via SSE and provides live progress
  * updates while the agent runs its deep scan.
  *
- * Uses XMLHttpRequest (onprogress) — the same pattern as chat-stream-client.ts
+ * Uses XMLHttpRequest (onprogress) - the same pattern as chat-stream-client.ts
  * since React Native's fetch does not expose a ReadableStream body.
  *
  * SSE event shapes emitted by the server
@@ -116,7 +116,7 @@ export class FishingSpotsStreamClient {
               resolve();
             }
           } catch {
-            // Partial JSON — will be completed in next chunk
+            // Partial JSON - will be completed in next chunk
           }
         }
       };
@@ -143,7 +143,7 @@ export class FishingSpotsStreamClient {
 
       xhr.onerror = () => {
         this.active = false;
-        onError("Network error — could not reach the scan server.");
+        onError("Network error - could not reach the scan server.");
         resolve();
       };
 
@@ -151,7 +151,7 @@ export class FishingSpotsStreamClient {
     });
   }
 
-  /** Client-side cancel — aborts the XHR so the server detects disconnect. */
+  /** Client-side cancel - aborts the XHR so the server detects disconnect. */
   cancel() {
     if (this.xhr) {
       this.xhr.abort();

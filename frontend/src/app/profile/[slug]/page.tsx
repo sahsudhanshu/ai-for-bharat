@@ -49,18 +49,18 @@ export default function PublicProfilePage() {
         : null;
 
     return (
-        <div className="min-h-[100dvh] bg-slate-950 text-slate-50 relative pb-24 lg:pb-0 font-sans selection:bg-teal-500/30">
+        <div className="min-h-[100dvh] bg-background text-foreground relative pb-24 lg:pb-0 font-sans selection:bg-primary/30">
 
             {/* Dynamic Background */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-teal-900/10 blur-[100px]" />
-                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-900/10 blur-[100px]" />
+                <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] rounded-full bg-primary/20 dark:bg-primary/10 blur-[100px]" />
+                <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] rounded-full bg-indigo-500/20 dark:bg-indigo-500/10 blur-[100px]" />
             </div>
 
             <div className="max-w-3xl mx-auto px-6 pt-12 relative z-10 w-full">
                 {/* Header */}
-                <div className="flex items-center gap-4 mb-8">
-                    <Button variant="ghost" className="h-10 w-10 p-0 rounded-full bg-muted/20 hover:bg-muted/40" onClick={() => router.back()}>
+                <div className="flex items-center gap-4 mb-4 sm:mb-8">
+                    <Button variant="ghost" className="h-10 w-10 p-0 rounded-full bg-muted/20 hover:bg-muted/40" onClick={() => router.push("/")}>
                         <ArrowLeft className="w-5 h-5" />
                     </Button>
                     <h1 className="text-xl font-bold">Public Profile</h1>
@@ -68,7 +68,7 @@ export default function PublicProfilePage() {
 
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
-                        <div className="w-8 h-8 border-4 border-teal-500/30 border-t-teal-500 rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-4 border-primary/30 border-t-primary rounded-full animate-spin" />
                     </div>
                 ) : error || !profile ? (
                     <div className="py-20 text-center space-y-4">
@@ -79,14 +79,12 @@ export default function PublicProfilePage() {
                         </Button>
                     </div>
                 ) : (
-                    <Card className="rounded-[2.5rem] border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
-                        <div className="h-32 bg-gradient-to-r from-teal-500/20 to-indigo-500/20" />
-
-                        <CardContent className="px-8 pb-10 relative">
+                    <Card className="rounded-[2.5rem] border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden shadow-xl sm:mx-0 -mx-4">
+                        <CardContent className="px-6 sm:px-8 pb-10 pt-10 relative">
                             {/* Avatar */}
-                            <div className="flex justify-between items-end -mt-16 mb-8">
+                            <div className="flex justify-between items-end mb-8">
                                 <div className="relative group">
-                                    <div className="w-32 h-32 rounded-full border-4 border-slate-950 bg-slate-800 overflow-hidden shadow-2xl relative z-10">
+                                    <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full border-4 border-background bg-muted overflow-hidden shadow-2xl relative z-10">
                                         {profile.avatar ? (
                                             <img src={profile.avatar} alt={profile.name} className="w-full h-full object-cover" />
                                         ) : (
@@ -109,7 +107,7 @@ export default function PublicProfilePage() {
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                        <Anchor className="w-5 h-5 text-teal-500" />
+                                        <Anchor className="w-5 h-5 text-primary" />
                                         <div>
                                             <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Fishing Port</p>
                                             <p className="font-bold">
@@ -120,14 +118,14 @@ export default function PublicProfilePage() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                        <MapPin className="w-5 h-5 text-teal-500" />
+                                        <MapPin className="w-5 h-5 text-primary" />
                                         <div>
                                             <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Region</p>
                                             <p className="font-bold">{profile.region || "Not specified"}</p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30 col-span-1 md:col-span-2">
-                                        <Calendar className="w-5 h-5 text-teal-500" />
+                                        <Calendar className="w-5 h-5 text-primary" />
                                         <div>
                                             <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Joined</p>
                                             <p className="font-bold">{joinDate || "Recently"}</p>
@@ -143,28 +141,28 @@ export default function PublicProfilePage() {
                                         </p>
                                         <div className="grid grid-cols-2 gap-3">
                                             <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                                <Fish className="w-5 h-5 text-teal-500" />
+                                                <Fish className="w-5 h-5 text-primary" />
                                                 <div>
                                                     <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Total Fish</p>
                                                     <p className="font-bold text-lg">{(profile as any).stats.totalFish ?? 0}</p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                                <Scale className="w-5 h-5 text-teal-500" />
+                                                <Scale className="w-5 h-5 text-primary" />
                                                 <div>
                                                     <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Species</p>
                                                     <p className="font-bold text-lg">{(profile as any).stats.uniqueSpecies ?? 0}</p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                                <Anchor className="w-5 h-5 text-teal-500" />
+                                                <Anchor className="w-5 h-5 text-primary" />
                                                 <div>
                                                     <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Analyses</p>
                                                     <p className="font-bold text-lg">{(profile as any).stats.totalGroups ?? 0}</p>
                                                 </div>
                                             </div>
                                             <div className="flex items-center gap-3 p-4 rounded-2xl bg-muted/30">
-                                                <Calendar className="w-5 h-5 text-teal-500" />
+                                                <Calendar className="w-5 h-5 text-primary" />
                                                 <div>
                                                     <p className="text-xs uppercase tracking-wider text-muted-foreground font-bold">Last Catch</p>
                                                     <p className="font-bold text-sm">

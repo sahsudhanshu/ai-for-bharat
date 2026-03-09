@@ -3,12 +3,12 @@
  * Set NEXT_PUBLIC_API_URL in .env.local to point to your deployed API Gateway.
  *
  * Set NEXT_PUBLIC_AGENT_URL for the Python agent (LangGraph chatbot).
- * Defaults to http://localhost:8000 for local development.
+ * Set in .env.local for local development.
  */
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-/** Agent (Python FastAPI) base URL — used for chat routes */
+/** Agent (Python FastAPI) base URL - used for chat routes */
 export const AGENT_BASE_URL = process.env.NEXT_PUBLIC_AGENT_URL;
 
 /** Whether the LangGraph agent is available */

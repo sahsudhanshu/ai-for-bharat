@@ -33,12 +33,12 @@ export class SyncService {
 
     // Initialize offline queue
     await offlineQueue.initialize();
-    syncLogger.info("SyncService", "Initialized — listening for connectivity changes");
+    syncLogger.info("SyncService", "Initialized - listening for connectivity changes");
 
     // Listen for connectivity changes
     this.netInfoUnsubscribe = NetInfo.addEventListener((state) => {
       if (state.isConnected && !this.isSyncing) {
-        syncLogger.info("SyncService", "Network came online — starting sync");
+        syncLogger.info("SyncService", "Network came online - starting sync");
         this.syncPendingChanges();
       }
     });
@@ -46,10 +46,10 @@ export class SyncService {
     // Sync on app startup if connected
     const state = await NetInfo.fetch();
     if (state.isConnected) {
-      syncLogger.info("SyncService", "Online at startup — running initial sync");
+      syncLogger.info("SyncService", "Online at startup - running initial sync");
       this.syncPendingChanges();
     } else {
-      syncLogger.info("SyncService", "Offline at startup — sync deferred");
+      syncLogger.info("SyncService", "Offline at startup - sync deferred");
     }
   }
 
@@ -106,7 +106,7 @@ export class SyncService {
     try {
       const queue = await this.getQueue();
       const pending = queue.filter((item) => item.status === "pending");
-      syncLogger.info("SyncService", `Starting sync — ${pending.length} profile/weight item(s) queued`);
+      syncLogger.info("SyncService", `Starting sync - ${pending.length} profile/weight item(s) queued`);
 
       let hasErrors = false;
 

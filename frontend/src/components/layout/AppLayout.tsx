@@ -44,7 +44,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
     );
   }
 
-  // Redirect in progress — show loading instead of white screen
+  // Redirect in progress - show loading instead of white screen
   if (!isAuthenticated && !isPublicRoute) {
     return (
       <div className="min-h-[100dvh] bg-background flex items-center justify-center">

@@ -1,5 +1,5 @@
 /**
- * InlineUploadCard — A camera/upload CTA card rendered inside a chat bubble
+ * InlineUploadCard - A camera/upload CTA card rendered inside a chat bubble
  * when the agent returns ui.upload = true.
  */
 import React from "react";

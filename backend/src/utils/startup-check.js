@@ -33,12 +33,13 @@ const INFO = `${c.blue}ℹ️${c.reset}`;
 const ENV_CHECKS = [
     // [name, envKey, level: 'critical'|'warn', description]
     ['S3_BUCKET_NAME', 'S3_BUCKET_NAME', 'critical', 'S3 bucket for image storage'],
+    ['AWS_REGION', 'AWS_REGION', 'critical', 'AWS region for DynamoDB/S3'],
     ['COGNITO_USER_POOL_ID', 'COGNITO_USER_POOL_ID', 'critical', 'Cognito user pool for auth'],
     ['COGNITO_CLIENT_ID', 'COGNITO_CLIENT_ID', 'critical', 'Cognito client ID for auth'],
-    ['DYNAMODB_IMAGES_TABLE', 'DYNAMODB_IMAGES_TABLE', 'warn', 'DynamoDB images table (has default)'],
-    ['DYNAMODB_CHATS_TABLE', 'DYNAMODB_CHATS_TABLE', 'warn', 'DynamoDB chats table (has default)'],
-    ['DYNAMODB_USERS_TABLE', 'DYNAMODB_USERS_TABLE', 'warn', 'DynamoDB users table (has default)'],
-    ['GROUPS_TABLE', 'GROUPS_TABLE', 'warn', 'DynamoDB groups table (has default)'],
+    ['DYNAMODB_IMAGES_TABLE', 'DYNAMODB_IMAGES_TABLE', 'warn', 'DynamoDB images table'],
+    ['DYNAMODB_CHATS_TABLE', 'DYNAMODB_CHATS_TABLE', 'warn', 'DynamoDB chats table'],
+    ['DYNAMODB_USERS_TABLE', 'DYNAMODB_USERS_TABLE', 'warn', 'DynamoDB users table'],
+    ['GROUPS_TABLE', 'GROUPS_TABLE', 'warn', 'DynamoDB groups table'],
     ['ML_API_URL', 'ML_API_URL', 'warn', 'ML prediction API URL'],
     ['ML_API_KEY', 'ML_API_KEY', 'warn', 'ML API authentication key'],
     ['CHAT_API_URL', 'CHAT_API_URL', 'warn', 'Agent chat API URL'],
@@ -54,7 +55,7 @@ async function runStartupChecks() {
 
     console.log('');
     console.log(`${c.cyan}${c.bold}╔══════════════════════════════════════════════════════════════════╗${c.reset}`);
-    console.log(`${c.cyan}${c.bold}║  🐟 matsya AI Backend — Development Startup Diagnostics        ║${c.reset}`);
+    console.log(`${c.cyan}${c.bold}║  🐟 matsya AI Backend - Development Startup Diagnostics        ║${c.reset}`);
     console.log(`${c.cyan}${c.bold}╠══════════════════════════════════════════════════════════════════╣${c.reset}`);
 
     // ── 1. Environment Variables ─────────────────────────────────────────────
@@ -87,7 +88,7 @@ async function runStartupChecks() {
 
     // DynamoDB
     try {
-        const ddb = new DynamoDBClient({ region: process.env.AWS_REGION || 'ap-south-1' });
+        const ddb = new DynamoDBClient({ region: process.env.AWS_REGION || '' });
         const res = await ddb.send(new ListTablesCommand({}));
         const count = res.TableNames?.length || 0;
         console.log(`${c.cyan}║${c.reset}  ${OK} ${'DynamoDB'.padEnd(26)} = ${c.green}connected${c.reset} ${c.dim}(${count} tables)${c.reset}`);
@@ -99,7 +100,7 @@ async function runStartupChecks() {
     // S3 Bucket
     if (process.env.S3_BUCKET_NAME) {
         try {
-            const s3 = new S3Client({ region: process.env.AWS_REGION || 'ap-south-1' });
+            const s3 = new S3Client({ region: process.env.AWS_REGION || '' });
             await s3.send(new HeadBucketCommand({ Bucket: process.env.S3_BUCKET_NAME }));
             console.log(`${c.cyan}║${c.reset}  ${OK} ${'S3 Bucket'.padEnd(26)} = ${c.green}accessible${c.reset}`);
         } catch (err) {
@@ -109,7 +110,7 @@ async function runStartupChecks() {
     }
 
     // Agent API
-    const agentUrl = process.env.CHAT_API_URL?.replace('/chat', '') || 'http://localhost:8001';
+    const agentUrl = process.env.CHAT_API_URL?.replace('/chat', '') || '';
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);

@@ -36,8 +36,8 @@ function matchSpecies(label) {
     );
 }
 
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
-const ML_API_URL = process.env.ML_API_URL || "https://ml-api.example.com/analyze";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
+const ML_API_URL = process.env.ML_API_URL || "";
 const ML_API_KEY = process.env.ML_API_KEY || "";
 
 exports.handler = async (event) => {
@@ -91,7 +91,7 @@ exports.handler = async (event) => {
         // }
         // ────────────────────────────────────────────────────────────────────────
 
-        const BUCKET = process.env.S3_BUCKET_NAME || "ai-bharat-fish-images";
+        const BUCKET = process.env.S3_BUCKET_NAME || "";
         const getObj = await s3.send(new GetObjectCommand({
             Bucket: BUCKET,
             Key: image.s3Key,

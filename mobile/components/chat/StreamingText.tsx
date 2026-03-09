@@ -10,7 +10,7 @@ interface Props {
 }
 
 /**
- * Renders assistant text with Markdown throughout — both while streaming and
+ * Renders assistant text with Markdown throughout - both while streaming and
  * after completion. A ▌ cursor is appended during streaming so the user can
  * see tokens are still arriving. The whole bubble fades in on mount.
  */

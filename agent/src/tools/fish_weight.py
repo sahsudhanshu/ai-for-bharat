@@ -1,5 +1,5 @@
 """
-Fish weight estimation tool — estimates fish weight using an ML API and
+Fish weight estimation tool - estimates fish weight using an ML API and
 the scientific length–weight relationship (W = a × L^b).
 
 Loads species-specific constants (a, b) from weight.json and calls the
@@ -68,7 +68,7 @@ async def estimate_fish_weight(
     """
     print(f"🐟  [TOOL] estimate_fish_weight called → species={species!r}, L1={length1}, L3={length3}, H={height}, W={width}")
 
-    api_base = os.getenv("FISH_WEIGHT_API_URL", "https://kyanmahajan-fish-weight.hf.space")
+    api_base = os.getenv("FISH_WEIGHT_API_URL", "")
 
     # ── 1. ML API prediction ─────────────────────────────────────────────────
     ml_weight = None

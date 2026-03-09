@@ -1,15 +1,15 @@
 """
-Telegram bot — handles user commands and interactions.
+Telegram bot - handles user commands and interactions.
 
 Commands:
-  /start              — welcome + ask for location
-  /subscribe          — same as /start
-  /stop               — disable alerts
-  /resume             — re-enable alerts
-  /status             — show current subscription info
-  /weather            — on-demand weather check
-  /language <code>    — change language (en, hi, ta, te, kn, ml, bn, mr, gu, or)
-  /help               — list commands
+  /start              - welcome + ask for location
+  /subscribe          - same as /start
+  /stop               - disable alerts
+  /resume             - re-enable alerts
+  /status             - show current subscription info
+  /weather            - on-demand weather check
+  /language <code>    - change language (en, hi, ta, te, kn, ml, bn, mr, gu, or)
+  /help               - list commands
 
 Location is collected via Telegram's native location-sharing feature.
 """
@@ -47,7 +47,7 @@ LANGUAGE_NAMES = {
 # ── Command Handlers ─────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Welcome message — auto-subscribe if location is passed via deep link."""
+    """Welcome message - auto-subscribe if location is passed via deep link."""
     chat_id = update.effective_chat.id
     sub = get_subscriber(chat_id)
 
@@ -118,19 +118,19 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 logger.error(f"Catch insights error (returning) for {chat_id}: {e}")
         return
 
-    # Fallback: no deep link — show timing + app intro (no location prompt)
+    # Fallback: no deep link - show timing + app intro (no location prompt)
     await update.message.reply_text(
-        "🌊 *Welcome to matsya AI — Your AI Fishing Companion!*\n\n"
+        "🌊 *Welcome to matsya AI - Your AI Fishing Companion!*\n\n"
         "I'll send you *8 personalised updates* every day:\n\n"
-        "🌙 *05:00* — Pre-dawn safety & sea conditions\n"
-        "🌅 *07:00* — Morning weather forecast\n"
-        "🎣 *09:30* — Best fishing spots near you\n"
-        "📊 *12:00* — Live market prices update\n"
-        "⛵ *14:30* — Afternoon sea conditions\n"
-        "🌆 *17:00* — Evening forecast & tips\n"
-        "🌊 *19:30* — Night fishing advisory\n"
-        "📋 *22:00* — Tomorrow's preview & prep\n\n"
-        "📲 To activate alerts, tap *Connect to Telegram* in the matsya AI app — "
+        "🌙 *05:00* - Pre-dawn safety & sea conditions\n"
+        "🌅 *07:00* - Morning weather forecast\n"
+        "🎣 *09:30* - Best fishing spots near you\n"
+        "📊 *12:00* - Live market prices update\n"
+        "⛵ *14:30* - Afternoon sea conditions\n"
+        "🌆 *17:00* - Evening forecast & tips\n"
+        "🌊 *19:30* - Night fishing advisory\n"
+        "📋 *22:00* - Tomorrow's preview & prep\n\n"
+        "📲 To activate alerts, tap *Connect to Telegram* in the matsya AI app - "
         "it will link your location & account automatically!",
         parse_mode="Markdown",
     )
@@ -138,16 +138,16 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Send app insights intro
     await update.message.reply_text(
         "📈 *What matsya AI Tracks For You*\n\n"
-        "🐟 *Catch History* — Every fish you scan is logged with species, "
+        "🐟 *Catch History* - Every fish you scan is logged with species, "
         "weight, quality grade & confidence score\n"
-        "📊 *Analytics Dashboard* — Total catches, earnings, weekly trends, "
+        "📊 *Analytics Dashboard* - Total catches, earnings, weekly trends, "
         "species breakdown & quality distribution\n"
-        "🗺️ *Smart Maps* — Fishing hotspots, harbours, restricted zones "
+        "🗺️ *Smart Maps* - Fishing hotspots, harbours, restricted zones "
         "& real-time weather overlay\n"
-        "💰 *Market Prices* — Live ₹/kg rates for top species at nearby markets\n"
-        "🧠 *AI Memory* — I remember your preferences, home port & favourite "
+        "💰 *Market Prices* - Live ₹/kg rates for top species at nearby markets\n"
+        "🧠 *AI Memory* - I remember your preferences, home port & favourite "
         "species to give better recommendations\n\n"
-        "Start by scanning your catch in the app — I'll keep you updated here! 🎣",
+        "Start by scanning your catch in the app - I'll keep you updated here! 🎣",
         parse_mode="Markdown",
     )
 
@@ -172,10 +172,10 @@ async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         f"📍 Location: {location_name} ({loc.latitude:.4f}°N, {loc.longitude:.4f}°E)\n"
         f"🔔 You'll receive *8 updates daily* from 5 AM to 10 PM IST\n\n"
         f"Commands:\n"
-        f"/weather — Check current weather now\n"
-        f"/language — Change language (default: English)\n"
-        f"/stop — Pause alerts\n"
-        f"/help — All commands",
+        f"/weather - Check current weather now\n"
+        f"/language - Change language (default: English)\n"
+        f"/stop - Pause alerts\n"
+        f"/help - All commands",
         reply_markup=ReplyKeyboardRemove(),
         parse_mode="Markdown",
     )
@@ -263,7 +263,7 @@ async def cmd_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     args = context.args
     if not args:
-        lang_list = "\n".join(f"  `{code}` — {name}" for code, name in LANGUAGE_NAMES.items())
+        lang_list = "\n".join(f"  `{code}` - {name}" for code, name in LANGUAGE_NAMES.items())
         await update.message.reply_text(
             f"🌐 *Set Language*\n\nUsage: `/language hi`\n\nAvailable:\n{lang_list}",
             parse_mode="Markdown",
@@ -293,13 +293,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show available commands."""
     await update.message.reply_text(
         "🎣 *matsya AI Bot Commands*\n\n"
-        "/start — Subscribe to daily alerts\n"
-        "/weather — Get current weather & fishing forecast\n"
-        "/language — Change alert language\n"
-        "/status — View your subscription\n"
-        "/stop — Pause alerts\n"
-        "/resume — Resume alerts\n"
-        "/help — Show this message\n\n"
+        "/start - Subscribe to daily alerts\n"
+        "/weather - Get current weather & fishing forecast\n"
+        "/language - Change alert language\n"
+        "/status - View your subscription\n"
+        "/stop - Pause alerts\n"
+        "/resume - Resume alerts\n"
+        "/help - Show this message\n\n"
         "📍 You can also share a new location anytime to update your position.",
         parse_mode="Markdown",
     )

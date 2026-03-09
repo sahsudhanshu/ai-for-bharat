@@ -183,31 +183,28 @@ export default function AnalyticsComponent({
 
   const summaryStats = analytics
     ? [
-        {
-          label: "Total Catch",
-          value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
-          trend: "+5.2%",
-          icon: Scale,
-          color: "text-blue-500",
-          bg: "bg-blue-500/10",
-        },
-        {
-          label: "Top Species",
-          value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
-          trend: "Trending",
-          icon: Fish,
-          color: "text-amber-500",
-          bg: "bg-amber-500/10",
-        },
-        {
-          label: "Total Catches",
-          value: `${analytics.totalCatches}`,
-          trend: "+2.1%",
-          icon: Anchor,
-          color: "text-purple-500",
-          bg: "bg-purple-500/10",
-        },
-      ]
+      {
+        label: "Total Catch",
+        value: `${((analytics.avgWeight / 1000) * analytics.totalCatches).toFixed(0)} kg`,
+        icon: Scale,
+        color: "text-blue-500",
+        bg: "bg-blue-500/10",
+      },
+      {
+        label: "Top Species",
+        value: analytics.topSpecies.split(" ").slice(0, 2).join(" "),
+        icon: Fish,
+        color: "text-amber-500",
+        bg: "bg-amber-500/10",
+      },
+      {
+        label: "Total Catches",
+        value: `${analytics.totalCatches}`,
+        icon: Anchor,
+        color: "text-purple-500",
+        bg: "bg-purple-500/10",
+      },
+    ]
     : [];
 
   // Handle chart click
@@ -291,13 +288,6 @@ export default function AnalyticsComponent({
         </div>
         <div className="flex gap-2">
           <Button
-            variant="outline"
-            className="rounded-xl border-border bg-card/50"
-          >
-            <Calendar className="mr-2 w-4 h-4" />
-            Last 30 Days
-          </Button>
-          <Button
             className="rounded-xl bg-primary font-bold shadow-lg shadow-primary/20 gap-2"
             onClick={handleExportRequest}
             disabled={isLoadingAnalytics || !analytics}
@@ -313,36 +303,29 @@ export default function AnalyticsComponent({
         {isLoadingAnalytics
           ? Array.from({ length: 4 }).map((_, i) => <StatSkeleton key={i} />)
           : summaryStats.map((stat, i) => (
-              <Card
-                key={i}
-                className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
-              >
-                <CardContent className="p-3 sm:p-4 lg:p-5">
-                  <div className="flex justify-between items-start mb-4">
-                    <div
-                      className={`${stat.bg} p-2 sm:p-2.5 rounded-xl ${stat.color}`}
-                    >
-                      <stat.icon className="w-4 h-4 sm:w-5 sm:h-5" />
-                    </div>
-                    <Badge
-                      variant="secondary"
-                      className="bg-emerald-500/10 text-emerald-500 border-none"
-                    >
-                      {stat.trend}
-                      <ArrowUpRight className="ml-1 w-3 h-3" />
-                    </Badge>
+            <Card
+              key={i}
+              className="rounded-2xl border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden"
+            >
+              <CardContent className="p-3 sm:p-4 lg:p-5">
+                <div className="flex justify-between items-start mb-4">
+                  <div
+                    className={`${stat.bg} p-2 sm:p-2.5 rounded-xl ${stat.color}`}
+                  >
+                    <stat.icon className="w-4 h-4 sm:w-5 sm:h-5" />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
-                      {stat.label}
-                    </p>
-                    <p className="text-lg sm:text-xl lg:text-2xl font-bold">
-                      {stat.value}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-widest">
+                    {stat.label}
+                  </p>
+                  <p className="text-lg sm:text-xl lg:text-2xl font-bold">
+                    {stat.value}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
       </div>
 
       {/* Charts Row */}
@@ -534,13 +517,6 @@ export default function AnalyticsComponent({
                   className="pl-10 h-10 w-full sm:w-64 bg-muted/30 border-none rounded-xl"
                 />
               </div>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-10 w-10 rounded-xl border-border shrink-0"
-              >
-                <Filter className="w-4 h-4" />
-              </Button>
             </div>
           </div>
         </CardHeader>
@@ -600,7 +576,7 @@ export default function AnalyticsComponent({
                           : 0;
                         const topSpecies = stats
                           ? Object.keys(stats.speciesDistribution)[0]
-                          : "—";
+                          : "-";
                         const hasDisease = stats?.diseaseDetected ?? false;
 
                         return (
@@ -615,8 +591,12 @@ export default function AnalyticsComponent({
                           >
                             <TableCell className="pl-8 py-5">
                               <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                                  <Fish className="w-5 h-5" />
+                                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary overflow-hidden shrink-0">
+                                  {group.presignedViewUrls?.[0] ? (
+                                    <img src={group.presignedViewUrls[0]} alt="Catch Thumbnail" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <Fish className="w-5 h-5" />
+                                  )}
                                 </div>
                                 <div>
                                   <p className="font-bold text-base">
@@ -712,21 +692,6 @@ export default function AnalyticsComponent({
             <span className="text-sm text-muted-foreground font-medium">
               Showing {filteredGroups.length} of {groups.length} groups
             </span>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <Button
-                variant="outline"
-                className="flex-1 sm:flex-none rounded-xl h-10 border-border text-xs font-bold"
-                disabled
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                className="flex-1 sm:flex-none rounded-xl h-10 border-border text-xs font-bold"
-              >
-                Next Page
-              </Button>
-            </div>
           </div>
         </CardHeader>
       </Card>

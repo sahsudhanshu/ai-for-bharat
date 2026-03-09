@@ -4,7 +4,7 @@ const cors = require('cors');
 const { runStartupChecks } = require('./src/utils/startup-check');
 
 const app = express();
-const port = 3005;
+const port = process.env.PORT;
 
 app.use(cors());
 app.use(express.json());
@@ -74,7 +74,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'matsya-ai-ba
 app.get('/auth/verify', (req, res) => runLambda(req, res, require('./src/functions/verifyAuth.js').handler));
 
 // Route Definitions mapping to Lambda functions
-app.get("/",(req,res)=>res.send("Hello How are you?"));
+app.get("/", (req, res) => res.send("Hello How are you?"));
 app.post('/images/presigned-url', (req, res) => runLambda(req, res, require('./src/functions/getPresignedUrl.js').handler));
 app.post('/images/:imageId/analyze', (req, res) => runLambda(req, res, require('./src/functions/analyzeImage.js').handler));
 app.get('/images', (req, res) => runLambda(req, res, require('./src/functions/getImages.js').handler));

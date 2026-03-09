@@ -63,7 +63,7 @@ export function SyncStatusIndicator({
       };
     }
 
-    // Offline with queued items — no spinner, show saved-offline badge
+    // Offline with queued items - no spinner, show saved-offline badge
     if (!isOnline && pendingCount > 0) {
       return {
         icon: "cloud-offline" as const,
@@ -93,7 +93,7 @@ export function SyncStatusIndicator({
       };
     }
 
-    // Successfully synced — show relative time
+    // Successfully synced - show relative time
     if ((syncStatus === "synced" || syncStatus === "idle") && lastSyncTime) {
       const minutes = Math.floor(
         (Date.now() - lastSyncTime.getTime()) / 60_000,
@@ -106,7 +106,7 @@ export function SyncStatusIndicator({
       };
     }
 
-    // Idle — nothing pending, never synced this session
+    // Idle - nothing pending, never synced this session
     return {
       icon: "cloud-done" as const,
       color: "#6B7280",

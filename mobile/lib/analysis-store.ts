@@ -19,7 +19,7 @@ export interface OfflineAnalysisData {
   processingTime: number;
   imageUri: string;
   location?: { lat: number; lng: number } | null;
-  /** ID of the LocalHistoryRecord saved to AsyncStorage — used to patch weight after user entry */
+  /** ID of the LocalHistoryRecord saved to AsyncStorage - used to patch weight after user entry */
   localRecordId?: string;
 }
 

@@ -118,7 +118,7 @@ async function hydrateProfile(baseUser: User): Promise<User> {
       role: profile.role || baseUser.role,
     };
   } catch {
-    // Profile not found yet, that's fine — use token data
+    // Profile not found yet, that's fine - use token data
     return baseUser;
   }
 }
@@ -325,7 +325,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     // Reset Zustand store in-memory state so activeComponent, history etc.
-    // are wiped immediately — prevents stale state leaking into next login
+    // are wiped immediately - prevents stale state leaking into next login
     try {
       // Dynamic import avoids circular dependency
       // eslint-disable-next-line @typescript-eslint/no-var-requires

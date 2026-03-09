@@ -7,7 +7,7 @@ const headers = {
 
 /**
  * Lightweight token-check endpoint.
- * GET /auth/verify — returns 200 if the Bearer token is valid, 401 otherwise.
+ * GET /auth/verify - returns 200 if the Bearer token is valid, 401 otherwise.
  */
 exports.handler = async (event) => {
     try {

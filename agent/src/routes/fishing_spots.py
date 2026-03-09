@@ -1,5 +1,5 @@
 """
-Fishing spots route — two endpoints:
+Fishing spots route - two endpoints:
 
   GET /fishing-spots              → plain JSON (legacy)
   GET /fishing-spots/stream       → SSE stream with progress + final result
@@ -297,7 +297,7 @@ async def stream_fishing_spots(
             amber = sum(1 for s in top if s["color"] == "#f59e0b")
             red   = sum(1 for s in top if s["color"] == "#ef4444")
             summary = (
-                f"Deep scan complete — {len(top)} spots scored across "
+                f"Deep scan complete - {len(top)} spots scored across "
                 f"{len(bodies_sorted)} water bodies. "
                 f"{green} excellent · {amber} moderate · {red} low confidence."
             )

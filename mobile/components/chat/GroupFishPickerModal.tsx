@@ -1,5 +1,5 @@
 /**
- * GroupFishPickerModal — Two-step picker for weight estimation:
+ * GroupFishPickerModal - Two-step picker for weight estimation:
  *   Step 1: Select a group from the user's analysis history
  *   Step 2: Select a specific fish within that group
  *
@@ -44,7 +44,7 @@ export interface GroupEntry {
   createdAt: string;
   /** Top species in the group (for display) */
   topSpecies: string;
-  /** Thumbnail URL (first image) — may be undefined for offline */
+  /** Thumbnail URL (first image) - may be undefined for offline */
   thumbnailUrl?: string;
   /** The fish entries within this group */
   fish: GroupFishEntry[];

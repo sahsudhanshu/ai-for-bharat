@@ -391,7 +391,7 @@ export default function AnalyticsScreen() {
                                 },
                               ]}
                             >
-                              {img.analysisResult.qualityGrade ?? "—"}
+                              {img.analysisResult.qualityGrade ?? "-"}
                             </Text>
                           </View>
                         </>
@@ -488,7 +488,7 @@ export default function AnalyticsScreen() {
         <View style={styles.statsGrid}>
           <StatCard
             label={t("home.statEarnings")}
-            value={`₹${analytics ? (analytics.totalEarnings / 1000).toFixed(1) + "K" : "—"}`}
+            value={`₹${analytics ? (analytics.totalEarnings / 1000).toFixed(1) + "K" : "-"}`}
             icon={
               <Ionicons
                 name="cash-outline"
@@ -501,7 +501,7 @@ export default function AnalyticsScreen() {
           />
           <StatCard
             label={t("home.statCatches")}
-            value={`${analytics?.totalCatches ?? "—"}`}
+            value={`${analytics?.totalCatches ?? "-"}`}
             icon={
               <Ionicons name="fish-outline" size={20} color={COLORS.primary} />
             }
@@ -510,7 +510,7 @@ export default function AnalyticsScreen() {
           />
           <StatCard
             label={t("map.weight")}
-            value={`${analytics ? analytics.avgWeight.toFixed(0) : "—"}g`}
+            value={`${analytics ? analytics.avgWeight.toFixed(0) : "-"}g`}
             icon={
               <Ionicons name="scale-outline" size={20} color={COLORS.accent} />
             }
@@ -519,7 +519,7 @@ export default function AnalyticsScreen() {
           />
           <StatCard
             label={t("home.insightSpecies")}
-            value={analytics?.topSpecies?.split(" ")[0] ?? "—"}
+            value={analytics?.topSpecies?.split(" ")[0] ?? "-"}
             icon={<Ionicons name="trophy-outline" size={20} color="#7c3aed" />}
             accentColor="#7c3aed"
             style={styles.statCard}
@@ -676,7 +676,7 @@ export default function AnalyticsScreen() {
                             },
                           ]}
                         >
-                          {img.analysisResult.qualityGrade ?? "—"}
+                          {img.analysisResult.qualityGrade ?? "-"}
                         </Text>
                       </View>
                       <Text style={styles.catchWeight}>

@@ -1,5 +1,5 @@
 """
-Group history tool — queries the ai-bharat-groups table.
+Group history tool - queries the ai-bharat-groups table.
 
 Groups represent multi-image batch uploads. Each group has:
   - groupId: unique ID (UUID)
@@ -30,8 +30,8 @@ async def get_group_history(
     """
     Get the user's recent group catch uploads (multi-image batch analysis sessions).
     Each group may contain multiple fish photos analysed together, with aggregate stats.
-    Results are paginated — page 1 is the most recent.
-    Do NOT pass user_id — it is injected automatically.
+    Results are paginated - page 1 is the most recent.
+    Do NOT pass user_id - it is injected automatically.
 
     Args:
         page: Page number (1-based). Default 1.

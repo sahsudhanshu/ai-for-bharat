@@ -160,7 +160,7 @@ async function imageToTensor(imageUri: string): Promise<Float32Array> {
     formatAsRGBA: false, // returns RGB (3 bytes/pixel)
   });
 
-  // 3. Normalise to [0, 1] — input shape [1, 256, 256, 3]
+  // 3. Normalise to [0, 1] - input shape [1, 256, 256, 3]
   const float32 = new Float32Array(MODEL_INPUT_SIZE * MODEL_INPUT_SIZE * 3);
   for (let i = 0; i < pixels.length; i++) {
     float32[i] = pixels[i] / 255.0;

@@ -1,5 +1,5 @@
 """
-Web search tool — Tavily Search API.
+Web search tool - Tavily Search API.
 
 Gives the agent access to real-time web information:
 current fish prices, news, government schemes, weather alerts, etc.

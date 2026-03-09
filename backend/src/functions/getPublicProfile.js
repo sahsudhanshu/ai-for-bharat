@@ -12,8 +12,8 @@ const { ddb } = require("../utils/dynamodb");
 const { s3 } = require("../utils/s3");
 const { ok, notFound, serverError } = require("../utils/response");
 
-const USERS_TABLE = process.env.DYNAMODB_USERS_TABLE || "ai-bharat-users";
-const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
+const USERS_TABLE = process.env.DYNAMODB_USERS_TABLE || "";
+const GROUPS_TABLE = process.env.GROUPS_TABLE || "";
 const BUCKET = process.env.S3_BUCKET_NAME;
 
 async function resolveAvatarUrl(avatar) {

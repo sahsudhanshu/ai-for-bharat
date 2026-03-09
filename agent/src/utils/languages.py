@@ -64,9 +64,9 @@ REJECTION_MESSAGES: Dict[str, str] = {
     "or": "ଦୟାକରି ଓଡ଼ିଆରେ ଲେଖନ୍ତୁ। ମୁଁ କେବଳ ଓଡ଼ିଆ ବୁଝିପାରେ। 🙏",
 }
 
-# ── Strip pattern — removes digits, emojis, punctuation for meaningful char count ─
+# ── Strip pattern - removes digits, emojis, punctuation for meaningful char count ─
 
-_STRIP_RE = re.compile(r"[\s\d.,!?;:'\"\-—–()\[\]{}/\\@#$%^&*+=~`|<>]+")
+_STRIP_RE = re.compile(r"[\s\d.,!?;:'\"\--–()\[\]{}/\\@#$%^&*+=~`|<>]+")
 
 
 def detect_scripts(text: str) -> Dict[str, int]:

@@ -1,5 +1,5 @@
 /**
- * AskAgentFAB — Floating "Ask SagarMitra" button that appears on every screen
+ * AskAgentFAB - Floating "Ask SagarMitra" button that appears on every screen
  * except the chat screen. Collects context from AgentContext and navigates to chat.
  */
 import React, { useRef, useEffect } from "react";

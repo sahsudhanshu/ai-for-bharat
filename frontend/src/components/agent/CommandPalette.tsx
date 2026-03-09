@@ -71,7 +71,7 @@ export default function CommandPalette({
   return (
     <CommandDialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearchValue(''); }}>
       <CommandInput
-        placeholder="Ask Matsya, open tool, or search chats... (@agent for direct query)"
+        placeholder="Ask Matsya AI, open tool, or search chats... (@agent for direct query)"
         value={searchValue}
         onValueChange={setSearchValue}
       />
@@ -83,7 +83,7 @@ export default function CommandPalette({
               className="flex items-center gap-2 w-full px-2 py-3 text-sm text-left hover:bg-muted/50 rounded-md transition-colors"
             >
               <Fish className="w-4 h-4 text-primary" />
-              <span>Ask Matsya: &quot;{searchValue}&quot;</span>
+              <span>Ask Matsya AI: &quot;{searchValue}&quot;</span>
               <Send className="w-3 h-3 ml-auto text-muted-foreground" />
             </button>
           ) : (
@@ -121,7 +121,7 @@ export default function CommandPalette({
           </CommandItem>
           <CommandItem
             onSelect={() => runCommand(() => {
-              onFocusChat?.("Give me today's daily briefing — weather, best fishing zones, market prices, and any safety alerts.");
+              onFocusChat?.("Give me today's daily briefing - weather, best fishing zones, market prices, and any safety alerts.");
             })}
           >
             <Sparkles className="mr-2 h-4 w-4 text-amber-400" />

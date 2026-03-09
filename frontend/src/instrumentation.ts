@@ -1,5 +1,5 @@
 /**
- * Next.js Instrumentation — runs once when the dev server starts.
+ * Next.js Instrumentation - runs once when the dev server starts.
  * https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  *
  * Prints startup diagnostics to the TERMINAL (not browser).
@@ -41,7 +41,7 @@ export async function register() {
 
     lines.push('');
     lines.push(`${CYN}${B}╔══════════════════════════════════════════════════════════════════╗${R}`);
-    lines.push(`${CYN}${B}║  🌊 MatsyaAI Frontend — Development Startup Diagnostics         ║${R}`);
+    lines.push(`${CYN}${B}║  🌊 MatsyaAI Frontend - Development Startup Diagnostics         ║${R}`);
     lines.push(`${CYN}${B}╠══════════════════════════════════════════════════════════════════╣${R}`);
     lines.push(`${CYN}${B}║  ${WHT}Environment Variables${R}`);
     lines.push(`${CYN}${B}╟──────────────────────────────────────────────────────────────────╢${R}`);

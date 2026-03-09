@@ -1,11 +1,11 @@
 """
-Catch history tool — queries the existing ai-bharat-images table.
+Catch history tool - queries the existing ai-bharat-images table.
 
 Returns the user's last N catches (images analysed via HuggingFace ML API)
 in a format useful for the agent.
 
 Schema note: analysis data is stored under item["analysisResult"] (nested object).
-Legacy records may have flat top-level fields — both are supported.
+Legacy records may have flat top-level fields - both are supported.
 """
 from __future__ import annotations
 from typing import Optional
@@ -29,8 +29,8 @@ async def get_catch_history(
 ) -> str:
     """
     Get the user's recent catch history (fish species detected from images).
-    Results are paginated — page 1 is the most recent.
-    Do NOT pass user_id — it is injected automatically.
+    Results are paginated - page 1 is the most recent.
+    Do NOT pass user_id - it is injected automatically.
 
     Args:
         page: Page number (1-based). Default 1.
@@ -72,7 +72,7 @@ async def get_catch_history(
         quality = _get_field(item, ar, "qualityGrade")
         status = item.get("status", "unknown")
 
-        line = f"  {i}. **{species}** — {location} ({date[:10]})"
+        line = f"  {i}. **{species}** - {location} ({date[:10]})"
         if confidence:
             conf_pct = confidence * 100 if confidence <= 1 else confidence
             line += f" [Confidence: {conf_pct:.0f}%]"

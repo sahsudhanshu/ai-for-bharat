@@ -21,7 +21,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 // ═══════════════════════════════════════════════════════════════════
-// PROFILE OVERLAY — lightweight, no router, renders directly
+// PROFILE OVERLAY - lightweight, no router, renders directly
 // ═══════════════════════════════════════════════════════════════════
 
 interface ProfileOverlayProps {
@@ -197,9 +197,9 @@ export default function ProfileOverlay({ onClose, onSwitchTab }: ProfileOverlayP
                             </Avatar>
                             <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={uploadAvatar} />
                             <Button size="icon"
-                                className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-primary shadow-md group-hover:scale-110 transition-transform"
+                                className="absolute -bottom-1 -right-1 h-8 w-8 min-h-0 min-w-0 p-0 rounded-full bg-primary shadow-md group-hover:scale-110 transition-transform flex items-center justify-center"
                                 onClick={() => fileInputRef.current?.click()} disabled={isUploadingAvatar}>
-                                {isUploadingAvatar ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                                {isUploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                             </Button>
                         </div>
                         <div className="min-w-0 flex-1">

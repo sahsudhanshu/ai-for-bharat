@@ -5,24 +5,24 @@
  * record so that the updated weight is visible on the web dashboard.
  *
  * If `groupId` is absent (offline-only session not yet synced) the call
- * succeeds silently — the weight is already persisted locally on device and
+ * succeeds silently - the weight is already persisted locally on device and
  * will be included when the offline analysis itself syncs.
  *
  * Body:
- *   groupId    {string?} — cloud group ID (present for online / synced records)
- *   imageUri   {string}  — local URI used as a correlation key
- *   fishIndex  {number}  — zero-based index of the fish within the analysis
- *   species    {string}  — identified species name
- *   weightG    {number}  — estimated weight in grams
- *   timestamp  {string}  — ISO-8601 timestamp from the mobile device
+ *   groupId    {string?} - cloud group ID (present for online / synced records)
+ *   imageUri   {string}  - local URI used as a correlation key
+ *   fishIndex  {number}  - zero-based index of the fish within the analysis
+ *   species    {string}  - identified species name
+ *   weightG    {number}  - estimated weight in grams
+ *   timestamp  {string}  - ISO-8601 timestamp from the mobile device
  */
 const { UpdateCommand, GetCommand } = require("@aws-sdk/lib-dynamodb");
 const { ddb } = require("../utils/dynamodb");
 const { verifyToken } = require("../utils/auth");
 const { ok, badRequest, unauthorized, serverError } = require("../utils/response");
 
-const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
+const GROUPS_TABLE = process.env.GROUPS_TABLE || "";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
 
 exports.handler = async (event) => {
     if (event.httpMethod === "OPTIONS") return ok({});
@@ -60,7 +60,7 @@ exports.handler = async (event) => {
     const userId = decoded.sub;
 
     try {
-        // Fetch the record — could be in groups table (group sessions) or images table (single sessions).
+        // Fetch the record - could be in groups table (group sessions) or images table (single sessions).
         let record = null;
         let tableName = GROUPS_TABLE;
         let keyAttr = "groupId";
@@ -128,7 +128,7 @@ exports.handler = async (event) => {
             return s;
         }, 0);
 
-        // Build the update — also patch aggregateStats if they exist on the record.
+        // Build the update - also patch aggregateStats if they exist on the record.
         const hasAggregateStats = record.analysisResult?.aggregateStats !== undefined;
         const updateExpr = hasAggregateStats
             ? "SET weightEstimates = :wm, analysisResult.aggregateStats.totalEstimatedWeight = :tw, analysisResult.aggregateStats.totalEstimatedValue = :tv, updatedAt = :ua"

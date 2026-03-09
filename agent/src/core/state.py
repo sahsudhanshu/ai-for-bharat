@@ -1,5 +1,5 @@
 """
-LangGraph agent state — TypedDict that flows through every node.
+LangGraph agent state - TypedDict that flows through every node.
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Literal, Optional, TypedDict

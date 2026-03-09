@@ -1,5 +1,5 @@
 /**
- * InlineCatchCarousel — Horizontal carousel of recent catches rendered inside
+ * InlineCatchCarousel - Horizontal carousel of recent catches rendered inside
  * a chat bubble when the agent returns ui.history = true.
  */
 import React, { useEffect, useState } from "react";

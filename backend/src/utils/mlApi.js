@@ -14,7 +14,7 @@ const { GetObjectCommand } = require("@aws-sdk/client-s3");
 const { s3 } = require("./s3");
 
 const BUCKET = process.env.S3_BUCKET_NAME || "ai-bharat-fish-images";
-const ML_API_URL = process.env.ML_API_URL || "https://kyanmahajan-fish-pred.hf.space/predict";
+const ML_API_URL = process.env.ML_API_URL || "";
 
 /**
  * Convert a readable stream to a buffer
@@ -48,10 +48,10 @@ async function fetchImageFromS3(s3Key) {
                 Key: s3Key,
             })
         );
-        
+
         const buffer = await streamToBuffer(getObj.Body);
         const contentType = getObj.ContentType || "image/jpeg";
-        
+
         return { buffer, contentType };
     } catch (error) {
         console.error(`Failed to fetch image from S3: ${s3Key}`, error);
@@ -74,32 +74,32 @@ async function callMLApi(s3Key) {
     try {
         // Fetch image from S3
         const { buffer, contentType } = await fetchImageFromS3(s3Key);
-        
+
         // Prepare form data for ML API
         const formData = new FormData();
         const blob = new Blob([buffer], { type: contentType });
         const fileName = s3Key.split("/").pop() || "image.jpg";
         formData.append("image", blob, fileName);
-        
+
         // Call ML API
         const response = await fetch(ML_API_URL, {
             method: "POST",
             body: formData,
         });
-        
+
         // Check response status
         if (!response.ok) {
             throw new Error(`ML API returned status ${response.status}`);
         }
-        
+
         // Parse response
         const data = await response.json();
-        
+
         // Validate response structure
         if (!data || typeof data !== "object") {
             throw new Error("ML API returned invalid response format");
         }
-        
+
         // Return structured response
         return {
             crops: data.crops || {},
@@ -108,7 +108,7 @@ async function callMLApi(s3Key) {
     } catch (error) {
         // Log error details
         console.error(`ML API call failed for ${s3Key}:`, error);
-        
+
         // Return error without throwing to allow graceful handling
         return {
             error: error.message || "ML API call failed",
@@ -133,19 +133,19 @@ async function callMLApi(s3Key) {
  */
 async function processImagesAsync(s3Keys) {
     // Call ML API for all images concurrently using Promise.all()
-    const promises = s3Keys.map((s3Key, index) => 
+    const promises = s3Keys.map((s3Key, index) =>
         callMLApi(s3Key).then(result => ({
             imageIndex: index,
             s3Key,
             ...result,
         }))
     );
-    
+
     // Wait for all promises to complete
     // Promise.all() will wait for all to finish, even if some fail
     // (since callMLApi returns error objects instead of throwing)
     const results = await Promise.all(promises);
-    
+
     return results;
 }
 

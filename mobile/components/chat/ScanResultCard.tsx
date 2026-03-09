@@ -1,5 +1,5 @@
 /**
- * ScanResultCard — Rich card showing scan results in chat after post-scan
+ * ScanResultCard - Rich card showing scan results in chat after post-scan
  * agent takeover. Displays species, weight, value, and quick action buttons.
  */
 import React from "react";

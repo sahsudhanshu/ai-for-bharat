@@ -148,14 +148,23 @@ export default function AgentFirstLayout() {
 
     // ── Sync current page to agent context store ──────────────────────────────
     const setContextPage = useAgentContext(s => s.setCurrentPage);
+    const clearPanelContext = useAgentContext(s => s.clearPanelContext);
     const clearMapPoint = useAgentContext(s => s.setSelectedMapPoint);
+    const prevPanelRef = useRef<string | null>(null);
     useEffect(() => {
+        // When leaving a panel, clear only its owned context fields
+        if (prevPanelRef.current && prevPanelRef.current !== activeComponent) {
+            clearPanelContext(prevPanelRef.current as any);
+        }
+        prevPanelRef.current = activeComponent;
+
+        // Update current page in context
         setContextPage(activeComponent ?? 'chat');
-        // Clear the selected map point when leaving the map panel
+        // Retained for backward compat: also wipe map pin when not on map
         if (activeComponent !== 'map') {
             clearMapPoint(null);
         }
-    }, [activeComponent, setContextPage, clearMapPoint]);
+    }, [activeComponent, setContextPage, clearPanelContext, clearMapPoint]);
 
     // Hover-to-expand refs
     const leftHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -313,7 +322,7 @@ export default function AgentFirstLayout() {
             <div className="flex h-[100dvh] bg-background text-foreground font-sans overflow-hidden">
 
                 {/* ════════════════════════════════════════════════════════════════════════
-            ICON RAIL (Left Edge ~ 64px) — Desktop only
+            ICON RAIL (Left Edge ~ 64px) - Desktop only
             ════════════════════════════════════════════════════════════════════════ */}
                 <aside
                     className={cn(
@@ -323,7 +332,7 @@ export default function AgentFirstLayout() {
                     onMouseEnter={handleLeftMouseEnter}
                     onMouseLeave={handleLeftMouseLeave}
                 >
-                    {/* Header — Logo + Toggle */}
+                    {/* Header - Logo + Toggle */}
                     <div className={cn(
                         "h-14 flex items-center border-b border-border/10 shrink-0 relative",
                         sidebarExpanded ? "px-3 justify-between" : "justify-center"
@@ -426,7 +435,7 @@ export default function AgentFirstLayout() {
                     </div>
 
 
-                    {/* Chat History — only shown when sidebar is expanded */}
+                    {/* Chat History - only shown when sidebar is expanded */}
                     {sidebarExpanded && (
                         <>
                             {(chatHistory.length > 0 || isLoadingHistory) && (
@@ -667,7 +676,7 @@ export default function AgentFirstLayout() {
                                                     });
                                                 }}
                                             />
-                                            {/* Collapse button — overlaid on chat header */}
+                                            {/* Collapse button - overlaid on chat header */}
                                             {activeComponent && (
                                                 <div className="absolute top-2.5 right-2 z-20">
                                                     <Tooltip>
@@ -746,7 +755,7 @@ export default function AgentFirstLayout() {
                                             <X className="w-4 h-4" />
                                         </button>
                                     </div>
-                                    {/* Canvas Content — scrollable with responsive padding */}
+                                    {/* Canvas Content - scrollable with responsive padding */}
                                     <div className="flex-1 overflow-y-auto overflow-x-hidden relative">
                                         <div className="p-3 sm:p-4 lg:p-5 min-h-full">
                                             <ContentCanvasPane />
@@ -864,7 +873,7 @@ export default function AgentFirstLayout() {
                                 </div>
                             </nav>
 
-                            {/* Floating Ask AI FAB — visible when tool drawer is open on mobile */}
+                            {/* Floating Ask AI FAB - visible when tool drawer is open on mobile */}
                             <AnimatePresence>
                                 {mobileDrawerOpen && activeComponent && (
                                     <motion.button
@@ -891,7 +900,7 @@ export default function AgentFirstLayout() {
                 </div>
 
                 {/* ════════════════════════════════════════════════════════════════════════
-                RIGHT SIDEBAR — Tools (Upload, Map, Analytics, History)
+                RIGHT SIDEBAR - Tools (Upload, Map, Analytics, History)
                 ════════════════════════════════════════════════════════════════════════ */}
                 <aside
                     className={
@@ -1007,7 +1016,7 @@ export default function AgentFirstLayout() {
                 </OverlayDialog >
 
                 {/* ════════════════════════════════════════════════════════════════════════
-            LANGUAGE ONBOARDING — Full-screen first-visit language selector
+            LANGUAGE ONBOARDING - Full-screen first-visit language selector
             ════════════════════════════════════════════════════════════════════════ */}
                 <LanguageOnboarding />
 

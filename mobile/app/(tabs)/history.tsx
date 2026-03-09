@@ -121,7 +121,7 @@ export default function HistoryScreen() {
           }));
         }
       } catch {
-        // Non-critical — just skip thumbnail for this group
+        // Non-critical - just skip thumbnail for this group
       }
     });
   }, [groups, isOnline]);
@@ -129,7 +129,7 @@ export default function HistoryScreen() {
   const loadLocalRecords = async () => {
     try {
       const all = await getLocalHistory();
-      // Only show pending/failed — synced records already appear in cloud
+      // Only show pending/failed - synced records already appear in cloud
       setLocalRecords(all.filter((r) => r.syncStatus !== "synced"));
     } catch (e) {
       console.warn("[History] Failed to load local records:", e);
@@ -160,7 +160,7 @@ export default function HistoryScreen() {
       setIsOfflineCache(false);
       await AsyncStorage.setItem(HISTORY_CACHE_KEY, JSON.stringify(toCache));
     } catch {
-      // Offline — cached cloud records are still displayed; flag it
+      // Offline - cached cloud records are still displayed; flag it
       if (loadedFromCache) setIsOfflineCache(true);
     } finally {
       setLoading(false);
@@ -305,7 +305,7 @@ export default function HistoryScreen() {
                   />
                   <Text style={styles.sectionLabel}>
                     Offline Analyses{" "}
-                    {isOnline ? "— syncing…" : "— pending sync"}
+                    {isOnline ? "- syncing…" : "- pending sync"}
                   </Text>
                 </View>
                 {localRecords.map((r) => (

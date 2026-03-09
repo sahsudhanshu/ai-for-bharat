@@ -1,5 +1,5 @@
 /**
- * ToolTransparency — Shows live progress of agent tool calls during streaming.
+ * ToolTransparency - Shows live progress of agent tool calls during streaming.
  *
  * Renders a compact list of tool names with check/spinner icons as each tool
  * executes, building user trust by showing the agent is "doing real work."

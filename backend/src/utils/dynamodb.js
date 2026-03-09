@@ -6,7 +6,7 @@ const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
 const { NodeHttpHandler } = require("@smithy/node-http-handler");
 
 const client = new DynamoDBClient({
-    region: process.env.AWS_REGION || "ap-south-1",
+    region: process.env.AWS_REGION || "",
     maxAttempts: 3,
     requestHandler: new NodeHttpHandler({
         connectionTimeout: 5000,   // 5s to establish connection

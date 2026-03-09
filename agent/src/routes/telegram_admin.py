@@ -1,5 +1,5 @@
 """
-Telegram admin routes — test and manage alerts via HTTP.
+Telegram admin routes - test and manage alerts via HTTP.
 
   POST /telegram/test-alert       → send a test alert to a specific chat_id
   GET  /telegram/subscribers      → list all subscribers

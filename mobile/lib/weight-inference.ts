@@ -1,5 +1,5 @@
 /**
- * Weight Inference — on-device XGBoost regressor + LWR formula (pure TypeScript)
+ * Weight Inference - on-device XGBoost regressor + LWR formula (pure TypeScript)
  *
  * Two prediction methods are blended:
  *   1. XGBoost model: base_score + Σ leaf_value(tree_i, features)
@@ -211,7 +211,7 @@ export interface WeightInputs {
 }
 
 export interface WeightResult {
-  /** Final predicted weight — average of XGBoost and LWR (or XGBoost alone if LWR unavailable). */
+  /** Final predicted weight - average of XGBoost and LWR (or XGBoost alone if LWR unavailable). */
   predictedWeightG: number;
   /** Raw XGBoost model output (g). */
   xgboostWeightG: number;
@@ -252,7 +252,7 @@ export async function predictWeight(
     inputs.width,
   ];
 
-  // Sum leaf values across all trees (reg:squarederror — no sigmoid/log transform)
+  // Sum leaf values across all trees (reg:squarederror - no sigmoid/log transform)
   let leafSum = 0;
   for (const tree of model.trees) {
     leafSum += walkTree(tree, features, featureIndex);

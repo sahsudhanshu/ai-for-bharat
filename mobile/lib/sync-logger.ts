@@ -5,7 +5,7 @@
  * Logs are stored in memory (survives navigation, cleared on app restart)
  * and also forwarded to the Metro console.
  *
- * Max 200 entries — oldest are dropped when the buffer is full.
+ * Max 200 entries - oldest are dropped when the buffer is full.
  */
 
 export type SyncLogLevel = "info" | "success" | "warn" | "error";

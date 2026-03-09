@@ -1,5 +1,5 @@
 """
-Map / ocean data tool — provides region context for the agent.
+Map / ocean data tool - provides region context for the agent.
 
 Queries the real ai-bharat-images DynamoDB table for geo-tagged catch records
 (matching the backend getMapData Lambda), and combines with static zone/harbor data.
@@ -18,7 +18,7 @@ from src.utils.dynamodb import dynamodb
 
 OCEAN_ZONES = [
     {
-        "name": "Exclusive Economic Zone (EEZ) — India",
+        "name": "Exclusive Economic Zone (EEZ) - India",
         "description": "India's 200 nautical mile exclusive economic zone. Fishing permitted with valid license.",
         "bounds": {"north": 23.5, "south": 6.5, "east": 80.0, "west": 66.0},
     },
@@ -167,7 +167,7 @@ async def get_map_data(
                 if weights:
                     avg_w = sum(float(w) for w in weights) / len(weights)
                     detail += f", avg weight: {avg_w:.0f}g"
-                lines.append(f"  • {sp}: {count} catch(es) — {detail}")
+                lines.append(f"  • {sp}: {count} catch(es) - {detail}")
         else:
             lines.append(f"  No catch records found within {radius_km:.0f} km.")
 
@@ -179,7 +179,7 @@ async def get_map_data(
         lines.append("\n📍 **Nearest Harbors & Markets:**")
         for m in ranked_harbors:
             dist = _haversine(latitude, longitude, m["lat"], m["lon"])
-            lines.append(f"  • {m['name']} ({m['type']}) — ~{dist:.0f} km")
+            lines.append(f"  • {m['name']} ({m['type']}) - ~{dist:.0f} km")
 
         # ── Nearby restricted areas ───────────────────────────────────────
         nearby_restricted = [
@@ -199,7 +199,7 @@ async def get_map_data(
         if matches:
             lines.append(f"🔍 **Search results for '{query}':**")
             for m in matches:
-                lines.append(f"  • {m['name']} ({m['type']}) — {m['lat']:.4f}N, {m['lon']:.4f}E")
+                lines.append(f"  • {m['name']} ({m['type']}) - {m['lat']:.4f}N, {m['lon']:.4f}E")
         else:
             lines.append(f"No harbors/markets found matching '{query}'.")
 

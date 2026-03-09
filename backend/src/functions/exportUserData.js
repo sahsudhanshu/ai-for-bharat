@@ -10,8 +10,8 @@ const { ddb } = require("../utils/dynamodb");
 const { verifyToken } = require("../utils/auth");
 const { unauthorized, serverError } = require("../utils/response");
 
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
-const GROUPS_TABLE = process.env.GROUPS_TABLE || "ai-bharat-groups";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
+const GROUPS_TABLE = process.env.GROUPS_TABLE || "";
 
 const CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",

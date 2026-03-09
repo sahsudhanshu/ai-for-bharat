@@ -19,7 +19,7 @@ const { transformLegacyToGroup, queryGroupsByUserId } = require("./groupsDb");
 const BUCKET = process.env.S3_BUCKET_NAME;
 const URL_EXPIRY_SECONDS = 3600; // 1 hour for viewing
 
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
 const USER_ID_INDEX = "userId-createdAt-index";
 
 /**
@@ -70,7 +70,7 @@ async function getMergedHistory(userId, options = {}) {
     const { limit = 20 } = options;
 
     try {
-        // Query both tables concurrently — treat each source as optional so a
+        // Query both tables concurrently - treat each source as optional so a
         // timeout on one source doesn't kill the entire response.
         const [groupsSettled, legacySettled] = await Promise.allSettled([
             queryGroupsByUserId(userId, { limit }),

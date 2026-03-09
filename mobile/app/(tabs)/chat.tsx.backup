@@ -138,7 +138,7 @@ export default function ChatScreen() {
       icon: "sunny",
       label: "Daily Briefing",
       prompt:
-        "Give me my daily fishing briefing — weather conditions, best fishing zones near me, today's market prices, and any active safety alerts for my area.",
+        "Give me my daily fishing briefing - weather conditions, best fishing zones near me, today's market prices, and any active safety alerts for my area.",
       color: COLORS.secondary,
       desc: "Weather, zones & alerts",
     },
@@ -160,7 +160,7 @@ export default function ChatScreen() {
       icon: "analytics",
       label: "My Analytics",
       prompt:
-        "Show me my catch analytics — total earnings, top species caught, quality grade breakdown, and recent trends.",
+        "Show me my catch analytics - total earnings, top species caught, quality grade breakdown, and recent trends.",
       color: "#7c3aed",
       desc: "Earnings & catch stats",
     },
@@ -1033,7 +1033,7 @@ export default function ChatScreen() {
           setIsStreaming(false);
           setStreamingMessageId(null);
           setLiveToolCalls([]);
-          // Sanitise final text — strip any leaked JSON/memory noise
+          // Sanitise final text - strip any leaked JSON/memory noise
           const cleanText = sanitiseAgentText(streamedText);
           // Update message with cleaned text, UI actions and tool calls
           setMessages((prev) =>
@@ -1134,7 +1134,7 @@ export default function ChatScreen() {
     // The hub greeting replaces the welcome message when the empty state is shown
     if (item.id === "welcome" && isEmptyChat) return null;
 
-    // Don't render the placeholder bubble while waiting for the first token —
+    // Don't render the placeholder bubble while waiting for the first token -
     // the typing indicator in the footer already covers this state.
     if (!isUser && item.id === streamingMessageId && item.text === "") {
       return null;
@@ -1696,7 +1696,7 @@ export default function ChatScreen() {
                     );
                     const hasContent = Boolean(streamingMsg?.text);
                     // Once tokens are flowing the ▌ cursor in the bubble signals
-                    // progress — only show the stop button, not the typing dots.
+                    // progress - only show the stop button, not the typing dots.
                     const showDots = isTyping || !hasContent;
                     return (
                       <View style={styles.typingRow}>
@@ -1844,7 +1844,7 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* Action bar — quick context tools */}
+            {/* Action bar - quick context tools */}
             {!isEmptyChat && (
               <View style={styles.actionBar}>
                 <TouchableOpacity
@@ -2081,7 +2081,7 @@ const markdownStyles = StyleSheet.create({
 });
 
 /* ═══════════════════════════════════════════════════════════
-   Styles — ChatGPT-inspired clean layout
+   Styles - ChatGPT-inspired clean layout
    ═══════════════════════════════════════════════════════════ */
 const styles = StyleSheet.create({
   safe: {

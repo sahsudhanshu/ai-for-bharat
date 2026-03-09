@@ -1,5 +1,5 @@
 /**
- * Ocean Map — professional redesign v3.
+ * Ocean Map - professional redesign v3.
  *
  * Changes:
  *   - Deep Scan: glassmorphic half-map overlay (no Modal).
@@ -1197,7 +1197,7 @@ export default function MapScreen() {
 
             {scanState === "scanning" && (
               <Text style={styles.scanHint}>
-                You can leave this page — you will be notified when the scan
+                You can leave this page - you will be notified when the scan
                 completes
               </Text>
             )}

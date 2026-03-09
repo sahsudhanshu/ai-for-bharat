@@ -1,4 +1,4 @@
-// MatsyaAI Service Worker — Basic offline caching for static assets
+// MatsyaAI Service Worker - Basic offline caching for static assets
 const CACHE_NAME = 'matsyaai-v2';
 const STATIC_URLS = [
     '/',
@@ -49,7 +49,7 @@ self.addEventListener('fetch', (event) => {
     );
 });
 
-// Background sync stub — will fire when connectivity returns
+// Background sync stub - will fire when connectivity returns
 self.addEventListener('sync', (event) => {
     if (event.tag === 'sync-images') {
         // The actual sync logic is handled by the offline-queue module in the app

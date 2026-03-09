@@ -1,5 +1,5 @@
 """
-Alert generator — uses Gemini LLM + existing tools to compose
+Alert generator - uses Gemini LLM + existing tools to compose
 personalized fishing alerts for Telegram subscribers.
 
 Eight daily alert types:
@@ -224,7 +224,7 @@ RULES:
 - Start with 📊 emoji.
 
 MARKET DATA:
-{market_data if market_data else "Market data not available — encourage the user to check local market."}
+{market_data if market_data else "Market data not available - encourage the user to check local market."}
 
 WEATHER UPDATE:
 {weather}
@@ -434,7 +434,7 @@ def _get_nearby_spots(lat: float, lon: float, radius_deg: float = 2.0) -> str:
         dist = math.sqrt(dlat ** 2 + dlon ** 2)
         if dist <= radius_deg:
             dist_km = dist * 111
-            spots.append(f"- {marker['name']} ({marker['type']}) — ~{dist_km:.0f}km away")
+            spots.append(f"- {marker['name']} ({marker['type']}) - ~{dist_km:.0f}km away")
     return "\n".join(spots) if spots else "No known fishing spots nearby."
 
 

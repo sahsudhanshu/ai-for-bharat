@@ -103,6 +103,7 @@ interface Message {
         backendText: string;
     };
     contextChips?: ContextChip[]; // All attached context chips (location, history, upload, analytics)
+    toolCalls?: string[]; // Tool names invoked during streaming (shown inline like ChatGPT)
 }
 
 function parseStoredUserMessage(rawText: string): {
@@ -314,6 +315,8 @@ interface MessageRowProps {
     registerMessageElement: (id: string, el: HTMLDivElement | null) => void;
     isHighlighted: boolean;
     style?: React.CSSProperties;
+    isThinking?: boolean;
+    activeToolName?: string | null;
 }
 
 function MessageRow({
@@ -327,6 +330,8 @@ function MessageRow({
     registerMessageElement,
     isHighlighted,
     style,
+    isThinking,
+    activeToolName,
 }: MessageRowProps) {
     const { locale } = useLanguage();
     const replyPreview = msg.replyTo
@@ -427,7 +432,7 @@ function MessageRow({
                     </div>
                 )}
 
-                {/* ── Context Chips — all attached context rendered as clickable pills ── */}
+                {/* ── Context Chips - all attached context rendered as clickable pills ── */}
                 {msg.role === "user" &&
                     msg.contextChips &&
                     msg.contextChips.length > 0 && (
@@ -529,10 +534,10 @@ function MessageRow({
                 )}
 
                 <div className={cn(
-                    "leading-relaxed break-words overflow-hidden",
+                    "leading-relaxed",
                     msg.role === 'user'
-                        ? "w-fit min-w-0 rounded-2xl rounded-tr-md bg-primary text-primary-foreground shadow-md px-3.5 py-2 text-[13px] sm:text-[14px] font-medium max-w-[85%]"
-                        : "py-0.5 w-full max-w-full sm:max-w-prose"
+                        ? "w-fit rounded-2xl rounded-tr-md bg-primary text-primary-foreground shadow-md px-3.5 py-2 text-[13px] sm:text-[14px] font-medium max-w-[85%] break-words"
+                        : "py-0.5 w-full max-w-full sm:max-w-prose break-words overflow-hidden"
                 )}>
                     {replyPreview && (
                         <button
@@ -557,24 +562,75 @@ function MessageRow({
                         </button>
                     )}
                     {msg.role === 'assistant' ? (
-                        msg.content ? (
-                            <div className="space-y-4">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                                    {stripUiDirective(msg.content)}
-                                </ReactMarkdown>
-                                {isStreaming && msg.id.startsWith('ai_temp_') && (
-                                    <span className="inline-block w-[3px] h-[18px] bg-primary/70 animate-pulse ml-0.5 align-text-bottom" />
-                                )}
-                                {/* Map Ping Chips — clickable coordinate badges (Idea 5) */}
-                                {!isStreaming && <MapPingChips content={msg.content} />}
-                            </div>
-                        ) : (
-                            <div className="space-y-2 mt-2 w-[80%] max-w-[300px]">
-                                <div className="h-4 bg-muted animate-pulse rounded-full w-full"></div>
-                                <div className="h-4 bg-muted animate-pulse rounded-full w-5/6 shadow-sm"></div>
-                                <div className="h-4 bg-muted animate-pulse rounded-full w-4/6 shadow-sm"></div>
-                            </div>
-                        )
+                        <>
+                            {/* ── Inline Thinking / Tool Calls (ChatGPT-style) ── */}
+                            {isStreaming && isThinking && (
+                                <div className="mb-2">
+                                    {/* Completed tool calls */}
+                                    {msg.toolCalls && msg.toolCalls.length > 0 && (
+                                        <div className="space-y-1.5 mb-1.5">
+                                            {msg.toolCalls.map((tool, i) => {
+                                                const isActive = i === msg.toolCalls!.length - 1 && activeToolName === tool;
+                                                const { label, icon: ToolIcon } = humanizeToolName(tool);
+                                                return (
+                                                    <div key={`${tool}-${i}`} className={cn(
+                                                        "flex items-center gap-2 py-1 px-2 rounded-lg transition-colors",
+                                                        isActive ? "bg-primary/5" : "bg-transparent"
+                                                    )}>
+                                                        {isActive ? (
+                                                            <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                                                <ToolIcon className="w-3 h-3 text-primary animate-pulse" />
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
+                                                                <Check className="w-3 h-3 text-emerald-500" />
+                                                            </div>
+                                                        )}
+                                                        <span className={cn(
+                                                            "text-[11px] font-medium",
+                                                            isActive ? "text-foreground/80" : "text-muted-foreground/60"
+                                                        )}>
+                                                            {isActive ? label : label.replace(/\.\.\.$/, '')}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                    {/* Thinking indicator (no tool active) */}
+                                    {!activeToolName && !msg.content.trim() && (
+                                        <div className="flex items-center gap-2 py-1 px-2">
+                                            <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                                                <Loader2 className="w-3 h-3 text-primary animate-spin" />
+                                            </div>
+                                            <span className="text-[11px] text-foreground/70 font-medium">Thinking…</span>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {msg.content ? (
+                                <div className="space-y-4">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                                        {stripUiDirective(msg.content)}
+                                    </ReactMarkdown>
+                                    {isStreaming && msg.id.startsWith('ai_temp_') && (
+                                        <span className="inline-block w-[3px] h-[18px] bg-primary/70 animate-pulse ml-0.5 align-text-bottom" />
+                                    )}
+                                    {/* Map Ping Chips - clickable coordinate badges (Idea 5) */}
+                                    {!isStreaming && <MapPingChips content={msg.content} />}
+                                </div>
+                            ) : isStreaming ? null : (
+                                <div className="space-y-2 mt-2 w-[80%] max-w-[300px]">
+                                    <div className="h-4 bg-muted animate-pulse rounded-full w-full"></div>
+                                    <div className="h-4 bg-muted animate-pulse rounded-full w-5/6 shadow-sm"></div>
+                                    <div className="h-4 bg-muted animate-pulse rounded-full w-4/6 shadow-sm"></div>
+                                </div>
+                            )}
+                            {/* Show completed tool calls summary even after streaming ends */}
+                            {!isStreaming && msg.toolCalls && msg.toolCalls.length > 0 && (
+                                <InlineToolCallsSummary toolCalls={msg.toolCalls} />
+                            )}
+                        </>
                     ) : (
                         <span className="whitespace-pre-wrap">{msg.content}</span>
                     )}
@@ -681,6 +737,63 @@ function MessageRow({
                 </div>
             </div>
         </div>
+    );
+}
+
+// ── Inline Tool Calls Summary (collapsible, shown after streaming ends) ────
+/** Map raw tool function names to user-friendly labels + icons */
+function humanizeToolName(raw: string): { label: string; icon: React.ElementType } {
+    const MAP: Record<string, { label: string; icon: React.ElementType }> = {
+        get_catch_history: { label: 'Looking up catch history...', icon: Clock },
+        get_group_history: { label: 'Fetching group records...', icon: Clock },
+        get_fishing_spots: { label: 'Finding fishing spots...', icon: MapPin },
+        get_weather: { label: 'Checking weather conditions...', icon: Fish },
+        get_market_prices: { label: 'Fetching market prices...', icon: BarChart3 },
+        analyze_image: { label: 'Analyzing image...', icon: ImageIcon },
+        identify_species: { label: 'Identifying species...', icon: Fish },
+        get_regulations: { label: 'Looking up regulations...', icon: Fish },
+        get_alerts: { label: 'Checking safety alerts...', icon: AlertCircle },
+        search_web: { label: 'Searching the web...', icon: Sparkles },
+        get_tidal_data: { label: 'Checking tidal data...', icon: Fish },
+    };
+    if (MAP[raw]) return MAP[raw];
+    // Fallback: convert snake_case to readable sentence
+    const readable = raw.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return { label: `${readable}...`, icon: Wrench };
+}
+
+function InlineToolCallsSummary({ toolCalls }: { toolCalls: string[] }) {
+    const [isOpen, setIsOpen] = useState(false);
+    if (!toolCalls.length) return null;
+    return (
+        <button
+            onClick={() => setIsOpen((o) => !o)}
+            className="flex flex-col items-start gap-1 mt-1 mb-0.5 text-left group/tools"
+        >
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground/80 transition-colors">
+                <Wrench className="w-3 h-3" />
+                <span className="font-medium">
+                    Used {toolCalls.length} tool{toolCalls.length > 1 ? "s" : ""}
+                </span>
+                <span className={cn(
+                    "text-[9px] transition-transform duration-200",
+                    isOpen ? "rotate-180" : ""
+                )}>▾</span>
+            </div>
+            {isOpen && (
+                <div className="pl-4 space-y-0.5 mt-0.5">
+                    {toolCalls.map((tool, i) => {
+                        const { label } = humanizeToolName(tool);
+                        return (
+                            <div key={`${tool}-${i}`} className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50">
+                                <Check className="w-3 h-3 text-emerald-500/60" />
+                                <span>{label.replace(/\.\.\.$/, '')}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </button>
     );
 }
 
@@ -899,6 +1012,9 @@ export default function AgentChat({
     // ── Tool activity tracking (shows which tool the agent is calling) ──────
     const [activeToolName, setActiveToolName] = useState<string | null>(null);
 
+    // ── Abort controller for in-flight stream (cancelled on chat switch) ─────
+    const streamAbortRef = useRef<AbortController | null>(null);
+
     // ── Agent context store integration ──────────────────────────────────────
     const agentContextPayload = useAgentContext((s) => s.buildContextPayload);
     const activeComponent = useAgentFirstStore((s) => s.activeComponent);
@@ -946,6 +1062,12 @@ export default function AgentChat({
 
     // ── Load Chat History when externalChatId changes ───────────────────────────
     useEffect(() => {
+        // Abort any in-flight stream when switching chats
+        streamAbortRef.current?.abort();
+        streamAbortRef.current = null;
+        setIsTyping(false);
+        setActiveToolName(null);
+
         if (externalChatId) {
             const requestId = ++historyRequestIdRef.current;
             setChatId(externalChatId);
@@ -988,6 +1110,11 @@ export default function AgentChat({
     // ── Explicit reset for New Chat even when chatId remains null ───────────────
     useEffect(() => {
         if (resetToken <= 0) return;
+        // Abort any in-flight stream
+        streamAbortRef.current?.abort();
+        streamAbortRef.current = null;
+        setIsTyping(false);
+        setActiveToolName(null);
         historyRequestIdRef.current += 1;
         setChatId(null);
         setMessages([]);
@@ -1124,7 +1251,7 @@ export default function AgentChat({
     // ── Context Welcome message ──────────────────────────────────────────────────────
     useEffect(() => {
         if (messages.length === 0 && contextGroupId) {
-            const welcomeContent = `I've analyzed your catch${contextImageCount > 1 ? ` (${contextImageCount} images)` : ""}. ${contextSpecies ? `I can see **${contextSpecies}** in this image.` : ""} Ask me anything about your fish — species details, market value, sustainability, health status, or cooking tips!`;
+            const welcomeContent = `I've analyzed your catch${contextImageCount > 1 ? ` (${contextImageCount} images)` : ""}. ${contextSpecies ? `I can see **${contextSpecies}** in this image.` : ""} Ask me anything about your fish - species details, market value, sustainability, health status, or cooking tips!`;
             setMessages([
                 {
                     id: "welcome",
@@ -1144,7 +1271,7 @@ export default function AgentChat({
                 const systemNote: Message = {
                     id: `ctx_${Date.now()}`,
                     role: "system",
-                    content: `Now viewing image ${contextImageIndex + 1}${contextImageCount ? ` of ${contextImageCount}` : ""}${contextSpecies ? ` — ${contextSpecies}` : ""}`,
+                    content: `Now viewing image ${contextImageIndex + 1}${contextImageCount ? ` of ${contextImageCount}` : ""}${contextSpecies ? ` - ${contextSpecies}` : ""}`,
                     timestamp: new Date(),
                 };
                 return [...prev, systemNote];
@@ -1193,7 +1320,7 @@ export default function AgentChat({
             isSynthesizingRef.current = true;
             setSynthesizingMsgId(msg.id);
             const res = await synthesizeSpeech(msg.content, speechCode || "en-IN");
-            // Backend signals this language has no Polly voice — use browser TTS
+            // Backend signals this language has no Polly voice - use browser TTS
             if ((res as any).useBrowserTTS || !res.audioBase64) {
                 fallbackBrowserTTS();
                 return;
@@ -1205,7 +1332,7 @@ export default function AgentChat({
             audio.onended = () =>
                 setPlayingMsgId((prev) => (prev === msg.id ? null : prev));
         } catch {
-            // Polly failed (500 / credentials) — fall back to browser speech
+            // Polly failed (500 / credentials) - fall back to browser speech
             console.warn(
                 "[TTS] Polly failed, using browser speechSynthesis fallback",
             );
@@ -1368,6 +1495,11 @@ export default function AgentChat({
             setReplyingTo(null);
             setIsTyping(true);
 
+            // Create abort controller for this stream
+            streamAbortRef.current?.abort();
+            const streamAbort = new AbortController();
+            streamAbortRef.current = streamAbort;
+
             const tempAiMsgId = `ai_temp_${Date.now()}`;
 
             try {
@@ -1448,7 +1580,24 @@ export default function AgentChat({
                     targetChatId ?? undefined,
                     locale,
                     userLocation ?? undefined,
-                    (toolName) => setActiveToolName(toolName),
+                    (toolName) => {
+                        setActiveToolName(toolName);
+                        // Push tool name into the message for inline display
+                        setMessages((prev) =>
+                            prev.map((m) =>
+                                m.id === tempAiMsgId
+                                    ? {
+                                        ...m,
+                                        toolCalls: [
+                                            ...(m.toolCalls ?? []).filter((t) => t !== toolName),
+                                            toolName,
+                                        ],
+                                    }
+                                    : m,
+                            ),
+                        );
+                    },
+                    streamAbort.signal,
                 );
 
                 // Flush any remaining characters instantly
@@ -1536,7 +1685,12 @@ export default function AgentChat({
                             : m,
                     ),
                 );
-            } catch (err) {
+            } catch (err: any) {
+                // If aborted (user switched chats), silently clean up
+                if (err?.name === 'AbortError') {
+                    setMessages((prev) => prev.filter((m) => m.id !== tempAiMsgId));
+                    return;
+                }
                 console.error("Chat error:", err);
 
                 // Remove the temp skeleton and mark user message as failed, add error message
@@ -1625,10 +1779,6 @@ export default function AgentChat({
                     isCompact ? "px-4 py-3 pr-10" : "px-5 py-4",
                 )}
             >
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center justify-center border border-primary/20 relative">
-                    <Fish className="w-4 h-4 text-primary" />
-                    <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-card" />
-                </div>
                 <div className="min-w-0">
                     <h3
                         className={cn(
@@ -1636,7 +1786,7 @@ export default function AgentChat({
                             isCompact ? "text-sm" : "text-base",
                         )}
                     >
-                        {contextGroupId ? "Matsya AI" : "Matsya"}
+                        {contextGroupId ? "Matsya AI" : "Matsya AI"}
                     </h3>
                     <p className="text-[10px] text-muted-foreground/60 leading-tight">
                         {contextGroupId
@@ -1644,21 +1794,6 @@ export default function AgentChat({
                             : "Ask me anything"}
                     </p>
                 </div>
-                {isTyping && (
-                    <div className="ml-auto flex items-center gap-1.5 text-[10px] text-primary/70 font-medium shrink-0 min-w-0">
-                        {activeToolName ? (
-                            <>
-                                <Wrench className="w-3 h-3 animate-spin" />
-                                <span className="truncate max-w-[120px]">{activeToolName}</span>
-                            </>
-                        ) : (
-                            <>
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                <span>Thinking…</span>
-                            </>
-                        )}
-                    </div>
-                )}
             </div>
 
             {/* ── Messages ── */}
@@ -1716,6 +1851,8 @@ export default function AgentChat({
                                 onReplyQuoteClick={handleReplyQuoteClick}
                                 registerMessageElement={registerMessageElement}
                                 isHighlighted={highlightedMessageId === msg.id}
+                                isThinking={isTyping && msg.id.startsWith("ai_temp_")}
+                                activeToolName={msg.id.startsWith("ai_temp_") ? activeToolName : null}
                             />
                         ))}
 
@@ -1740,46 +1877,7 @@ export default function AgentChat({
                         )}
                     </AnimatePresence>
 
-                    {/* ── Typing Indicator ── */}
-                    {isTyping && !hasPendingAssistantSkeleton && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="flex gap-3 sm:gap-4 w-full justify-start pt-2"
-                        >
-                            <Avatar
-                                className={cn(
-                                    "shrink-0 border border-primary/20",
-                                    isCompact ? "h-7 w-7 mt-0.5" : "h-8 w-8 mt-1",
-                                )}
-                            >
-                                <div className="bg-gradient-to-br from-primary/15 to-cyan-500/15 h-full w-full flex items-center justify-center">
-                                    <Fish
-                                        className={cn(
-                                            isCompact ? "w-3.5 h-3.5" : "w-4 h-4",
-                                            "text-primary",
-                                        )}
-                                    />
-                                </div>
-                            </Avatar>
-                            <div className="py-2.5 px-4 bg-muted/30 border border-border/10 rounded-2xl rounded-tl-md flex items-center h-[38px]">
-                                <div className="flex gap-1.5 items-center">
-                                    <span
-                                        className="w-1.5 h-1.5 rounded-full bg-primary/40 animate-bounce"
-                                        style={{ animationDelay: "0ms", animationDuration: "1s" }}
-                                    />
-                                    <span
-                                        className="w-1.5 h-1.5 rounded-full bg-primary/60 animate-bounce"
-                                        style={{ animationDelay: "150ms", animationDuration: "1s" }}
-                                    />
-                                    <span
-                                        className="w-1.5 h-1.5 rounded-full bg-primary/80 animate-bounce"
-                                        style={{ animationDelay: "300ms", animationDuration: "1s" }}
-                                    />
-                                </div>
-                            </div>
-                        </motion.div>
-                    )}
+                    {/* Typing indicator removed - thinking now shows inline in the message bubble */}
 
                     <div ref={bottomRef} />
                 </div>
@@ -1872,7 +1970,7 @@ export default function AgentChat({
                             replyingTo && "rounded-t-none",
                         )}
                     >
-                        {/* Context Pill — only show when a tool panel is open (avoids redundancy with reference chips) */}
+                        {/* Context Pill - only show when a tool panel is open (avoids redundancy with reference chips) */}
                         {activeComponent && (
                             <div className="px-4 pt-3 flex items-center justify-between border-b border-border/10 pb-2 bg-muted/10">
                                 <ContextPill />
@@ -1996,7 +2094,7 @@ export default function AgentChat({
             </div>
 
             {/* ════════════════════════════════════════════════════════════════════
-                HOLD-TO-SPEAK FAB — Large floating mic button (WhatsApp style)
+                HOLD-TO-SPEAK FAB - Large floating mic button (WhatsApp style)
                 Visible only on touch devices / mobile
             ════════════════════════════════════════════════════════════════════ */}
             {voiceSupported && (

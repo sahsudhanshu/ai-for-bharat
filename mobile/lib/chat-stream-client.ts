@@ -1,14 +1,14 @@
 /**
- * Chat Stream Client — SSE streaming from the Agent API.
+ * Chat Stream Client - SSE streaming from the Agent API.
  *
  * Uses the actual agent endpoint:
  *   POST /conversations/{id}/messages/stream
  *
  * The agent streams back Server-Sent Events in the format:
- *   data: {"type":"chunk","text":"..."}   — LLM token
- *   data: {"type":"tool","name":"..."}    — tool call (informational)
- *   data: {"type":"end","messageId":"..."}  — stream complete
- *   data: {"type":"error","error":"..."}  — error
+ *   data: {"type":"chunk","text":"..."}   - LLM token
+ *   data: {"type":"tool","name":"..."}    - tool call (informational)
+ *   data: {"type":"end","messageId":"..."}  - stream complete
+ *   data: {"type":"error","error":"..."}  - error
  *
  * NOTE: React Native's fetch polyfill does NOT expose response.body as a
  * ReadableStream, so we use XMLHttpRequest with onprogress which React Native
@@ -110,7 +110,7 @@ class ChatStreamClient {
           try {
             const data = JSON.parse(line.slice(6));
             if (data.type === "start") {
-              // Stream started — ignore, just an initial flush event
+              // Stream started - ignore, just an initial flush event
             } else if (data.type === "chunk" && data.text) {
               onToken?.(data.text);
             } else if (data.type === "tool" && data.name) {

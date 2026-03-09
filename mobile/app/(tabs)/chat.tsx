@@ -120,7 +120,7 @@ const AGENT_CAPABILITIES: AgentCapability[] = [
     icon: "sunny",
     label: "Daily Briefing",
     prompt:
-      "Give me my daily fishing briefing — weather conditions, best fishing zones near me, today's market prices, and any active safety alerts for my area.",
+      "Give me my daily fishing briefing - weather conditions, best fishing zones near me, today's market prices, and any active safety alerts for my area.",
     color: COLORS.secondary,
     desc: "Weather, zones & alerts",
   },
@@ -142,7 +142,7 @@ const AGENT_CAPABILITIES: AgentCapability[] = [
     icon: "analytics",
     label: "My Analytics",
     prompt:
-      "Show me my catch analytics — total earnings, top species caught, quality grade breakdown, and recent trends.",
+      "Show me my catch analytics - total earnings, top species caught, quality grade breakdown, and recent trends.",
     color: "#7c3aed",
     desc: "Earnings & catch stats",
   },
@@ -296,7 +296,7 @@ export default function ChatScreen() {
     if (effectiveMode === "online") syncConversations();
   }, [effectiveMode]);
 
-  // Single consolidated params handler — guarded to prevent double-send
+  // Single consolidated params handler - guarded to prevent double-send
   useEffect(() => {
     const paramKey = [
       params.agentContext,
@@ -724,7 +724,7 @@ export default function ChatScreen() {
         // Send a confirmation message to chat
         const kgStr = (weightG / 1000).toFixed(2);
         sendMessage(
-          `I just weighed Fish #${weightFishIndex + 1} (${species}) — estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved to my records. What is the market value for this fish?`,
+          `I just weighed Fish #${weightFishIndex + 1} (${species}) - estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved to my records. What is the market value for this fish?`,
         );
       } else {
         // Offline inference: save to local history
@@ -748,7 +748,7 @@ export default function ChatScreen() {
         }
         const kgStr = (weightG / 1000).toFixed(2);
         sendMessage(
-          `I just weighed Fish #${weightFishIndex + 1} (${species}) — estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved. What is the current market value? Any quality or storage recommendations?`,
+          `I just weighed Fish #${weightFishIndex + 1} (${species}) - estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved. What is the current market value? Any quality or storage recommendations?`,
         );
       }
       // Reset selection state
@@ -1345,7 +1345,7 @@ export default function ChatScreen() {
                     <View style={styles.weightEstimateContent}>
                       <Text style={styles.weightEstimateTitle}>
                         {measuredCount > 0
-                          ? `${measuredCount}/${totalFish} Fish Measured — ${totalWeightKg.toFixed(2)} kg`
+                          ? `${measuredCount}/${totalFish} Fish Measured - ${totalWeightKg.toFixed(2)} kg`
                           : "Estimate Weight & Price"}
                       </Text>
                       <Text style={styles.weightEstimateSub}>
@@ -1879,7 +1879,7 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* Inline tools popup — vertical list above send button */}
+            {/* Inline tools popup - vertical list above send button */}
             {showToolsMenu && (
               <View style={styles.toolsPopup}>
                 <TouchableOpacity

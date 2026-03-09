@@ -1,5 +1,5 @@
 /**
- * FishPickerModal — Select which fish from a scan to measure for weight estimation.
+ * FishPickerModal - Select which fish from a scan to measure for weight estimation.
  * Shows a list of detected fish with species, confidence, and measurement status.
  */
 import React from "react";

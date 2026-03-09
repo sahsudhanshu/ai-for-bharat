@@ -17,7 +17,7 @@ const { verifyToken } = require("../utils/auth");
 const { ok, badRequest, unauthorized, serverError } = require("../utils/response");
 
 const BUCKET = process.env.S3_BUCKET_NAME;
-const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "ai-bharat-images";
+const IMAGES_TABLE = process.env.DYNAMODB_IMAGES_TABLE || "";
 const URL_EXPIRY_SECONDS = 300; // 5 minutes
 
 const WATER_KEYWORDS = ["sea", "ocean", "bay", "gulf", "channel", "strait", "coast"];

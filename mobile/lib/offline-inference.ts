@@ -60,14 +60,14 @@ export interface OfflineDetectionResult {
   speciesConfidence: number;
   disease: string;
   diseaseConfidence: number;
-  /** Estimated from bounding box — not reliable for display */
+  /** Estimated from bounding box - not reliable for display */
   weightG: number;
   /** True only when the user manually entered a measurement in the detail screen */
   weightUserEntered: boolean;
   lengthMm: number;
   qualityGrade: string;
   pricePerKg: number;
-  /** Always 0 for offline results — pricing is unavailable without connectivity */
+  /** Always 0 for offline results - pricing is unavailable without connectivity */
   estimatedValue: number;
   isLegalSize: boolean;
   minLegalSize: number;
@@ -175,11 +175,11 @@ export async function runOfflineInference(
 
     onProgress?.({
       percent: 30,
-      step: `${boxes.length} fish detected — preparing…`,
+      step: `${boxes.length} fish detected - preparing…`,
     });
 
     if (boxes.length === 0) {
-      onProgress?.({ percent: 100, step: "Done — no fish found" });
+      onProgress?.({ percent: 100, step: "Done - no fish found" });
       return { detections: [], processingTime: Date.now() - t0, errors };
     }
 
@@ -388,7 +388,7 @@ export async function runOfflineInference(
 
     onProgress?.({
       percent: 100,
-      step: `Done — ${detections.length} fish analysed`,
+      step: `Done - ${detections.length} fish analysed`,
     });
 
     // ── Final summary ─────────────────────────────────────────

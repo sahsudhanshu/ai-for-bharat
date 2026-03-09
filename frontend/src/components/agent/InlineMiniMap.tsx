@@ -49,7 +49,7 @@ export default function InlineMiniMap({ lat, lon, onClick, className }: InlineMi
       onClick={onClick}
       title="Click to open in map"
     >
-      {/* Leaflet map — interactions disabled, purely visual */}
+      {/* Leaflet map - interactions disabled, purely visual */}
       <div className="h-[140px] pointer-events-none">
         <MapContainer
           center={center}

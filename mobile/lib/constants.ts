@@ -112,7 +112,7 @@ export const ENDPOINTS = {
   getChatHistory: "/chat/history",
   getAnalytics: "/analytics",
   saveWeightEstimate: "/weight-estimates",
-  saveOfflineAnalysis: "/offline-analyses",  // legacy — kept for reference
+  saveOfflineAnalysis: "/offline-analyses",  // legacy - kept for reference
   syncOfflineSessionPrepare: "/sync/offline-session/prepare",
   syncOfflineSessionCommit: "/sync/offline-session/commit",
 };
@@ -148,7 +148,7 @@ export const INDIAN_LANGUAGES = [
   "Odia",
 ];
 
-// Default map center — Indian west coast
+// Default map center - Indian west coast
 export const DEFAULT_MAP_REGION = {
   latitude: 16.0,
   longitude: 76.0,

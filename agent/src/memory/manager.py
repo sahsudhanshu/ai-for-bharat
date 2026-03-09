@@ -1,5 +1,5 @@
 """
-Memory manager — orchestrates short-term + long-term memory for the agent.
+Memory manager - orchestrates short-term + long-term memory for the agent.
 
 Short-term: Last N messages verbatim, older messages summarised.
 Long-term: Facts / preferences extracted by the LLM and persisted.
@@ -30,7 +30,7 @@ async def _call_bedrock_for_text(prompt: str) -> str:
         model_id = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash")
 
         if not google_api_key:
-            return "(Summary unavailable — GOOGLE_API_KEY not set)"
+            return "(Summary unavailable - GOOGLE_API_KEY not set)"
 
         llm = ChatGoogleGenerativeAI(
             model=model_id,
@@ -41,8 +41,8 @@ async def _call_bedrock_for_text(prompt: str) -> str:
         resp = await llm.ainvoke([HumanMessage(content=prompt)])
         return resp.content
     except Exception:
-        # LLM not available — return a simple fallback
-        return "(Summary unavailable — LLM not configured)"
+        # LLM not available - return a simple fallback
+        return "(Summary unavailable - LLM not configured)"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -41,6 +41,8 @@ export interface AgentContextState {
   getContextLabel: () => string;
   /** Resets global context when panes close */
   resetContext: () => void;
+  /** Clears only the context fields owned by a specific panel */
+  clearPanelContext: (panel: ComponentType | 'chat') => void;
 }
 
 export const useAgentContext = create<AgentContextState>((set, get) => ({
@@ -76,6 +78,20 @@ export const useAgentContext = create<AgentContextState>((set, get) => ({
     mapZoom: null,
     selectedMapPoint: null,
   }),
+
+  clearPanelContext: (panel) => {
+    // Each panel owns a specific subset of context fields.
+    // Only clear what belongs to the panel being LEFT.
+    if (panel === 'upload') {
+      set({ scanSummary: null });
+    } else if (panel === 'history') {
+      set({ currentGroupId: null, currentImageIndex: 0, currentSpecies: null });
+    } else if (panel === 'map') {
+      set({ selectedMapPoint: null });
+    } else if (panel === 'analytics') {
+      // analytics has no owned context fields currently
+    }
+  },
 
   getContextLabel: () => {
     const s = get();

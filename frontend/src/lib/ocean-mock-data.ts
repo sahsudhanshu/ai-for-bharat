@@ -1,5 +1,5 @@
 /**
- * Realistic dummy ocean catch data — points placed IN THE SEA along
+ * Realistic dummy ocean catch data - points placed IN THE SEA along
  * the Indian western coast & Bay of Bengal.
  * Each record simulates a fisherman's catch upload with GPS from a boat.
  */
@@ -21,7 +21,7 @@ export interface OceanCatchPoint {
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600000).toISOString();
 
 export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
-    // ── Arabian Sea — Konkan Coast ──────────────────────────────
+    // ── Arabian Sea - Konkan Coast ──────────────────────────────
     {
         id: "oc-1",
         latitude: 16.85,
@@ -61,7 +61,7 @@ export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
         catchMethod: "Ring Seine",
         timestamp: hoursAgo(8),
     },
-    // ── Arabian Sea — Goa / South ──────────────────────────────
+    // ── Arabian Sea - Goa / South ──────────────────────────────
     {
         id: "oc-4",
         latitude: 15.30,
@@ -88,7 +88,7 @@ export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
         catchMethod: "Long Line",
         timestamp: hoursAgo(3),
     },
-    // ── Arabian Sea — Kerala / Lakshadweep ─────────────────────
+    // ── Arabian Sea - Kerala / Lakshadweep ─────────────────────
     {
         id: "oc-6",
         latitude: 10.60,
@@ -115,7 +115,7 @@ export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
         catchMethod: "Pole & Line",
         timestamp: hoursAgo(12),
     },
-    // ── Arabian Sea — Gujarat Coast ────────────────────────────
+    // ── Arabian Sea - Gujarat Coast ────────────────────────────
     {
         id: "oc-8",
         latitude: 20.70,
@@ -142,7 +142,7 @@ export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
         catchMethod: "Trawl Net",
         timestamp: hoursAgo(22),
     },
-    // ── Bay of Bengal — Tamil Nadu ──────────────────────────────
+    // ── Bay of Bengal - Tamil Nadu ──────────────────────────────
     {
         id: "oc-10",
         latitude: 12.00,
@@ -169,7 +169,7 @@ export const OCEAN_CATCH_DATA: OceanCatchPoint[] = [
         catchMethod: "Crab Trap",
         timestamp: hoursAgo(3),
     },
-    // ── Bay of Bengal — Andhra / Odisha ─────────────────────────
+    // ── Bay of Bengal - Andhra / Odisha ─────────────────────────
     {
         id: "oc-12",
         latitude: 16.50,
@@ -240,7 +240,7 @@ export interface ZoneInsight {
 
 export const ZONE_INSIGHTS: ZoneInsight[] = [
     {
-        zone: "Arabian Sea — Konkan",
+        zone: "Arabian Sea - Konkan",
         region: "15°N – 18°N, 72°E – 73°E",
         topSpecies: ["Pomfret", "Mackerel", "Sardine"],
         avgTemp: 27.4,
@@ -250,7 +250,7 @@ export const ZONE_INSIGHTS: ZoneInsight[] = [
         advisory: "Good conditions for gill net fishing. Sardine schools spotted near Ratnagiri.",
     },
     {
-        zone: "Arabian Sea — Goa Deep",
+        zone: "Arabian Sea - Goa Deep",
         region: "14°N – 16°N, 73°E – 74°E",
         topSpecies: ["Kingfish", "Tuna", "Seer Fish"],
         avgTemp: 27.2,
@@ -260,7 +260,7 @@ export const ZONE_INSIGHTS: ZoneInsight[] = [
         advisory: "Tuna migration active. Optimal window: next 8 hours.",
     },
     {
-        zone: "Bay of Bengal — East Coast",
+        zone: "Bay of Bengal - East Coast",
         region: "10°N – 17°N, 80°E – 83°E",
         topSpecies: ["Seer Fish", "Pomfret", "Crab"],
         avgTemp: 28.4,
