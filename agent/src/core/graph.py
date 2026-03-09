@@ -318,7 +318,7 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
             map_lon = state.get("longitude")
 
         return {
-            "ui_map":     True,
+            "ui_map":    bool(data.get("map", False)),
             "ui_history": bool(data.get("history", False)),
             "ui_upload":  bool(data.get("upload", False)),
             "map_lat":   float(map_lat) if map_lat is not None else None,
