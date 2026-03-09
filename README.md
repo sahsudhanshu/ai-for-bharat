@@ -88,9 +88,9 @@ AI-powered decision support that maximizes daily income:
 | **Web Frontend** | Next.js 15.5 + React 19, Tailwind CSS, Radix UI, Leaflet.js |
 | **Mobile App** | Expo 54 + React Native 0.81.5 (iOS/Android) |
 | **Backend** | Node.js 20.x Lambda functions (18 functions), Express.js (dev) |
-| **AI Agent** | Python FastAPI + LangGraph, Google Gemini (`gemini-2.0-flash`) |
-| **ML Pipeline** | YOLOv11 → EfficientNet/ViT → Depth Anything V2 → Mask R-CNN |
-| **ML Hosting** | Hugging Face Space (`kyanmahajan-fish-pred.hf.space`) |
+| **AI Agent** | Python FastAPI + LangGraph, AWS(NOVA) |
+| **ML Pipeline** | YOLOv8 → Resnet18 |
+| **ML Hosting** | AWS sagemaker |
 | **Database** | Amazon DynamoDB (7 tables) |
 | **Storage** | Amazon S3 (`fish-detection-project-2026`) |
 | **Auth** | Amazon Cognito (JWT, `ap-south-1`) |
@@ -120,7 +120,7 @@ AI-powered decision support that maximizes daily income:
                               │
 ┌─────────────────────────────▼───────────────────────────┐
 │                    ML PIPELINE (HF Space)                │
-│  YOLOv11 → EfficientNet → Depth Anything V2 → Metrics   │
+│  YOLOv8 → Resnet  Metrics   │
 └─────────────────────────────┬───────────────────────────┘
                               │
 ┌─────────────────────────────▼───────────────────────────┐
@@ -193,9 +193,9 @@ ai-for-bharat/
 │       └── routes/            # FastAPI route handlers
 │
 ├── ML/                        # ML model weights
-│   ├── detection.pt           # YOLOv11 weights
-│   ├── Fish.pth               # Species classification model
-│   └── Fish_disease.pth       # Disease detection model
+│   ├── detection.pt           # YOLOv8 weights
+│   ├── Fish.pth               # Species classification models
+│   └── Fish_disease.pth  (and other)     # Disease detection model
 │
 └── infrastructure/            # AWS resource definitions
     ├── dynamodb-tables.json
