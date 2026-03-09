@@ -179,21 +179,19 @@ async def send_message(
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
 
-    # ── Parse embedded __UI__ widget intent, then sanitise ───────────────
-    ui_data, ai_content = _extract_ui_json(ai_content)
+    # ── Sanitise text, then build UI payload from intent classifier state ─
     ai_content = _sanitise_agent_text(ai_content)
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
 
     # ── Persist assistant message ────────────────────────────────────────
     ui_payload = {
-        "map":     bool(ui_data.get("map", False)),
-        "history": bool(ui_data.get("history", False)),
-        "upload":  bool(ui_data.get("upload", False)),
-        "mapLat":  float(ui_data["map_lat"]) if ui_data.get("map_lat") is not None else None,
-        "mapLon":  float(ui_data["map_lon"]) if ui_data.get("map_lon") is not None else None,
+        "map":     bool(result.get("ui_map", False)),
+        "history": bool(result.get("ui_history", False)),
+        "upload":  bool(result.get("ui_upload", False)),
+        "mapLat":  float(result["map_lat"]) if result.get("map_lat") is not None else None,
+        "mapLon":  float(result["map_lon"]) if result.get("map_lon") is not None else None,
     }
-    print(f"[MSG] ui_payload → {json.dumps(ui_payload)}")
     saved_msg = save_message(
         conversation_id,
         role="assistant",
@@ -264,18 +262,21 @@ async def send_message_stream(
         try:
             ai_content_chunks: list[str] = []
             tools_called: list[str] = []
+            _intent_state: dict = {}
 
             start_event = "{\"type\": \"start\"}"
             print(f"[SSE] → {start_event}")
             yield f"data: {start_event}\n\n"
 
-            # Stream only tokens from the "agent" node; ignore other nodes
-            # (memory_update etc.) which make their own internal LLM calls.
+            # Stream tokens from the "agent" node; also capture intent_classifier output.
             async for event in graph.astream_events(initial_state, version="v2"):
                 kind = event["event"]
                 node = event.get("metadata", {}).get("langgraph_node")
 
-                if kind == "on_chat_model_stream" and node == "agent":
+                if kind == "on_chain_end" and event.get("name") == "intent_classifier":
+                    _intent_state = event["data"].get("output", {})
+
+                elif kind == "on_chat_model_stream" and node == "agent":
                     chunk = event["data"]["chunk"]
                     if isinstance(chunk, AIMessageChunk) and chunk.content:
                         text = _extract_text(chunk.content)
@@ -296,18 +297,18 @@ async def send_message_stream(
             if not raw_content:
                 raw_content = "I processed your request but couldn't generate a text response."
 
-            # Parse __UI__ sentinel from the agent's output, then sanitise display text
-            ui_data, ai_content = _extract_ui_json(raw_content)
-            ai_content = _sanitise_agent_text(ai_content)
+            # Sanitise display text (strip any residual __UI__ markers)
+            ai_content = _sanitise_agent_text(raw_content)
             if not ai_content:
                 ai_content = "I processed your request but couldn't generate a text response."
 
+            # UI payload comes exclusively from the intent classifier node output
             ui_payload = {
-                "map":     bool(ui_data.get("map", False)),
-                "history": bool(ui_data.get("history", False)),
-                "upload":  bool(ui_data.get("upload", False)),
-                "mapLat":  float(ui_data["map_lat"]) if ui_data.get("map_lat") is not None else None,
-                "mapLon":  float(ui_data["map_lon"]) if ui_data.get("map_lon") is not None else None,
+                "map":     bool(_intent_state.get("ui_map", False)),
+                "history": bool(_intent_state.get("ui_history", False)),
+                "upload":  bool(_intent_state.get("ui_upload", False)),
+                "mapLat":  float(_intent_state["map_lat"]) if _intent_state.get("map_lat") is not None else None,
+                "mapLon":  float(_intent_state["map_lon"]) if _intent_state.get("map_lon") is not None else None,
             }
 
             saved_msg = save_message(

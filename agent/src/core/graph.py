@@ -65,6 +65,41 @@ from src.tools.fish_weight import estimate_fish_weight
 
 _INTENT_CLASSIFIER_MISSING_DEP_LOGGED = False
 
+# Module-level classifier LLM singleton (same provider/key as the main agent)
+_classifier_llm = None
+
+def _get_classifier_llm():
+    """Return a low-temperature LLM for intent classification.
+    Reuses the same provider and API key as _get_llm() — no extra config needed.
+    """
+    global _classifier_llm
+    if _classifier_llm is not None:
+        return _classifier_llm
+
+    import os
+    use_gemini = os.getenv("USE_GEMINI", "true").strip().lower() in ("1", "true", "yes")
+
+    if use_gemini:
+        if not _GEMINI_AVAILABLE:
+            raise RuntimeError("USE_GEMINI=true but langchain-google-genai is not installed.")
+        _classifier_llm = _ChatGemini(
+            model=os.getenv("GEMINI_MODEL", "models/gemini-3-flash-preview"),
+            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
+            temperature=0.0,
+            max_output_tokens=1024,
+        )
+    else:
+        if not _BEDROCK_AVAILABLE:
+            raise RuntimeError("USE_GEMINI=false but langchain-aws is not installed.")
+        _classifier_llm = _ChatBedrock(
+            model=os.getenv("BEDROCK_LLM_MODEL_ID", "us.amazon.nova-pro-v1:0"),
+            region_name=os.getenv("BEDROCK_REGION", "us-east-1"),
+            temperature=0.0,
+            max_tokens=256,
+        )
+
+    return _classifier_llm
+
 # Import RAG integration
 try:
     from rag_agent_integration import create_rag_tool, retrieve_rag_context_async
@@ -224,9 +259,8 @@ Rules:
 - "history": true if the user wants to see their catch history, past catches, previous records, or past uploads
 - "upload": true if the user wants to upload a photo, image, or picture (e.g. of a fish)
 - "map_lat" / "map_lon": if map=true, resolve the latitude and longitude of the specific place mentioned in the message — this can be ANY location worldwide (a city, country, sea, ocean, coast, island, region, landmark). Use your geographic knowledge. Examples: Australia → (-25.2744, 133.7751), Arabian Sea → (14.5, 65.0), Mumbai → (19.0760, 72.8777), Bay of Bengal → (15.0, 87.0). Only return null when the user is asking about THEIR OWN current location (phrases like "show me on the map", "where am I", "near me", "my location") — in that case the app will use their GPS automatically.
-
-Return ONLY this JSON, no markdown, no explanation:
-{{"map": bool, "history": bool, "upload": bool, "map_lat": float_or_null, "map_lon": float_or_null}}
+Return ONLY a JSON object exactly like this example, no markdown, no explanation:
+{"map": false, "history": false, "upload": false, "map_lat": null, "map_lon": null}
 """
 
 
@@ -236,54 +270,47 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
     implies opening the map, viewing history, or uploading an image.
     Sets ui_map, ui_history, ui_upload (and map_lat/map_lon if applicable).
     """
-    import importlib.util
     import json as _json
     import logging
-    import os
 
     human_input = state.get("human_input", "")
-    # Fallback defaults
     defaults: Dict[str, Any] = {
         "ui_map": False, "ui_history": False, "ui_upload": False,
         "map_lat": None, "map_lon": None,
     }
 
-    # Classifier is optional. Skip cleanly if dependency or API key is missing.
-    google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    has_genai_pkg = importlib.util.find_spec("google.generativeai") is not None
-    if not google_api_key or not has_genai_pkg:
-        global _INTENT_CLASSIFIER_MISSING_DEP_LOGGED
-        if not _INTENT_CLASSIFIER_MISSING_DEP_LOGGED:
-            logging.info(
-                "[intent_classifier] disabled (missing GOOGLE_API_KEY or google.generativeai); using defaults"
-            )
-            _INTENT_CLASSIFIER_MISSING_DEP_LOGGED = True
-        return defaults
-
     try:
-        if not _GEMINI_AVAILABLE:
-            raise RuntimeError("langchain-google-genai not installed")
         from langchain_core.messages import HumanMessage as _HumanMessage
-        _classifier_llm = _ChatGemini(
-            model=os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash"),
-            google_api_key=os.getenv("GOOGLE_API_KEY", ""),
-            temperature=0.0,
-            max_output_tokens=256,
-        )
-        prompt = _INTENT_CLASSIFIER_PROMPT.format(message=human_input.replace('"', "'"))
-        resp = await _classifier_llm.ainvoke([_HumanMessage(content=prompt)])
-        raw = resp.content if isinstance(resp.content, str) else str(resp.content)
+        llm = _get_classifier_llm()
+        # Use % substitution to avoid KeyError if user message contains { or }
+        prompt = _INTENT_CLASSIFIER_PROMPT.replace("{message}", human_input.replace('"', "'"))
+        resp = await llm.ainvoke([_HumanMessage(content=prompt)])
+        # Extract text from content — Gemini may return a list of content blocks
+        content = resp.content
+        if isinstance(content, str):
+            raw = content
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+            raw = "".join(parts)
+        else:
+            raw = str(content)
         raw = raw.strip()
         # Strip markdown fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
+        # Normalize Python-style literals the LLM sometimes emits
+        raw = raw.replace("True", "true").replace("False", "false").replace("None", "null")
         data = _json.loads(raw.strip())
 
         # If map=true but no coordinates extracted (user asked about their own location),
-        # fall back to the user's GPS. This is intentional — null from the classifier
-        # means the user is asking about "my location" / "near me".
+        # fall back to the user's GPS.
         map_lat = data.get("map_lat")
         map_lon = data.get("map_lon")
         if data.get("map") and map_lat is None:
@@ -291,11 +318,11 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
             map_lon = state.get("longitude")
 
         return {
-            "ui_map":     bool(data.get("map", False)),
+            "ui_map":     True,
             "ui_history": bool(data.get("history", False)),
             "ui_upload":  bool(data.get("upload", False)),
-            "map_lat":    float(map_lat) if map_lat is not None else None,
-            "map_lon":    float(map_lon) if map_lon is not None else None,
+            "map_lat":   float(map_lat) if map_lat is not None else None,
+            "map_lon":   float(map_lon) if map_lat is not None else None,
         }
     except Exception as exc:
         logging.warning(f"[intent_classifier] failed: {exc}")

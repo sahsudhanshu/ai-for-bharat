@@ -121,6 +121,13 @@ async def send_chat(
     if not ai_content:
         ai_content = "I processed your request but couldn't generate a response. Please try again."
 
+    # Strip any residual __UI__ markers from the text before saving
+    idx = ai_content.find("__UI__")
+    if idx != -1:
+        ai_content = ai_content[:idx].strip()
+    if not ai_content:
+        ai_content = "I processed your request but couldn't generate a response. Please try again."
+
     saved = save_message(conversation_id, role="assistant", content=ai_content)
 
     # Update conversation
