@@ -95,7 +95,7 @@ Use this information from the knowledge base to answer questions about fish spec
 {location_context}
 When the user asks about weather or sea conditions without specifying a location, use these coordinates with the get_weather tool.
 
-**CRITICAL**: NEVER mention the user's GPS coordinates, city name derived from coordinates, or any location information in your conversational text. This data is for INTERNAL tool use only (e.g., calling get_weather). Do NOT say things like "You are located in...", "User is near...", or include coordinates in your conversational reply. However, you MUST include these exact coordinates in the __UI__ JSON string (map_lat and map_lon) at the end of the response when showing a map of the user's location.
+**CRITICAL**: NEVER mention the user's GPS coordinates, city name derived from coordinates, or any location information in your conversational text. This data is for INTERNAL tool use only (e.g., calling get_weather). Do NOT say things like "You are located in...", "User is near...", or include coordinates in your conversational reply. However, you MUST include these exact coordinates in the __UI__ JSON string (map_lat and map_lon) at the very end of the response when showing a map of the user's location.
 """)
 
     # ── Tool usage guidance ───────────────────────────────────────────────

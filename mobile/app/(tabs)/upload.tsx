@@ -236,29 +236,6 @@ export default function UploadScreen() {
             initialMessage: prompt,
           },
         });
-      } else if (offlineResults.length > 0) {
-        // Offline analysis
-        const fishSummary = offlineResults
-          .map(
-            (d, i) =>
-              `Fish #${i + 1}: ${d.species} (${(d.speciesConfidence * 100).toFixed(0)}% conf, ${d.disease})`,
-          )
-          .join("; ");
-
-        const prompt = [
-          `I just scanned ${offlineResults.length} fish using on-device inference.`,
-          `Details: ${fishSummary}.`,
-          "Please give me a detailed summary with species info, health assessment, and market recommendations.",
-        ].join(" ");
-
-        router.push({
-          pathname: "/(tabs)/chat",
-          params: {
-            scanComplete: "true",
-            scanMode: "offline",
-            initialMessage: prompt,
-          },
-        });
       }
     };
 
@@ -1857,25 +1834,6 @@ export default function UploadScreen() {
                     style={styles.actionButton}
                   />
                 </View>
-                <Button
-                  label="Ask AI About This Catch"
-                  onPress={() => {
-                    const speciesList = Object.keys(speciesDist).join(", ");
-                    const weightNote = hasUserWeights
-                      ? `Total weight: ${totalWeightKg.toFixed(2)} kg. `
-                      : "";
-                    const prompt = `I just analyzed ${totalFish} fish using offline detection. ${weightNote}Species: ${speciesList}. What are the current market prices and any recommendations?`;
-                    router.push({
-                      pathname: "/(tabs)/chat",
-                      params: { initialMessage: prompt },
-                    });
-                  }}
-                  variant="secondary"
-                  icon={<Ionicons name="chatbubbles" size={16} color="#fff" />}
-                  iconPosition="left"
-                  fullWidth
-                  style={{ marginBottom: SPACING.md }}
-                />
               </View>
             );
           })()}

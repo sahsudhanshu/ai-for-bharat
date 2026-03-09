@@ -9,6 +9,7 @@ import {
   Image,
   Linking,
   Dimensions,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { router, useLocalSearchParams } from "expo-router";
@@ -82,6 +83,7 @@ export default function HistoryDetailScreen() {
     new Set(),
   );
   const [showDiseasedOnly, setShowDiseasedOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (groupId) {
@@ -89,25 +91,27 @@ export default function HistoryDetailScreen() {
     }
   }, [groupId]);
 
-  const loadGroupDetails = async () => {
+  const loadGroupDetails = async (forceRefresh = false) => {
     try {
-      setLoading(true);
+      if (!forceRefresh) setLoading(true);
       setError(null);
 
       // Try cache first
       const cacheKey = `group_detail_${groupId}`;
-      const cached = await AsyncStorage.getItem(cacheKey);
-      if (cached) {
-        try {
-          const parsedData = JSON.parse(cached);
-          parsedData.analysisResult = normalizeAnalysisResult(
-            parsedData.analysisResult,
-          );
-          setGroup(parsedData);
-          setLoading(false);
-        } catch (parseError) {
-          console.error("Failed to parse cached group details:", parseError);
-          await AsyncStorage.removeItem(cacheKey);
+      if (!forceRefresh) {
+        const cached = await AsyncStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const parsedData = JSON.parse(cached);
+            parsedData.analysisResult = normalizeAnalysisResult(
+              parsedData.analysisResult,
+            );
+            setGroup(parsedData);
+            setLoading(false);
+          } catch (parseError) {
+            console.error("Failed to parse cached group details:", parseError);
+            await AsyncStorage.removeItem(cacheKey);
+          }
         }
       }
 
@@ -123,8 +127,14 @@ export default function HistoryDetailScreen() {
       console.error(err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
+
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    loadGroupDetails(true);
+  }, [groupId]);
 
   const toggleDetection = (index: number) => {
     setExpandedDetections((prev) => {
@@ -183,7 +193,10 @@ export default function HistoryDetailScreen() {
           <Ionicons name="warning" size={48} color={COLORS.error} />
           <Text style={styles.errorTitle}>Failed to Load</Text>
           <Text style={styles.errorText}>{error || "Group not found"}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadGroupDetails}>
+          <TouchableOpacity
+            style={styles.retryBtn}
+            onPress={() => loadGroupDetails()}
+          >
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -235,6 +248,14 @@ export default function HistoryDetailScreen() {
       <ScrollView
         style={styles.content}
         contentContainerStyle={styles.contentContainer}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
+          />
+        }
       >
         {/* Metadata */}
         <View style={styles.metadataCard}>

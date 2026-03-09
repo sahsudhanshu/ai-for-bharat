@@ -1,3 +1,14 @@
+/**
+ * Ocean Map — professional redesign v3.
+ *
+ * Changes:
+ *   - Deep Scan: glassmorphic half-map overlay (no Modal).
+ *   - Alerts: glassmorphic panel overlay on map.
+ *   - Tap-on-map: floating info card at the tapped location + Send to AI.
+ *   - Professional Ionicons everywhere, zero emoji in UI elements.
+ *   - Fix: weight_g=0 was rendering as bare text node (crash).
+ */
+
 import React, {
   useState,
   useEffect,
@@ -11,11 +22,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Modal,
   ActivityIndicator,
-  Dimensions,
+  Animated,
   Platform,
-  PixelRatio,
+  AppState,
+  AppStateStatus,
+  Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import MapView, {
@@ -23,22 +35,24 @@ import MapView, {
   Circle as MapCircle,
   UrlTile,
   PROVIDER_DEFAULT,
-  Region,
 } from "react-native-maps";
+import { router } from "expo-router";
 import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { getMapData, getLocationWeather } from "../../lib/api-client";
-import type { MapMarker } from "../../lib/api-client";
+
+import { getMapData } from "../../lib/api-client";
+import type { MapMarker, FishingSpot } from "../../lib/api-client";
 import {
-  COLORS,
-  FONTS,
-  SPACING,
-  RADIUS,
-  FISH_SPECIES,
-} from "../../lib/constants";
+  fishingSpotsStream,
+  type ScanProgress,
+  type ScanResult,
+} from "../../lib/fishing-spots-stream-client";
+import { COLORS, FONTS, SPACING, RADIUS } from "../../lib/constants";
 import { useLanguage } from "../../lib/i18n";
 import { useNetwork } from "../../lib/network-context";
-import { Button } from "../../components/ui/Button";
+import { ProfileMenu } from "../../components/ui/ProfileMenu";
+import { OfflineFeatureMessage } from "../../components/ui/OfflineFeatureMessage";
 import {
   fetchLiveAlerts,
   computeSafetyStatus,
@@ -46,1951 +60,1885 @@ import {
   getAlertIcon,
 } from "../../lib/alerts";
 import type { DisasterAlert } from "../../lib/alerts";
-import { DisasterAlerts } from "../../components/map/DisasterAlerts";
-import {
-  checkAndNotifyNearbyAlerts,
-  setupNotificationListener,
-  initializeNotificationService,
-} from "../../lib/notification-service";
-import { FishermanTools } from "../../components/map/FishermanTools";
-import { ZoneInsights } from "../../components/map/ZoneInsights";
-import {
-  WeatherLayers,
-  WeatherLayerControls,
-  type WeatherLayer,
-} from "../../components/map/WeatherLayers";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
-import { ProfileMenu } from "../../components/ui/ProfileMenu";
+import { requestNotificationPermissions } from "../../lib/notification-service";
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+const OWM_KEY = process.env.EXPO_PUBLIC_OWM_API_KEY || "";
+const { width: SCREEN_W } = Dimensions.get("window");
 
-// High-DPI tile support
-const TILE_SIZE = 256;
-const SCALE = PixelRatio.get();
-const USE_RETINA = SCALE >= 2;
-
-const GRADE_COLORS: Record<string, string> = {
-  Premium: COLORS.success,
-  Standard: COLORS.warning,
-  Low: COLORS.error,
+// ── Constants ────────────────────────────────────────────────────────────────
+const SATELLITE_TILE = "https://mt1.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}";
+const OWM_LAYER_IDS: Record<string, string> = {
+  temp: "temp_new",
+  wind: "wind_new",
+  pressure: "pressure_new",
 };
 
-const OWM_API_KEY = process.env.EXPO_PUBLIC_OWM_API_KEY || "";
-
-// India-only bounds
-const INDIA_REGION: Region = {
-  latitude: 16.0,
-  longitude: 76.0,
-  latitudeDelta: 25,
-  longitudeDelta: 25,
-};
-
-const INDIA_BOUNDARY = {
-  northEast: { latitude: 38.0, longitude: 100.0 },
-  southWest: { latitude: 4.0, longitude: 64.0 },
-};
-
-const WEATHER_LAYERS: {
-  id: WeatherLayer | "none";
-  label: string;
-  icon: React.ComponentProps<typeof Ionicons>["name"];
-}[] = [
-  { id: "none", label: "Catches", icon: "fish-outline" },
-  { id: "temperature", label: "Temp", icon: "thermometer-outline" },
-  { id: "wind", label: "Wind", icon: "flag-outline" },
-  { id: "pressure", label: "Pressure", icon: "radio-button-off-outline" },
-  { id: "clouds", label: "Clouds", icon: "cloudy-outline" },
+type LayerId = "temp" | "wind" | "pressure";
+const LAYERS: { id: LayerId; label: string; icon: string; desc: string }[] = [
+  {
+    id: "temp",
+    label: "Temperature",
+    icon: "thermometer-outline",
+    desc: "°C surface",
+  },
+  { id: "wind", label: "Wind Speed", icon: "flag-outline", desc: "m/s" },
+  {
+    id: "pressure",
+    label: "Pressure",
+    icon: "radio-button-off-outline",
+    desc: "hPa",
+  },
 ];
 
-interface TappedWeather {
-  latitude: number;
-  longitude: number;
-  current?: {
-    temperature: number;
-    windSpeed: number;
-    windDirection: number;
-    pressure: number;
-    humidity: number;
-    conditions: string;
-    icon: string;
-  };
-  forecast?: Array<{
-    time: string;
-    temperature: number;
-    conditions: string;
-    icon: string;
-  }>;
-  location?: {
-    name: string;
-    latitude: number;
-    longitude: number;
-  };
-  loading: boolean;
-  error?: string;
-}
+type ScaleStop = { color: string; value: string };
+const WEATHER_SCALES: Record<
+  LayerId,
+  { label: string; unit: string; stops: ScaleStop[] }
+> = {
+  temp: {
+    label: "Temperature",
+    unit: "°C",
+    stops: [
+      { color: "#821692", value: "-40" },
+      { color: "#0000ff", value: "-20" },
+      { color: "#00d4ff", value: "0" },
+      { color: "#00ff00", value: "10" },
+      { color: "#ffff00", value: "20" },
+      { color: "#ff8c00", value: "30" },
+      { color: "#ff0000", value: "40" },
+    ],
+  },
+  wind: {
+    label: "Wind Speed",
+    unit: "m/s",
+    stops: [
+      { color: "#ffffff", value: "0" },
+      { color: "#aef1f9", value: "5" },
+      { color: "#4dc9f6", value: "10" },
+      { color: "#1a9edb", value: "15" },
+      { color: "#ff8c00", value: "25" },
+      { color: "#ff0000", value: "35" },
+    ],
+  },
+  pressure: {
+    label: "Pressure",
+    unit: "hPa",
+    stops: [
+      { color: "#0000ff", value: "950" },
+      { color: "#00bfff", value: "980" },
+      { color: "#00ff00", value: "1000" },
+      { color: "#ffff00", value: "1013" },
+      { color: "#ff8c00", value: "1030" },
+      { color: "#ff0000", value: "1050" },
+    ],
+  },
+};
 
+const GRADE_COLOR: Record<string, string> = {
+  Premium: COLORS.secondaryLight,
+  Standard: COLORS.accentLight,
+  Low: "#ef4444",
+};
+
+// ── Deep-scan stage copy ──────────────────────────────────────────────────────
+const SCAN_STAGE_LABELS: Record<string, string> = {
+  init: "Initialising",
+  osm: "Mapping Water Bodies",
+  history: "Loading Catch History",
+  scan: "Deep Scanning",
+  finalise: "Finalising",
+  done: "Complete",
+};
+
+const SCAN_STAGE_ICONS: Record<string, string> = {
+  init: "radio-outline",
+  osm: "globe-outline",
+  history: "server-outline",
+  scan: "scan-outline",
+  finalise: "analytics-outline",
+  done: "checkmark-circle-outline",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 export default function MapScreen() {
-  const { t, isLoaded } = useLanguage();
-  const { effectiveMode, connectionQuality } = useNetwork();
+  const { t } = useLanguage();
+  const { isOnline } = useNetwork();
+
+  // ── Catch markers ────────────────────────────────────────────────────────
   const [markers, setMarkers] = useState<MapMarker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
-  const [filterSpecies, setFilterSpecies] = useState("All Species");
-  const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [activeWeatherLayer, setActiveWeatherLayer] =
-    useState<WeatherLayer | null>(null);
-  const [layerOpacity, setLayerOpacity] = useState(0.7);
-  const [tappedWeather, setTappedWeather] = useState<TappedWeather | null>(
-    null,
-  );
-  const [bottomSheet, setBottomSheet] = useState<
-    "none" | "tools" | "insights" | "alerts" | "layers"
-  >("none");
-  const mapRef = useRef<MapView>(null);
+  const [loadingMarkers, setLoadingMarkers] = useState(true);
 
-  // Alerts
+  // ── Weather layer ─────────────────────────────────────────────────────────
+  const [activeLayer, setActiveLayer] = useState<LayerId | null>(null);
+  const [layersPopupVisible, setLayersPopupVisible] = useState(false);
+
+  // ── Alerts ────────────────────────────────────────────────────────────────
   const [alerts, setAlerts] = useState<DisasterAlert[]>([]);
-  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertsVisible, setAlertsVisible] = useState(false);
 
-  // User location
+  // ── Location + sun ────────────────────────────────────────────────────────
   const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [locationPermission, setLocationPermission] = useState(false);
+  const [sunTimes, setSunTimes] = useState<{
+    sunrise: string;
+    sunset: string;
   } | null>(null);
 
+  // ── Tap-on-map floating card ──────────────────────────────────────────────
+  const [tapCard, setTapCard] = useState<{
+    lat: number;
+    lng: number;
+    temp?: number;
+    wind?: number;
+    humidity?: number;
+    description?: string;
+    loading: boolean;
+    cardX?: number;
+    cardY?: number;
+  } | null>(null);
+
+  // ── Fishing spots (scan results) ──────────────────────────────────────────
+  const [fishingSpots, setFishingSpots] = useState<FishingSpot[]>([]);
+  const [spotsVisible, setSpotsVisible] = useState(false);
+  const [selectedSpot, setSelectedSpot] = useState<FishingSpot | null>(null);
+
+  // ── Deep-scan overlay state ───────────────────────────────────────────────
+  type ScanState = "idle" | "scanning" | "done" | "error" | "cancelled";
+  const [scanState, setScanState] = useState<ScanState>("idle");
+  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
+  const [scanMessages, setScanMessages] = useState<string[]>([]);
+  const [scanSummary, setScanSummary] = useState("");
+  const [scanError, setScanError] = useState("");
+
+  // Pulse animation for the deep scan FAB when scan is running
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+
+  // ── Catch marker selection ────────────────────────────────────────────────
+  const [selectedMarker, setSelectedMarker] = useState<MapMarker | null>(null);
+
+  const mapRef = useRef<MapView>(null);
+  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const scanMessages_ref = useRef<string[]>([]);
+
   const safetyStatus = useMemo(() => {
-    if (!userLocation) return null;
-    return computeSafetyStatus(
-      userLocation.latitude,
-      userLocation.longitude,
-      alerts,
-    );
+    if (!userLocation || !alerts.length) return null;
+    return computeSafetyStatus(userLocation.lat, userLocation.lng, alerts);
   }, [userLocation, alerts]);
 
-  // Fetch user location
+  // ── Notification setup ────────────────────────────────────────────────────
+  useEffect(() => {
+    requestNotificationPermissions().catch(console.error);
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+  }, []);
+
+  // ── AppState tracking (to know if user left the page) ─────────────────────
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      appState.current = state;
+    });
+    return () => sub.remove();
+  }, []);
+
+  // ── GPS ───────────────────────────────────────────────────────────────────
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const loc = await Location.getCurrentPositionAsync({});
-        setUserLocation({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        });
-      }
+      if (status !== "granted") return;
+      setLocationPermission(true);
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
     })();
   }, []);
 
-  // Load persisted layer preference
+  // ── Sunrise / Sunset ──────────────────────────────────────────────────────
   useEffect(() => {
-    const loadLayerPreference = async () => {
-      try {
-        const savedLayer = await AsyncStorage.getItem("@map_weather_layer");
-        const savedOpacity = await AsyncStorage.getItem("@map_layer_opacity");
-        if (savedLayer && savedLayer !== "none") {
-          setActiveWeatherLayer(savedLayer as WeatherLayer);
+    if (!OWM_KEY || !userLocation) return;
+    fetch(
+      `https://api.openweathermap.org/data/2.5/weather?lat=${userLocation.lat}&lon=${userLocation.lng}&appid=${OWM_KEY}`,
+    )
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.sys?.sunrise && d.sys?.sunset) {
+          const fmt = (ts: number) =>
+            new Date(ts * 1000).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          setSunTimes({
+            sunrise: fmt(d.sys.sunrise),
+            sunset: fmt(d.sys.sunset),
+          });
         }
-        if (savedOpacity) {
-          setLayerOpacity(parseFloat(savedOpacity));
-        }
-      } catch (error) {
-        console.warn("Failed to load layer preference:", error);
-      }
-    };
-    loadLayerPreference();
-  }, []);
-
-  // Persist layer preference when it changes
-  useEffect(() => {
-    const saveLayerPreference = async () => {
-      try {
-        await AsyncStorage.setItem(
-          "@map_weather_layer",
-          activeWeatherLayer || "none",
-        );
-      } catch (error) {
-        console.warn("Failed to save layer preference:", error);
-      }
-    };
-    saveLayerPreference();
-  }, [activeWeatherLayer]);
-
-  // Persist opacity preference when it changes
-  useEffect(() => {
-    const saveOpacityPreference = async () => {
-      try {
-        await AsyncStorage.setItem("@map_layer_opacity", String(layerOpacity));
-      } catch (error) {
-        console.warn("Failed to save opacity preference:", error);
-      }
-    };
-    saveOpacityPreference();
-  }, [layerOpacity]);
-
-  // Initialize notification service
-  useEffect(() => {
-    initializeNotificationService();
-
-    // Set up notification tap handler
-    const subscription = setupNotificationListener((alertId) => {
-      // When user taps notification, open alerts bottom sheet
-      setBottomSheet("alerts");
-    });
-
-    return () => {
-      subscription.remove();
-    };
-  }, []);
-
-  // Fetch live alerts
-  useEffect(() => {
-    fetchLiveAlerts(OWM_API_KEY)
-      .then(setAlerts)
-      .catch(console.error)
-      .finally(() => setAlertsLoading(false));
-    const timer = setInterval(
-      () => {
-        fetchLiveAlerts(OWM_API_KEY).then(setAlerts).catch(console.error);
-      },
-      5 * 60 * 1000,
-    );
-    return () => clearInterval(timer);
-  }, []);
-
-  // Check for nearby critical alerts and send notifications
-  useEffect(() => {
-    if (alerts.length > 0 && userLocation) {
-      checkAndNotifyNearbyAlerts(alerts, userLocation);
-    }
-  }, [alerts, userLocation]);
-
-  // Fetch map data
-  useEffect(() => {
-    loadMapData();
-  }, [filterSpecies]);
-
-  const loadMapData = async () => {
-    setLoading(true);
-    try {
-      const data = await getMapData(
-        filterSpecies !== "All Species"
-          ? { species: filterSpecies }
-          : undefined,
-      );
-      setMarkers(data.markers);
-    } catch {
-      setMarkers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Optimize marker rendering - limit to visible markers and use memoization
-  const filteredMarkers = useMemo(() => {
-    const filtered =
-      filterSpecies === "All Species"
-        ? markers
-        : markers.filter((m) => m.species === filterSpecies);
-
-    // Limit to 30 most recent markers for fast loading
-    return filtered.slice(0, 30);
-  }, [markers, filterSpecies]);
-
-  const handleMapPress = useCallback(async (e: any) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
-    setSelectedMarker(null);
-    setBottomSheet("none");
-    setTappedWeather({ latitude, longitude, loading: true });
-    try {
-      const weatherData = await getLocationWeather(latitude, longitude);
-      setTappedWeather({
-        latitude,
-        longitude,
-        current: weatherData.current,
-        forecast: weatherData.forecast,
-        location: weatherData.location,
-        loading: false,
-      });
-    } catch (error) {
-      console.error("Failed to fetch location weather:", error);
-      setTappedWeather({
-        latitude,
-        longitude,
-        loading: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to load weather data",
-      });
-    }
-  }, []);
-
-  const handleLocateUser = useCallback(() => {
-    if (!mapRef.current) return;
-    if (userLocation) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          latitudeDelta: 2,
-          longitudeDelta: 2,
-        },
-        800,
-      );
-    }
+      })
+      .catch(console.error);
   }, [userLocation]);
 
-  if (!isLoaded) return null;
+  // ── Load catch markers ────────────────────────────────────────────────────
+  const loadMarkers = useCallback(async () => {
+    setLoadingMarkers(true);
+    try {
+      const data = await getMapData();
+      setMarkers(data.markers || []);
+    } catch (e) {
+      console.error("Map data error:", e);
+    } finally {
+      setLoadingMarkers(false);
+    }
+  }, []);
 
-  const topAlert =
-    alerts.length > 0
-      ? [...alerts].sort((a, b) => {
-          const o: Record<string, number> = { red: 0, orange: 1, yellow: 2 };
-          return o[a.severity] - o[b.severity];
-        })[0]
-      : null;
+  useEffect(() => {
+    loadMarkers();
+  }, [loadMarkers]);
 
+  // ── Live Alerts ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!OWM_KEY || !isOnline) return;
+    const poll = () =>
+      fetchLiveAlerts(OWM_KEY).then(setAlerts).catch(console.error);
+    poll();
+    const id = setInterval(poll, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [isOnline]);
+
+  // ── Deep Scan FAB pulse animation ─────────────────────────────────────────
+  useEffect(() => {
+    if (scanState === "scanning") {
+      pulseLoop.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.18,
+            duration: 700,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1.0,
+            duration: 700,
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      pulseLoop.current.start();
+    } else {
+      pulseLoop.current?.stop();
+      pulseAnim.setValue(1);
+    }
+  }, [scanState]);
+
+  // ── Deep Scan – start ─────────────────────────────────────────────────────
+  const startDeepScan = useCallback(() => {
+    if (!userLocation) return;
+    setScanState("scanning");
+    setScanProgress(null);
+    setScanMessages([]);
+    setScanSummary("");
+    setScanError("");
+    scanMessages_ref.current = [];
+
+    fishingSpotsStream.stream({
+      lat: userLocation.lat,
+      lon: userLocation.lng,
+      radiusKm: 50,
+
+      onProgress: (prog) => {
+        setScanProgress(prog);
+        setScanMessages((prev) => {
+          const next = [...prev, prog.message];
+          scanMessages_ref.current = next;
+          // Keep only last 30 messages to avoid runaway list
+          return next.slice(-30);
+        });
+      },
+
+      onResult: (result: ScanResult) => {
+        setFishingSpots(result.spots);
+        setSpotsVisible(true);
+        setScanState("done");
+        setScanSummary(result.summary);
+
+        // Notify if user left the page
+        if (appState.current !== "active") {
+          const count = result.spots.length;
+          Notifications.scheduleNotificationAsync({
+            content: {
+              title: "Deep Scan Complete",
+              body: `Found ${count} fishing spot${count !== 1 ? "s" : ""} near you.`,
+              data: { screen: "map" },
+              sound: "default",
+            },
+            trigger: null,
+          }).catch(console.error);
+        }
+      },
+
+      onError: (msg) => {
+        setScanState("error");
+        setScanError(msg);
+      },
+
+      onCancelled: () => {
+        setScanState("cancelled");
+      },
+    });
+  }, [userLocation]);
+
+  // ── Deep Scan – cancel ────────────────────────────────────────────────────
+  const cancelDeepScan = useCallback(() => {
+    fishingSpotsStream.cancel();
+    setScanState("cancelled");
+  }, []);
+
+  // ── Deep Scan – dismiss overlay ──────────────────────────────────────────
+  const dismissScan = useCallback(() => {
+    if (scanState === "scanning") {
+      cancelDeepScan();
+    }
+    setScanState("idle");
+  }, [scanState, cancelDeepScan]);
+
+  // ── Tap-anywhere: weather + floating card ────────────────────────────────
+  const handleMapPress = useCallback(
+    async (e: {
+      nativeEvent: { coordinate: { latitude: number; longitude: number } };
+    }) => {
+      if (layersPopupVisible) {
+        setLayersPopupVisible(false);
+        return;
+      }
+      if (!OWM_KEY) return;
+      const { latitude: lat, longitude: lng } = e.nativeEvent.coordinate;
+      setSelectedMarker(null);
+      setSelectedSpot(null);
+
+      // Calculate screen position for the floating card
+      let cardX: number | undefined;
+      let cardY: number | undefined;
+      if (mapRef.current) {
+        try {
+          const pt = await mapRef.current.pointForCoordinate({
+            latitude: lat,
+            longitude: lng,
+          });
+          cardX = Math.max(8, Math.min(pt.x - 110, SCREEN_W - 228));
+          cardY = Math.max(8, pt.y - 195);
+        } catch {
+          // fall back to top-left
+        }
+      }
+
+      setTapCard({ lat, lng, loading: true, cardX, cardY });
+      try {
+        const r = await fetch(
+          `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&appid=${OWM_KEY}&units=metric`,
+        );
+        const d = await r.json();
+        setTapCard({
+          lat,
+          lng,
+          loading: false,
+          cardX,
+          cardY,
+          temp: d.main?.temp,
+          wind: d.wind?.speed,
+          humidity: d.main?.humidity,
+          description: d.weather?.[0]?.description,
+        });
+      } catch {
+        setTapCard(null);
+      }
+    },
+    [layersPopupVisible],
+  );
+
+  // ── Recenter ──────────────────────────────────────────────────────────────
+  const handleRecenter = useCallback(() => {
+    if (!userLocation || !mapRef.current) return;
+    mapRef.current.animateToRegion(
+      {
+        latitude: userLocation.lat,
+        longitude: userLocation.lng,
+        latitudeDelta: 1.5,
+        longitudeDelta: 1.5,
+      },
+      800,
+    );
+  }, [userLocation]);
+
+  // ── Send tapped location to AI chat ──────────────────────────────────────
+  const sendLocationToAI = useCallback(() => {
+    if (!tapCard) return;
+    router.push({
+      pathname: "/(tabs)/chat",
+      params: {
+        markerType: "ocean location",
+        markerCoordinates: `${tapCard.lat.toFixed(5)}, ${tapCard.lng.toFixed(5)}`,
+      },
+    });
+  }, [tapCard]);
+
+  const validMarkers = useMemo(
+    () =>
+      markers.filter(
+        (m) => Number.isFinite(m.latitude) && Number.isFinite(m.longitude),
+      ),
+    [markers],
+  );
+
+  const owmTileUrl = useMemo(() => {
+    if (!activeLayer || !OWM_KEY) return null;
+    return `https://tile.openweathermap.org/map/${OWM_LAYER_IDS[activeLayer]}/{z}/{x}/{y}.png?appid=${OWM_KEY}`;
+  }, [activeLayer]);
+
+  const currentScale = activeLayer ? WEATHER_SCALES[activeLayer] : null;
+
+  const scanOverlayVisible = scanState !== "idle";
+
+  // ── Offline guard ─────────────────────────────────────────────────────────
+  if (!isOnline) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>{t("nav.oceanMap")}</Text>
+          <ProfileMenu size={34} />
+        </View>
+        <OfflineFeatureMessage featureName="Ocean Map" />
+      </SafeAreaView>
+    );
+  }
+
+  const scanFabLabel =
+    scanState === "scanning"
+      ? "Scanning…"
+      : scanState === "done"
+        ? "Spots Found"
+        : "Deep Scan";
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Offline Overlay */}
-      {effectiveMode === "offline" && (
-        <View style={styles.offlineOverlay}>
-          <View style={styles.offlineCard}>
-            <Ionicons
-              name={
-                connectionQuality === "poor"
-                  ? "speedometer-outline"
-                  : "cloud-offline"
-              }
-              size={48}
-              color={COLORS.warning}
-            />
-            <Text style={styles.offlineTitle}>
-              {connectionQuality === "poor"
-                ? "Slow Connection"
-                : "No Internet Connection"}
-            </Text>
-            <Text style={styles.offlineText}>
-              {connectionQuality === "poor"
-                ? "Ocean Map requires a stable internet connection. Your connection is too slow to load real-time data."
-                : "Ocean Map requires an active internet connection to display real-time data and alerts."}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {/* ── Alert Banner ─────────────────────────────────── */}
-      {topAlert && (
-        <TouchableOpacity
-          style={[
-            styles.alertBanner,
-            { borderColor: getSeverityColor(topAlert.severity) + "40" },
-          ]}
-          onPress={() => setBottomSheet("alerts")}
-          activeOpacity={0.8}
-        >
-          <Ionicons
-            name={
-              getAlertIcon(topAlert.type) as React.ComponentProps<
-                typeof Ionicons
-              >["name"]
-            }
-            size={22}
-            color={getSeverityColor(topAlert.severity)}
-            style={{ width: 22 }}
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.alertTitle} numberOfLines={1}>
-              {topAlert.title}
-            </Text>
-            <Text style={styles.alertDesc} numberOfLines={1}>
-              {topAlert.description}
-            </Text>
-          </View>
-          <View
-            style={[
-              styles.safetyBadge,
-              safetyStatus === "UNSAFE" ? styles.unsafeBadge : styles.safeBadge,
-            ]}
-          >
-            <Text
-              style={[
-                styles.safetyText,
-                {
-                  color:
-                    safetyStatus === "UNSAFE" ? COLORS.error : COLORS.success,
-                },
-              ]}
-            >
-              {safetyStatus ?? "..."}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      )}
-
-      {/* ── Header ───────────────────────────────────────── */}
+      {/* ── HEADER ─────────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>{t("nav.oceanMap")}</Text>
-          <Text style={styles.subtitle}>
-            {filteredMarkers.length} catches • {alerts.length} alerts
+        <View style={styles.headerText}>
+          <Text style={styles.headerTitle}>{t("nav.oceanMap")}</Text>
+          <Text style={styles.headerSub}>
+            {validMarkers.length} catches
+            {alerts.length > 0 ? `  ·  ${alerts.length} alerts` : ""}
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.filterBtn}
-          onPress={() => setFilterModalVisible(true)}
-          activeOpacity={0.8}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <Ionicons name="search" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.filterBtnText}>
-              {filterSpecies === "All Species"
-                ? "Filter"
-                : filterSpecies.split(" ")[0]}
-            </Text>
-          </View>
-        </TouchableOpacity>
-        <ProfileMenu size={36} />
-      </View>
 
-      {/* ── Weather Layer Tabs ────────────────────────────── */}
-      <View style={styles.layerTabsContainer}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.layerTabsScroll}
-        >
-          {WEATHER_LAYERS.map((layer) => {
-            const isActive =
-              layer.id === "none"
-                ? !activeWeatherLayer
-                : activeWeatherLayer === layer.id;
-            return (
-              <TouchableOpacity
-                key={layer.id}
-                style={[styles.layerTab, isActive && styles.layerTabActive]}
-                onPress={() =>
-                  setActiveWeatherLayer(layer.id === "none" ? null : layer.id)
-                }
-                activeOpacity={0.8}
-              >
-                <View
-                  style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
-                >
-                  <Ionicons
-                    name={layer.icon}
-                    size={13}
-                    color={isActive ? COLORS.primaryLight : COLORS.textMuted}
-                  />
-                  <Text
-                    style={[
-                      styles.layerTabText,
-                      isActive && styles.layerTabTextActive,
-                    ]}
-                  >
-                    {layer.label}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
-
-      {/* ── Quick Tools Bar ──────────────────────────────── */}
-      <View style={styles.quickBar}>
-        {(
-          [
-            { id: "layers", icon: "layers-outline", label: "Layers" },
-            { id: "tools", icon: "compass-outline", label: "Tools" },
-            { id: "insights", icon: "analytics-outline", label: "Insights" },
-            { id: "alerts", icon: "warning-outline", label: "Alerts" },
-          ] as const
-        ).map((btn) => {
-          const isActive = bottomSheet === btn.id;
-          return (
-            <TouchableOpacity
-              key={btn.id}
-              style={[styles.quickBtn, isActive && styles.quickBtnActive]}
-              onPress={() =>
-                setBottomSheet(bottomSheet === btn.id ? "none" : btn.id)
-              }
-              activeOpacity={0.7}
-            >
-              <View style={styles.quickBtnInner}>
-                <Ionicons
-                  name={btn.icon}
-                  size={13}
-                  color={isActive ? COLORS.primaryLight : COLORS.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.quickBtnText,
-                    isActive && styles.quickBtnTextActive,
-                  ]}
-                >
-                  {btn.label}
-                  {btn.id === "alerts" && alerts.length > 0
-                    ? ` (${alerts.length})`
-                    : ""}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
         <TouchableOpacity
-          style={styles.quickBtn}
-          onPress={handleLocateUser}
+          style={styles.iconBtn}
+          onPress={loadMarkers}
+          disabled={loadingMarkers}
           activeOpacity={0.7}
         >
-          <View style={styles.quickBtnInner}>
-            <Ionicons
-              name="locate-outline"
-              size={13}
-              color={COLORS.textSecondary}
-            />
-            <Text style={styles.quickBtnText}>Me</Text>
-          </View>
+          {loadingMarkers ? (
+            <ActivityIndicator size="small" color={COLORS.primaryLight} />
+          ) : (
+            <Ionicons name="refresh" size={18} color={COLORS.textSecondary} />
+          )}
         </TouchableOpacity>
+
+        {/* Alerts chip */}
+        <TouchableOpacity
+          style={[styles.pillBtn, alertsVisible && styles.pillBtnAlert]}
+          onPress={() => setAlertsVisible((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="warning-outline"
+            size={12}
+            color={alertsVisible ? "#f87171" : COLORS.textSecondary}
+          />
+          <Text
+            style={[styles.pillBtnText, alertsVisible && { color: "#f87171" }]}
+          >
+            Alerts{alerts.length > 0 ? ` (${alerts.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
+        <ProfileMenu size={34} />
       </View>
 
-      {/* ── Map ──────────────────────────────────────────── */}
-      <View style={styles.mapContainer}>
-        {loading && (
-          <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+      {/* ── SUNRISE / SUNSET STRIP ────────────────────────────────────── */}
+      {sunTimes && (
+        <View style={styles.sunStrip}>
+          <Ionicons name="sunny-outline" size={13} color={COLORS.accentLight} />
+          <Text style={styles.sunText}>Rise {sunTimes.sunrise}</Text>
+          <View style={styles.sunDivider} />
+          <Ionicons name="moon-outline" size={13} color={COLORS.accentLight} />
+          <Text style={styles.sunText}>Set {sunTimes.sunset}</Text>
+          {safetyStatus && (
+            <>
+              <View style={styles.sunDivider} />
+              <View
+                style={[
+                  styles.safetyBadge,
+                  safetyStatus === "SAFE"
+                    ? styles.safeBadge
+                    : styles.unsafeBadge,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.safetyText,
+                    {
+                      color:
+                        safetyStatus === "SAFE"
+                          ? COLORS.secondaryLight
+                          : "#f87171",
+                    },
+                  ]}
+                >
+                  {safetyStatus}
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* ── ACTIVE LAYER LEGEND ───────────────────────────────────────── */}
+      {activeLayer && currentScale && (
+        <View style={styles.legendBox}>
+          <Text style={styles.legendLabel}>
+            {currentScale.label} ({currentScale.unit})
+          </Text>
+          <View style={styles.legendBar}>
+            {currentScale.stops.map((s, i) => (
+              <View
+                key={i}
+                style={[styles.legendSegment, { backgroundColor: s.color }]}
+              />
+            ))}
           </View>
-        )}
+          <View style={styles.legendValues}>
+            {currentScale.stops.map((s, i) => (
+              <Text key={i} style={styles.legendValue}>
+                {s.value}
+              </Text>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* ── MAP ───────────────────────────────────────────────────────── */}
+      <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
           style={styles.map}
           provider={PROVIDER_DEFAULT}
-          initialRegion={INDIA_REGION}
-          mapType="none"
-          showsUserLocation
-          showsCompass
-          showsMyLocationButton={false}
-          minZoomLevel={4}
-          maxZoomLevel={20}
-          loadingEnabled={false}
-          moveOnMarkerPress={false}
-          pitchEnabled={false}
-          rotateEnabled={false}
-          scrollEnabled={true}
-          zoomEnabled={true}
-          zoomTapEnabled={true}
-          zoomControlEnabled={false}
-          toolbarEnabled={false}
+          initialRegion={{
+            latitude: userLocation?.lat ?? 16.0,
+            longitude: userLocation?.lng ?? 76.0,
+            latitudeDelta: userLocation ? 6 : 18,
+            longitudeDelta: userLocation ? 6 : 18,
+          }}
           onPress={handleMapPress}
+          showsUserLocation={locationPermission}
+          showsMyLocationButton={false}
+          mapType={Platform.OS === "android" ? "none" : "standard"}
         >
-          {/* Google Satellite Tiles - High-DPI optimized */}
-          <UrlTile
-            urlTemplate={
-              USE_RETINA
-                ? "https://mt1.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}&scale=2"
-                : "https://mt1.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}"
-            }
-            maximumZ={20}
-            minimumZ={4}
-            tileSize={TILE_SIZE}
-          />
-          {/* Weather overlay - only load if active */}
-          {activeWeatherLayer && (
-            <WeatherLayers
-              activeLayer={activeWeatherLayer}
-              onLayerChange={setActiveWeatherLayer}
-              opacity={layerOpacity}
+          <UrlTile urlTemplate={SATELLITE_TILE} maximumZ={20} tileSize={256} />
+
+          {owmTileUrl && (
+            <UrlTile
+              urlTemplate={owmTileUrl}
+              maximumZ={20}
+              tileSize={256}
+              opacity={0.5}
             />
           )}
 
-          {/* Disaster Alerts Component - only load if there are alerts */}
-          {alerts.length > 0 && (
-            <DisasterAlerts
-              alerts={alerts}
-              userLocation={userLocation}
-              onAlertPress={(alert) => {
-                setSelectedMarker(null);
-                setTappedWeather(null);
-              }}
-            />
-          )}
-
-          {/* Zone Insights Component - only load if user location is available */}
-          {userLocation && (
-            <ZoneInsights
-              userLocation={userLocation}
-              onZoneSelect={(zoneId) => {
-                setSelectedMarker(null);
-                setTappedWeather(null);
-                setBottomSheet("none");
-              }}
-              onRefresh={() => {
-                // Refresh map data when zone insights are refreshed
-                loadMapData();
-              }}
-            />
-          )}
-
-          {/* API fetch markers - Use Circle for better performance */}
-          {filteredMarkers.map((marker) => (
-            <MapCircle
-              key={marker.imageId}
-              center={{
-                latitude: marker.latitude,
-                longitude: marker.longitude,
-              }}
-              radius={25000}
-              fillColor={`${GRADE_COLORS[marker.qualityGrade ?? "Standard"]}99`}
-              strokeColor={GRADE_COLORS[marker.qualityGrade ?? "Standard"]}
-              strokeWidth={2}
-              zIndex={999}
-              // @ts-ignore — onPress works at runtime; typedefs for react-native-maps lag behind
+          {validMarkers.map((m) => (
+            <Marker
+              key={m.imageId}
+              coordinate={{ latitude: m.latitude, longitude: m.longitude }}
               onPress={() => {
-                setTappedWeather(null);
-                setSelectedMarker(marker);
-                setBottomSheet("none");
+                setSelectedMarker(m);
+                setTapCard(null);
+                setSelectedSpot(null);
               }}
-            />
+              tracksViewChanges={false}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor:
+                      GRADE_COLOR[m.qualityGrade ?? ""] ?? GRADE_COLOR.Low,
+                  },
+                ]}
+              >
+                <Ionicons name="fish-outline" size={13} color="#fff" />
+              </View>
+            </Marker>
           ))}
+
+          {spotsVisible &&
+            fishingSpots.map((spot, i) => (
+              <MapCircle
+                key={`spot-${i}`}
+                center={{ latitude: spot.latitude, longitude: spot.longitude }}
+                radius={600}
+                fillColor={spot.color + "88"}
+                strokeColor={spot.color}
+                strokeWidth={1.5}
+                onStartShouldSetResponder={() => {
+                  setSelectedSpot(spot);
+                  setTapCard(null);
+                  setSelectedMarker(null);
+                  return true;
+                }}
+              />
+            ))}
+
+          {/* Tap-on-map pin */}
+          {tapCard && (
+            <Marker
+              coordinate={{ latitude: tapCard.lat, longitude: tapCard.lng }}
+              tracksViewChanges={false}
+              anchor={{ x: 0.5, y: 1 }}
+            >
+              <Ionicons name="location" size={28} color={COLORS.primaryLight} />
+            </Marker>
+          )}
         </MapView>
 
-        {/* No data message */}
-        {!loading && filteredMarkers.length === 0 && (
-          <View style={styles.recZone}>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                marginBottom: 4,
-              }}
-            >
-              <Ionicons
-                name="cloudy-night-outline"
-                size={18}
-                color={COLORS.textMuted}
-              />
-              <Text style={styles.recZoneTitle}>No Data</Text>
-            </View>
-            <Text style={styles.recZoneText}>No catch data available</Text>
-            <Text style={styles.recZoneSub}>Upload catches to see markers</Text>
-          </View>
-        )}
-      </View>
-
-      {/* ── API Marker Info Sheet ─────────────────────────── */}
-      {selectedMarker && (
-        <>
+        {/* ── Map FABs (right column) ──────────────────────────────────── */}
+        <View style={styles.fabRight}>
+          {/* Recenter */}
           <TouchableOpacity
-            style={styles.backdrop}
-            activeOpacity={1}
-            onPress={() => setSelectedMarker(null)}
-          />
-          <View style={styles.infoSheet}>
-            <View style={styles.infoSheetHandle} />
-            <View style={styles.infoSheetContent}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoSpecies}>
-                  {selectedMarker.species ?? "Unknown"}
-                </Text>
-                <View
-                  style={[
-                    styles.gradeBadge,
-                    {
-                      backgroundColor:
-                        GRADE_COLORS[
-                          selectedMarker.qualityGrade ?? "Standard"
-                        ] + "20",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.gradeText,
-                      {
-                        color:
-                          GRADE_COLORS[
-                            selectedMarker.qualityGrade ?? "Standard"
-                          ],
-                      },
-                    ]}
-                  >
-                    {selectedMarker.qualityGrade}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.infoDetails}>
-                <View style={styles.infoDetailItem}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Ionicons
-                      name="scale-outline"
-                      size={12}
-                      color={COLORS.textMuted}
-                    />
-                    <Text style={styles.infoDetailLabel}>Weight</Text>
-                  </View>
-                  <Text style={styles.infoDetailValue}>
-                    {selectedMarker.weight_g
-                      ? `${(selectedMarker.weight_g / 1000).toFixed(2)} kg`
-                      : "—"}
-                  </Text>
-                </View>
-                <View style={styles.infoDetailItem}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Ionicons
-                      name="location-outline"
-                      size={12}
-                      color={COLORS.textMuted}
-                    />
-                    <Text style={styles.infoDetailLabel}>Location</Text>
-                  </View>
-                  <Text style={styles.infoDetailValue}>
-                    {selectedMarker.latitude.toFixed(3)}°N
-                  </Text>
-                </View>
-                <View style={styles.infoDetailItem}>
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <Ionicons
-                      name="calendar-outline"
-                      size={12}
-                      color={COLORS.textMuted}
-                    />
-                    <Text style={styles.infoDetailLabel}>Date</Text>
-                  </View>
-                  <Text style={styles.infoDetailValue}>
-                    {new Date(selectedMarker.createdAt).toLocaleDateString(
-                      "en-IN",
-                    )}
-                  </Text>
-                </View>
-              </View>
-              <TouchableOpacity
-                onPress={() => {
-                  const msg = `Tell me about ${selectedMarker.species} fishing in this area (${selectedMarker.latitude.toFixed(4)}°N, ${selectedMarker.longitude.toFixed(4)}°E). What are the current conditions, best practices, and market outlook?`;
-                  setSelectedMarker(null);
-                  router.push({
-                    pathname: "/(tabs)/chat",
-                    params: { initialMessage: msg },
-                  });
-                }}
-                style={styles.askAgentBtn}
-              >
-                <Ionicons name="chatbubble-ellipses" size={16} color="#fff" />
-                <Text style={styles.askAgentBtnText}>
-                  Ask Agent About This Zone
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setSelectedMarker(null)}
-                style={styles.dismissBtn}
-              >
-                <Text style={styles.dismissText}>Dismiss</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </>
-      )}
-
-      {/* ── Tapped Weather Modal ──────────────────────────── */}
-      <Modal
-        visible={!!tappedWeather && !selectedMarker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setTappedWeather(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.weatherModal}>
-            <View style={styles.infoSheetHandle} />
-            <View style={styles.weatherModalHeader}>
-              <View style={{ flex: 1 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Ionicons
-                    name="location-outline"
-                    size={20}
-                    color={COLORS.primaryLight}
-                  />
-                  <Text style={styles.weatherModalTitle}>
-                    {tappedWeather?.location?.name || "Location Weather"}
-                  </Text>
-                </View>
-                <Text style={styles.coordText}>
-                  {tappedWeather?.latitude.toFixed(4)}°N,{" "}
-                  {tappedWeather?.longitude.toFixed(4)}°E
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setTappedWeather(null)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color={COLORS.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            {tappedWeather?.loading ? (
-              <View style={styles.weatherLoadingContainer}>
-                <ActivityIndicator
-                  size="large"
-                  color={COLORS.primaryLight}
-                  style={{ marginVertical: SPACING.xl }}
-                />
-                <Text style={styles.weatherLoadingText}>
-                  Loading weather data...
-                </Text>
-              </View>
-            ) : tappedWeather?.error ? (
-              <View style={styles.weatherErrorContainer}>
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={48}
-                  color={COLORS.error}
-                  style={{ marginBottom: SPACING.md }}
-                />
-                <Text style={styles.weatherErrorTitle}>
-                  Failed to Load Weather
-                </Text>
-                <Text style={styles.weatherErrorText}>
-                  {tappedWeather.error}
-                </Text>
-                <TouchableOpacity
-                  style={styles.retryButton}
-                  onPress={() => {
-                    if (tappedWeather) {
-                      handleMapPress({
-                        nativeEvent: {
-                          coordinate: {
-                            latitude: tappedWeather.latitude,
-                            longitude: tappedWeather.longitude,
-                          },
-                        },
-                      });
-                    }
-                  }}
-                >
-                  <Ionicons
-                    name="refresh-outline"
-                    size={16}
-                    color={COLORS.primaryLight}
-                  />
-                  <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-              </View>
-            ) : tappedWeather?.current ? (
-              <ScrollView
-                style={styles.weatherModalContent}
-                showsVerticalScrollIndicator={false}
-              >
-                {/* Current Conditions */}
-                <View style={styles.currentWeatherSection}>
-                  <Text style={styles.sectionTitle}>Current Conditions</Text>
-                  <View style={styles.currentWeatherCard}>
-                    <View style={styles.currentWeatherMain}>
-                      <Text style={styles.currentTemp}>
-                        {tappedWeather.current.temperature.toFixed(1)}°C
-                      </Text>
-                      <Text style={styles.currentConditions}>
-                        {tappedWeather.current.conditions}
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Weather Details Grid — 2×2 */}
-                  <View style={styles.weatherDetailsGrid}>
-                    <View style={styles.weatherDetailCard}>
-                      <Ionicons
-                        name="flag-outline"
-                        size={22}
-                        color={COLORS.primaryLight}
-                      />
-                      <Text style={styles.weatherDetailLabel}>Wind Speed</Text>
-                      <Text style={styles.weatherDetailValue}>
-                        {tappedWeather.current.windSpeed.toFixed(1)} m/s
-                      </Text>
-                    </View>
-
-                    <View style={styles.weatherDetailCard}>
-                      <Ionicons
-                        name="compass-outline"
-                        size={22}
-                        color={COLORS.primaryLight}
-                      />
-                      <Text style={styles.weatherDetailLabel}>Wind Dir.</Text>
-                      <Text style={styles.weatherDetailValue}>
-                        {tappedWeather.current.windDirection}°
-                      </Text>
-                    </View>
-
-                    <View style={styles.weatherDetailCard}>
-                      <Ionicons
-                        name="speedometer-outline"
-                        size={22}
-                        color={COLORS.primaryLight}
-                      />
-                      <Text style={styles.weatherDetailLabel}>Pressure</Text>
-                      <Text style={styles.weatherDetailValue}>
-                        {tappedWeather.current.pressure} hPa
-                      </Text>
-                    </View>
-
-                    <View style={styles.weatherDetailCard}>
-                      <Ionicons
-                        name="water-outline"
-                        size={22}
-                        color={COLORS.primaryLight}
-                      />
-                      <Text style={styles.weatherDetailLabel}>Humidity</Text>
-                      <Text style={styles.weatherDetailValue}>
-                        {tappedWeather.current.humidity}%
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* 24-Hour Forecast */}
-                {tappedWeather.forecast &&
-                  tappedWeather.forecast.length > 0 && (
-                    <View style={styles.forecastSection}>
-                      <Text style={styles.sectionTitle}>24-Hour Forecast</Text>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={styles.forecastScroll}
-                      >
-                        {tappedWeather.forecast.map((item, index) => {
-                          const forecastTime = new Date(item.time);
-                          const hours = forecastTime.getHours();
-                          const timeStr = `${hours.toString().padStart(2, "0")}:00`;
-
-                          return (
-                            <View key={index} style={styles.forecastCard}>
-                              <Text style={styles.forecastTime}>{timeStr}</Text>
-                              <Ionicons
-                                name={
-                                  item.icon.includes("cloud")
-                                    ? "cloudy-outline"
-                                    : item.icon.includes("rain")
-                                      ? "rainy-outline"
-                                      : item.icon.includes("sun")
-                                        ? "sunny-outline"
-                                        : "partly-sunny-outline"
-                                }
-                                size={28}
-                                color={COLORS.primaryLight}
-                                style={{ marginVertical: SPACING.sm }}
-                              />
-                              <Text style={styles.forecastTemp}>
-                                {item.temperature.toFixed(0)}°C
-                              </Text>
-                              <Text
-                                style={styles.forecastConditions}
-                                numberOfLines={2}
-                              >
-                                {item.conditions}
-                              </Text>
-                            </View>
-                          );
-                        })}
-                      </ScrollView>
-                    </View>
-                  )}
-
-                <View style={{ height: SPACING.md }} />
-                {/* Ask Agent about this location */}
-                <TouchableOpacity
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    backgroundColor: COLORS.primary,
-                    borderRadius: RADIUS.lg,
-                    paddingVertical: 12,
-                    gap: 8,
-                  }}
-                  onPress={() => {
-                    const locName =
-                      tappedWeather.location ||
-                      `${tappedWeather.latitude.toFixed(4)}, ${tappedWeather.longitude.toFixed(4)}`;
-                    const weather = tappedWeather.current;
-                    const prompt = `Tell me about fishing conditions at ${locName}. Current weather: ${weather?.temperature.toFixed(1)}°C, ${weather?.conditions}, wind ${weather?.windSpeed.toFixed(0)} km/h. What species should I target and is it safe to fish?`;
-                    setTappedWeather(null);
-                    router.push({
-                      pathname: "/(tabs)/chat",
-                      params: { initialMessage: prompt },
-                    });
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="chatbubble" size={16} color="#fff" />
-                  <Text
-                    style={{
-                      color: "#fff",
-                      fontSize: FONTS.sizes.sm,
-                      fontWeight: FONTS.weights.semibold,
-                    }}
-                  >
-                    Ask Agent About This Location
-                  </Text>
-                </TouchableOpacity>
-
-                <View style={{ height: SPACING.xl }} />
-              </ScrollView>
-            ) : null}
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── Bottom Sheet Backdrop ────────────────────────── */}
-      {bottomSheet !== "none" && (
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={() => setBottomSheet("none")}
-        />
-      )}
-
-      {/* ── Bottom Sheet: Fisherman Tools ─────────────────── */}
-      {bottomSheet === "tools" && userLocation && (
-        <View style={styles.bottomSheetContainer}>
-          <View style={styles.infoSheetHandle} />
-          <View style={styles.bsHeaderRow}>
-            <Ionicons
-              name="compass-outline"
-              size={20}
-              color={COLORS.primaryLight}
-            />
-            <Text style={styles.bsTitle}>Fisherman Tools</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <FishermanTools
-              location={{
-                latitude: userLocation.latitude,
-                longitude: userLocation.longitude,
-              }}
-              onRefresh={() => {}}
-            />
-          </View>
-          <TouchableOpacity
-            onPress={() => setBottomSheet("none")}
-            style={styles.dismissBtn}
+            style={styles.fabSmall}
+            onPress={handleRecenter}
+            activeOpacity={0.8}
           >
-            <Text style={styles.dismissText}>Close</Text>
+            <Ionicons name="locate" size={18} color={COLORS.textPrimary} />
           </TouchableOpacity>
-        </View>
-      )}
 
-      {/* ── Bottom Sheet: Weather Layer Controls ──────────── */}
-      {bottomSheet === "layers" && (
-        <View style={styles.bottomSheetContainer}>
-          <View style={styles.infoSheetHandle} />
-          <View style={styles.bsHeaderRow}>
+          {/* Layers */}
+          <TouchableOpacity
+            style={[styles.fabSmall, activeLayer && styles.fabSmallActive]}
+            onPress={() => setLayersPopupVisible((v) => !v)}
+            activeOpacity={0.8}
+          >
             <Ionicons
               name="layers-outline"
-              size={20}
-              color={COLORS.primaryLight}
+              size={18}
+              color={activeLayer ? COLORS.primaryLight : COLORS.textPrimary}
             />
-            <Text style={styles.bsTitle}>Weather Layers</Text>
-          </View>
-          <WeatherLayerControls
-            activeLayer={activeWeatherLayer}
-            onLayerChange={setActiveWeatherLayer}
-            opacity={layerOpacity}
-            onOpacityChange={setLayerOpacity}
-          />
-          <TouchableOpacity
-            onPress={() => setBottomSheet("none")}
-            style={styles.dismissBtn}
-          >
-            <Text style={styles.dismissText}>Close</Text>
           </TouchableOpacity>
         </View>
-      )}
 
-      {/* ── Bottom Sheet: Live Zone Insights ──────────────── */}
-      {bottomSheet === "insights" && (
-        <View style={styles.bottomSheetContainer}>
-          <View style={styles.infoSheetHandle} />
-          <View style={styles.bsHeaderRow}>
-            <Ionicons
-              name="analytics-outline"
-              size={20}
-              color={COLORS.primaryLight}
-            />
-            <Text style={styles.bsTitle}>Live Zone Insights</Text>
-          </View>
-          <View style={styles.noAlertsBox}>
-            <Ionicons
-              name="location-outline"
-              size={36}
-              color={COLORS.primaryLight}
-              style={{ marginBottom: SPACING.sm }}
-            />
-            <Text style={styles.noAlertsText}>
-              Zone insights are displayed as markers on the map. Tap any zone
-              marker to view detailed fishing recommendations, target species,
-              and recent activity statistics.
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setBottomSheet("none")}
-            style={styles.dismissBtn}
-          >
-            <Text style={styles.dismissText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Bottom Sheet: Alerts ──────────────────────────── */}
-      {bottomSheet === "alerts" && (
-        <View style={styles.bottomSheetContainer}>
-          <View style={styles.infoSheetHandle} />
-          <View style={styles.bsHeaderRow}>
-            <Ionicons name="warning-outline" size={20} color={COLORS.error} />
-            <Text style={styles.bsTitle}>Live Alerts ({alerts.length})</Text>
-          </View>
-          {alertsLoading ? (
-            <ActivityIndicator
-              size="small"
-              color={COLORS.primaryLight}
-              style={{ marginVertical: SPACING.md }}
-            />
-          ) : alerts.length === 0 ? (
-            <View style={styles.noAlertsBox}>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={36}
-                color={COLORS.success}
-                style={{ marginBottom: SPACING.sm }}
-              />
-              <Text style={styles.noAlertsText}>
-                All clear! No active weather alerts for Indian coastal waters.
-              </Text>
-            </View>
-          ) : (
-            <ScrollView
-              style={styles.bsScrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              {alerts.map((alert) => (
-                <View
-                  key={alert.id}
-                  style={[
-                    styles.alertCard,
-                    { borderLeftColor: getSeverityColor(alert.severity) },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <Ionicons
-                      name={
-                        getAlertIcon(alert.type) as React.ComponentProps<
-                          typeof Ionicons
-                        >["name"]
-                      }
-                      size={20}
-                      color={getSeverityColor(alert.severity)}
-                    />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.alertCardTitle}>{alert.title}</Text>
-                      <Text style={styles.alertCardDesc}>
-                        {alert.description}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text
-                    style={[
-                      styles.alertSource,
-                      { color: getSeverityColor(alert.severity) },
-                    ]}
-                  >
-                    {alert.source} • Radius: {alert.radiusKm} km
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-          )}
-          <TouchableOpacity
-            onPress={() => setBottomSheet("none")}
-            style={styles.dismissBtn}
-          >
-            <Text style={styles.dismissText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* ── Species Filter Modal ──────────────────────────── */}
-      <Modal
-        visible={filterModalVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setFilterModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>Filter by Species</Text>
-            {FISH_SPECIES.map((species) => (
+        {/* ── Layers popup (Google-Maps style) ─────────────────────────── */}
+        {layersPopupVisible && (
+          <View style={styles.layersPopup}>
+            <Text style={styles.layersPopupTitle}>Map Layer</Text>
+            {LAYERS.map((layer) => (
               <TouchableOpacity
-                key={species}
+                key={layer.id}
                 style={[
-                  styles.modalOption,
-                  filterSpecies === species && styles.modalOptionActive,
+                  styles.layerRow,
+                  activeLayer === layer.id && styles.layerRowActive,
                 ]}
                 onPress={() => {
-                  setFilterSpecies(species);
-                  setFilterModalVisible(false);
+                  setActiveLayer(activeLayer === layer.id ? null : layer.id);
+                  setLayersPopupVisible(false);
                 }}
                 activeOpacity={0.8}
               >
-                <Text
+                <View
                   style={[
-                    styles.modalOptionText,
-                    filterSpecies === species && styles.modalOptionTextActive,
+                    styles.layerIconBox,
+                    activeLayer === layer.id && styles.layerIconBoxActive,
                   ]}
                 >
-                  {species}
-                </Text>
-                {filterSpecies === species && (
                   <Ionicons
-                    name="checkmark"
+                    name={layer.icon as any}
+                    size={16}
+                    color={
+                      activeLayer === layer.id
+                        ? COLORS.primaryLight
+                        : COLORS.textMuted
+                    }
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.layerLabel,
+                      activeLayer === layer.id && styles.layerLabelActive,
+                    ]}
+                  >
+                    {layer.label}
+                  </Text>
+                  <Text style={styles.layerDesc}>{layer.desc}</Text>
+                </View>
+                {activeLayer === layer.id && (
+                  <Ionicons
+                    name="checkmark-circle"
                     size={16}
                     color={COLORS.primaryLight}
                   />
                 )}
               </TouchableOpacity>
             ))}
+            {activeLayer && (
+              <TouchableOpacity
+                style={styles.layerClearBtn}
+                onPress={() => {
+                  setActiveLayer(null);
+                  setLayersPopupVisible(false);
+                }}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.layerClearText}>Clear layer</Text>
+              </TouchableOpacity>
+            )}
           </View>
+        )}
+
+        {/* ── DEEP SCAN FAB (hidden while overlay is open) ──────────── */}
+        {!scanOverlayVisible && (
+          <View style={styles.fabScanWrapper}>
+            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+              <TouchableOpacity
+                style={styles.fabScan}
+                onPress={startDeepScan}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="scan-outline" size={20} color="#fff" />
+                <Text style={styles.fabScanLabel}>{scanFabLabel}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+        )}
+
+        {/* Small loading spinner */}
+        {loadingMarkers && (
+          <View style={styles.mapSpinner}>
+            <ActivityIndicator size="small" color={COLORS.primaryLight} />
+          </View>
+        )}
+
+        {/* ── GLASSMORPHIC ALERTS OVERLAY ───────────────────────────── */}
+        {alertsVisible && (
+          <View style={styles.alertsOverlay}>
+            <View style={styles.alertsOverlayHeader}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+              >
+                <Ionicons name="warning-outline" size={14} color="#f87171" />
+                <Text style={styles.alertsOverlayTitle}>Active Alerts</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setAlertsVisible(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            </View>
+            {alerts.length === 0 ? (
+              <View style={styles.alertEmpty}>
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={16}
+                  color={COLORS.secondaryLight}
+                />
+                <Text style={styles.alertEmptyText}>
+                  No active alerts in your area
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={{ maxHeight: 160 }}
+                showsVerticalScrollIndicator={false}
+              >
+                {alerts.map((a) => (
+                  <View key={a.id} style={styles.alertRow}>
+                    <Ionicons
+                      name={getAlertIcon(a.type) as any}
+                      size={13}
+                      color={getSeverityColor(a.severity)}
+                    />
+                    <View style={{ flex: 1, marginLeft: 8 }}>
+                      <Text
+                        style={[
+                          styles.alertTitle,
+                          { color: getSeverityColor(a.severity) },
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {a.title}
+                      </Text>
+                      <Text style={styles.alertDesc} numberOfLines={1}>
+                        {a.description}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        )}
+
+        {/* ── HOVERING TAP LOCATION CARD ────────────────────────────── */}
+        {tapCard && (
+          <View
+            style={[
+              styles.tapCard,
+              tapCard.cardX !== undefined && tapCard.cardY !== undefined
+                ? { left: tapCard.cardX, top: tapCard.cardY }
+                : { left: 12, top: 60 },
+            ]}
+          >
+            {tapCard.loading ? (
+              <View style={styles.tapCardRow}>
+                <ActivityIndicator size="small" color={COLORS.primaryLight} />
+                <Text style={styles.tapCardLoadText}>Fetching weather…</Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.tapCardHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.tapCardCoords}>
+                      {tapCard.lat.toFixed(4)}°N {tapCard.lng.toFixed(4)}°E
+                    </Text>
+                    {tapCard.description && (
+                      <Text style={styles.tapCardDesc} numberOfLines={1}>
+                        {tapCard.description}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => setTapCard(null)}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <Ionicons name="close" size={14} color={COLORS.textMuted} />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.tapCardStats}>
+                  {tapCard.temp !== undefined && (
+                    <View style={styles.tapCardStat}>
+                      <Ionicons
+                        name="thermometer-outline"
+                        size={11}
+                        color={COLORS.textMuted}
+                      />
+                      <Text style={styles.tapCardStatVal}>
+                        {tapCard.temp.toFixed(1)}°C
+                      </Text>
+                    </View>
+                  )}
+                  {tapCard.wind !== undefined && (
+                    <View style={styles.tapCardStat}>
+                      <Ionicons
+                        name="flag-outline"
+                        size={11}
+                        color={COLORS.textMuted}
+                      />
+                      <Text style={styles.tapCardStatVal}>
+                        {tapCard.wind} m/s
+                      </Text>
+                    </View>
+                  )}
+                  {tapCard.humidity !== undefined && (
+                    <View style={styles.tapCardStat}>
+                      <Ionicons
+                        name="water-outline"
+                        size={11}
+                        color={COLORS.textMuted}
+                      />
+                      <Text style={styles.tapCardStatVal}>
+                        {tapCard.humidity}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <TouchableOpacity
+                  style={styles.sendToAIBtn}
+                  onPress={sendLocationToAI}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={12}
+                    color="#fff"
+                  />
+                  <Text style={styles.sendToAIText}>Send to AI</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
+        {/* ── GLASSMORPHIC DEEP SCAN OVERLAY ────────────────────────── */}
+        {scanOverlayVisible && (
+          <View style={styles.scanOverlay}>
+            <View style={styles.scanHandle} />
+
+            <View style={styles.scanOverlayHeader}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  flex: 1,
+                }}
+              >
+                <Ionicons
+                  name={
+                    (scanState === "done"
+                      ? "checkmark-circle-outline"
+                      : scanState === "error"
+                        ? "alert-circle-outline"
+                        : scanState === "cancelled"
+                          ? "stop-circle-outline"
+                          : (SCAN_STAGE_ICONS[scanProgress?.stage ?? "scan"] ??
+                            "scan-outline")) as any
+                  }
+                  size={18}
+                  color={
+                    scanState === "done"
+                      ? COLORS.secondaryLight
+                      : scanState === "error"
+                        ? "#f87171"
+                        : COLORS.primaryLight
+                  }
+                />
+                <View>
+                  <Text style={styles.scanOverlayTitle}>
+                    {scanState === "done"
+                      ? "Scan Complete"
+                      : scanState === "cancelled"
+                        ? "Scan Cancelled"
+                        : scanState === "error"
+                          ? "Scan Failed"
+                          : "Deep Scan"}
+                  </Text>
+                  {scanState === "scanning" && scanProgress && (
+                    <Text style={styles.scanOverlayStage}>
+                      {SCAN_STAGE_LABELS[scanProgress.stage] ??
+                        scanProgress.stage}
+                    </Text>
+                  )}
+                </View>
+              </View>
+              {scanState === "scanning" ? (
+                <TouchableOpacity
+                  style={styles.scanCancelBtn}
+                  onPress={cancelDeepScan}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close-circle" size={14} color="#f87171" />
+                  <Text style={styles.scanCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={dismissScan}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={20} color={COLORS.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Progress bar */}
+            {scanState === "scanning" && scanProgress && (
+              <View style={styles.scanProgressBg}>
+                <View
+                  style={[
+                    styles.scanProgressFill,
+                    { width: `${scanProgress.pct}%` as any },
+                  ]}
+                />
+              </View>
+            )}
+
+            {/* Done */}
+            {scanState === "done" && (
+              <View style={styles.scanResultBox}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={28}
+                  color={COLORS.secondaryLight}
+                />
+                <Text style={styles.scanResultText}>{scanSummary}</Text>
+                <TouchableOpacity
+                  style={styles.scanActionBtn}
+                  onPress={() => {
+                    setSpotsVisible(true);
+                    dismissScan();
+                  }}
+                >
+                  <Ionicons name="map-outline" size={13} color="#fff" />
+                  <Text style={styles.scanActionBtnText}>View on Map</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Error */}
+            {scanState === "error" && (
+              <View style={styles.scanResultBox}>
+                <Ionicons name="alert-circle" size={28} color="#f87171" />
+                <Text style={[styles.scanResultText, { color: "#f87171" }]}>
+                  {scanError}
+                </Text>
+                <TouchableOpacity
+                  style={styles.scanActionBtn}
+                  onPress={() => {
+                    dismissScan();
+                    setTimeout(startDeepScan, 100);
+                  }}
+                >
+                  <Ionicons name="refresh-outline" size={13} color="#fff" />
+                  <Text style={styles.scanActionBtnText}>Retry</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Cancelled */}
+            {scanState === "cancelled" && (
+              <View style={styles.scanResultBox}>
+                <Ionicons
+                  name="stop-circle-outline"
+                  size={28}
+                  color={COLORS.textMuted}
+                />
+                <Text style={styles.scanResultText}>Scan was cancelled.</Text>
+                <TouchableOpacity
+                  style={styles.scanActionBtn}
+                  onPress={() => {
+                    dismissScan();
+                    setTimeout(startDeepScan, 100);
+                  }}
+                >
+                  <Ionicons name="search-outline" size={13} color="#fff" />
+                  <Text style={styles.scanActionBtnText}>Start New Scan</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* SSE live feed */}
+            {scanState === "scanning" && (
+              <ScrollView
+                style={styles.scanFeed}
+                ref={(ref) => {
+                  if (ref)
+                    setTimeout(() => ref.scrollToEnd({ animated: true }), 50);
+                }}
+                showsVerticalScrollIndicator={false}
+              >
+                {scanMessages.map((msg, i) => (
+                  <View key={i} style={styles.scanFeedRow}>
+                    <View
+                      style={[
+                        styles.scanFeedDot,
+                        i === scanMessages.length - 1 &&
+                          styles.scanFeedDotActive,
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.scanFeedText,
+                        i === scanMessages.length - 1 &&
+                          styles.scanFeedTextActive,
+                      ]}
+                    >
+                      {msg}
+                    </Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            {scanState === "scanning" && (
+              <Text style={styles.scanHint}>
+                You can leave this page — you will be notified when the scan
+                completes
+              </Text>
+            )}
+          </View>
+        )}
+      </View>
+
+      {/* ── CATCH MARKER CARD (below map) ─────────────────────────────── */}
+      {selectedMarker && (
+        <View style={styles.infoCard}>
+          <View style={styles.infoCardHeader}>
+            <Text style={styles.infoTitle}>
+              {selectedMarker.species ?? "Unknown Species"}
+            </Text>
+            <TouchableOpacity onPress={() => setSelectedMarker(null)}>
+              <Ionicons name="close" size={18} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.infoStats}>
+            {(selectedMarker.weight_g ?? 0) > 0 && (
+              <View style={styles.infoStat}>
+                <Ionicons
+                  name="scale-outline"
+                  size={13}
+                  color={COLORS.textMuted}
+                />
+                <Text style={styles.infoStatText}>
+                  {((selectedMarker.weight_g as number) / 1000).toFixed(2)} kg
+                </Text>
+              </View>
+            )}
+            {selectedMarker.qualityGrade && (
+              <View
+                style={[
+                  styles.gradeBadge,
+                  {
+                    backgroundColor:
+                      (GRADE_COLOR[selectedMarker.qualityGrade] ??
+                        GRADE_COLOR.Low) + "22",
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.gradeText,
+                    {
+                      color:
+                        GRADE_COLOR[selectedMarker.qualityGrade] ??
+                        GRADE_COLOR.Low,
+                    },
+                  ]}
+                >
+                  {selectedMarker.qualityGrade}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.infoMeta}>
+            {new Date(selectedMarker.createdAt).toLocaleDateString("en-IN", {
+              day: "numeric",
+              month: "short",
+              year: "numeric",
+            })}
+          </Text>
         </View>
-      </Modal>
+      )}
+
+      {/* ── FISHING SPOT CARD (below map) ─────────────────────────────── */}
+      {selectedSpot && (
+        <View style={styles.infoCard}>
+          <View style={styles.infoCardHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.infoTitle}>{selectedSpot.name}</Text>
+              <Text style={styles.infoSubtitle}>
+                {selectedSpot.type} · {selectedSpot.distance_km} km away
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setSelectedSpot(null)}>
+              <Ionicons name="close" size={18} color={COLORS.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.confidenceBox}>
+            <View
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                alignItems: "flex-end",
+              }}
+            >
+              <Text style={styles.confidenceLabel}>Confidence</Text>
+              <Text
+                style={[styles.confidenceScore, { color: selectedSpot.color }]}
+              >
+                {selectedSpot.confidence}
+                <Text style={styles.confidenceMax}> / 100</Text>
+              </Text>
+            </View>
+            <View style={styles.barBg}>
+              <View
+                style={[
+                  styles.barFill,
+                  {
+                    width: `${selectedSpot.confidence}%` as any,
+                    backgroundColor: selectedSpot.color,
+                  },
+                ]}
+              />
+            </View>
+          </View>
+          <View style={styles.infoStats}>
+            <View style={styles.scoreTile}>
+              <Ionicons
+                name="fish-outline"
+                size={12}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.scoreTileLabel}>Fish Density</Text>
+              <Text style={styles.scoreTileValue}>
+                {selectedSpot.fish_density_score}/100
+              </Text>
+            </View>
+            <View style={styles.scoreTile}>
+              <Ionicons
+                name="partly-sunny-outline"
+                size={12}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.scoreTileLabel}>Weather</Text>
+              <Text style={styles.scoreTileValue}>
+                {selectedSpot.weather_score}/100
+              </Text>
+            </View>
+            <View style={styles.scoreTile}>
+              <Ionicons
+                name="navigate-outline"
+                size={12}
+                color={COLORS.textMuted}
+              />
+              <Text style={styles.scoreTileLabel}>Access</Text>
+              <Text style={styles.scoreTileValue}>
+                {selectedSpot.transport_score}/100
+              </Text>
+            </View>
+          </View>
+          {selectedSpot.chlorophyll_available && (
+            <View style={styles.chloTag}>
+              <Ionicons name="water-outline" size={12} color="#22d3ee" />
+              <Text style={styles.chloTagText}>Chlorophyll data included</Text>
+            </View>
+          )}
+        </View>
+      )}
     </SafeAreaView>
   );
 }
 
-// ════════════════════════════════════════════════════════════════════════════════
-// STYLES
-// ════════════════════════════════════════════════════════════════════════════════
-
+// ─────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bgDark },
-
-  // Alert banner
-  alertBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.sm,
-    marginHorizontal: SPACING.md,
-    marginTop: SPACING.sm,
-    padding: SPACING.md,
-    borderRadius: RADIUS.lg,
-    backgroundColor: COLORS.bgCard,
-    borderWidth: 1,
-  },
-
-  alertTitle: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-  },
-  alertDesc: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  safetyBadge: {
-    borderRadius: RADIUS.full,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-  },
-  safeBadge: { backgroundColor: COLORS.success + "20" },
-  unsafeBadge: { backgroundColor: COLORS.error + "20" },
-  safetyText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
 
   // Header
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
+    paddingVertical: SPACING.sm,
+    gap: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+    backgroundColor: COLORS.bgDark,
   },
-  title: {
-    fontSize: FONTS.sizes.lg,
+  headerText: { flex: 1 },
+  headerTitle: {
+    fontSize: FONTS.sizes.md,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
   },
-  subtitle: {
+  headerSub: {
     fontSize: FONTS.sizes.xs,
     color: COLORS.textMuted,
-    marginTop: 2,
+    marginTop: 1,
   },
-  filterBtn: {
-    backgroundColor: COLORS.bgCard,
+  iconBtn: {
+    width: 34,
+    height: 34,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-  },
-  filterBtnText: {
-    color: COLORS.textSecondary,
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.semibold,
-  },
-
-  // Layers
-  layerTabsContainer: {
-    paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.xs,
-  },
-  layerTabsScroll: { gap: SPACING.sm, paddingHorizontal: SPACING.xs },
-  layerTab: {
     backgroundColor: COLORS.bgCard,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pillBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
+    backgroundColor: COLORS.bgCard,
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.xs,
   },
-  layerTabActive: {
-    backgroundColor: COLORS.primaryDark,
-    borderColor: COLORS.primaryLight,
-  },
-  layerTabText: {
-    color: COLORS.textMuted,
-    fontSize: FONTS.sizes.sm,
+  pillBtnAlert: { borderColor: "#f8717155", backgroundColor: "#f8717114" },
+  pillBtnText: {
+    fontSize: FONTS.sizes.xs,
     fontWeight: FONTS.weights.semibold,
+    color: COLORS.textSecondary,
   },
-  layerTabTextActive: { color: COLORS.primaryLight },
 
-  // Quick bar
-  quickBar: {
+  // Sun strip
+  sunStrip: {
     flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
     paddingHorizontal: SPACING.md,
-    gap: 6,
-    marginBottom: SPACING.sm,
+    paddingVertical: 6,
+    backgroundColor: COLORS.bgCard,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
-  quickBtn: {
-    flex: 1,
+  sunText: { fontSize: FONTS.sizes.xs, color: COLORS.textSecondary },
+  sunDivider: {
+    width: 1,
+    height: 12,
+    backgroundColor: COLORS.border,
+    marginHorizontal: 4,
+  },
+  safetyBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: RADIUS.full,
+  },
+  safeBadge: { backgroundColor: COLORS.secondaryLight + "20" },
+  unsafeBadge: { backgroundColor: "#f8717120" },
+  safetyText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    letterSpacing: 0.3,
+  },
+
+  // Alerts (glassmorphic overlay inside mapContainer)
+  alertsOverlay: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    right: 8,
+    zIndex: 40,
+    backgroundColor: "rgba(10,15,30,0.90)",
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    padding: SPACING.sm,
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  alertsOverlayHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  alertsOverlayTitle: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  alertEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 6,
+  },
+  alertEmptyText: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted },
+  alertRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.06)",
+  },
+  alertTitle: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.semibold },
+  alertDesc: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+
+  // Legend
+  legendBox: {
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.xs,
     backgroundColor: COLORS.bgCard,
     borderRadius: RADIUS.md,
-    paddingVertical: 6,
-    alignItems: "center",
     borderWidth: 1,
     borderColor: COLORS.border,
+    padding: SPACING.sm,
   },
-  quickBtnInner: { flexDirection: "row", alignItems: "center", gap: 3 },
-  quickBtnText: {
-    fontSize: 10,
-    color: COLORS.textSecondary,
-    fontWeight: FONTS.weights.semibold,
+  legendLabel: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textMuted,
+    marginBottom: 4,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-  quickBtnActive: {
-    backgroundColor: COLORS.primaryDark,
-    borderColor: COLORS.primaryLight,
+  legendBar: {
+    flexDirection: "row",
+    height: 10,
+    borderRadius: RADIUS.sm,
+    overflow: "hidden",
   },
-  quickBtnTextActive: {
-    color: COLORS.primaryLight,
+  legendSegment: { flex: 1 },
+  legendValues: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 3,
+  },
+  legendValue: {
+    fontSize: 9,
+    color: COLORS.textSubtle,
+    fontWeight: FONTS.weights.bold,
   },
 
   // Map
   mapContainer: { flex: 1, position: "relative" },
   map: { flex: 1 },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: COLORS.bgDark + "aa",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 10,
-  },
-
-  // Markers
-  catchDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+  dot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 2,
-    borderColor: "#fff",
-    elevation: 4,
+    borderColor: "rgba(255,255,255,0.2)",
   },
-  catchDotText: { fontSize: 14 },
-  markerDot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
-    elevation: 4,
-  },
-
-  // Recommended zone
-  recZone: {
+  mapSpinner: {
     position: "absolute",
     top: 12,
-    right: 12,
-    backgroundColor: COLORS.bgCard + "ee",
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    maxWidth: 180,
-    borderWidth: 1,
-    borderColor: COLORS.success + "30",
-  },
-  recZoneTitle: {
-    fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.success,
-  },
-  recZoneText: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginTop: 2,
-  },
-  recZoneSub: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-
-  // Info sheets
-  infoSheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 90,
-    backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: RADIUS["2xl"],
-    borderTopRightRadius: RADIUS["2xl"],
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingBottom: SPACING.lg,
-  },
-  infoSheetHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: COLORS.border,
-    borderRadius: 2,
     alignSelf: "center",
-    marginTop: SPACING.md,
-    marginBottom: SPACING.md,
-  },
-  infoSheetContent: { paddingHorizontal: SPACING.xl },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: SPACING.md,
-  },
-  infoSpecies: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-  },
-  gradeBadge: {
+    backgroundColor: COLORS.bgCard + "dd",
     borderRadius: RADIUS.full,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-  },
-  gradeText: { fontSize: FONTS.sizes.sm, fontWeight: FONTS.weights.bold },
-  infoDetails: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: SPACING.md,
-    marginBottom: SPACING.md,
-  },
-  infoDetailItem: { minWidth: 80 },
-  infoDetailLabel: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginBottom: SPACING.xs,
-  },
-  infoDetailValue: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textSecondary,
-    fontWeight: FONTS.weights.semibold,
-  },
-  dismissText: {
-    textAlign: "center",
-    color: COLORS.primaryLight,
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-  },
-
-  // Weather
-  coordText: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    marginBottom: SPACING.md,
-  },
-  weatherGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: SPACING.sm,
-    marginBottom: SPACING.md,
-  },
-  weatherItem: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    minWidth: 75,
-    alignItems: "center",
-  },
-
-  weatherLabel: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginBottom: 2,
-  },
-  weatherValue: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textPrimary,
-    fontWeight: FONTS.weights.bold,
-  },
-
-  // Bottom sheets
-  bottomSheetContainer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
-    maxHeight: "65%",
-    backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: RADIUS["2xl"],
-    borderTopRightRadius: RADIUS["2xl"],
+    padding: 8,
     borderWidth: 1,
     borderColor: COLORS.border,
-    paddingHorizontal: SPACING.xl,
-    paddingBottom: SPACING.xl,
+    zIndex: 5,
   },
-  bsTitle: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    flex: 1,
-  },
-  bsHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.sm,
-    marginBottom: SPACING.md,
-    paddingTop: SPACING.xs,
-  },
-  bsScrollContent: {
-    maxHeight: Math.round(SCREEN_H * 0.35),
-  },
-  backdrop: {
+
+  // Right FAB column
+  fabRight: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    right: 12,
+    bottom: 80,
+    gap: 8,
+    alignItems: "center",
     zIndex: 50,
   },
-  askAgentBtn: {
-    flexDirection: "row",
+  fabSmall: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    backgroundColor: COLORS.primary,
-    paddingVertical: SPACING.sm + 2,
-    borderRadius: RADIUS.md,
-    marginTop: SPACING.md,
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 5,
   },
-  askAgentBtnText: {
-    color: "#fff",
+  fabSmallActive: {
+    borderColor: COLORS.primaryLight + "55",
+    backgroundColor: COLORS.primaryLight + "18",
+  },
+
+  // Layers popup
+  layersPopup: {
+    position: "absolute",
+    right: 62,
+    bottom: 56,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.sm,
+    width: 210,
+    zIndex: 60,
+    shadowColor: "#000",
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  layersPopupTitle: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    marginBottom: 2,
+  },
+  layerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.md,
+  },
+  layerRowActive: { backgroundColor: COLORS.primaryLight + "12" },
+  layerIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.bgSurface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  layerIconBoxActive: { backgroundColor: COLORS.primaryLight + "22" },
+  layerLabel: {
     fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.semibold,
+    color: COLORS.textSecondary,
   },
-  dismissBtn: {
+  layerLabelActive: { color: COLORS.primaryLight },
+  layerDesc: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: 1,
+  },
+  layerClearBtn: {
+    marginTop: 4,
+    paddingVertical: 8,
     alignItems: "center",
-    paddingVertical: SPACING.sm,
-    marginTop: SPACING.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: 1,
     borderTopColor: COLORS.border,
   },
-
-  // Tools
-  toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  toolCard: {
-    width: (SCREEN_W - SPACING.xl * 2 - 8) / 2,
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    borderWidth: 1,
-  },
-
-  toolLabel: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
-  toolValue: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginTop: 2,
-  },
-  toolSub: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginTop: 2 },
-  seaStateBar: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#3b82f630",
-  },
-  seaStateText: { fontSize: FONTS.sizes.sm, color: COLORS.textMuted },
-  seaStateSub: {
+  layerClearText: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: 4,
-  },
-
-  // Zone insights
-  zoneCard: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  zoneName: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    flex: 1,
-  },
-  zoneRegion: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
-    marginTop: 2,
-  },
-  healthBadge: {
-    borderRadius: RADIUS.full,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  healthGood: { backgroundColor: COLORS.success + "15" },
-  healthMod: { backgroundColor: COLORS.warning + "15" },
-  healthText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
-  speciesTag: {
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  speciesTagText: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
+    color: "#f87171",
     fontWeight: FONTS.weights.semibold,
   },
-  zoneStats: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: 6,
-  },
-  zoneAdvisory: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-    fontStyle: "italic",
-  },
 
-  // Alerts
-  noAlertsBox: {
-    alignItems: "center",
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.md,
-  },
-
-  noAlertsText: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textMuted,
-    textAlign: "center",
-  },
-  alertCard: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    marginBottom: 8,
-    borderLeftWidth: 4,
-  },
-  alertCardTitle: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-  },
-  alertCardDesc: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  alertSource: {
-    fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.semibold,
-    marginTop: 6,
-  },
-
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "flex-end",
-  },
-  modalSheet: {
-    backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: RADIUS["2xl"],
-    borderTopRightRadius: RADIUS["2xl"],
-    padding: SPACING.xl,
-    paddingBottom: SPACING["3xl"],
-  },
-  modalTitle: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.sm,
-  },
-  modalOption: {
+  // Deep Scan FAB
+  fabScanWrapper: { position: "absolute", left: 16, bottom: 20, zIndex: 50 },
+  fabScan: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    gap: 8,
+    backgroundColor: "#1d4ed8",
+    borderRadius: 28,
+    paddingVertical: 13,
+    paddingHorizontal: 20,
+    shadowColor: "#1d4ed8",
+    shadowOpacity: 0.55,
+    shadowRadius: 14,
+    elevation: 8,
   },
-  modalOptionActive: {
-    backgroundColor: COLORS.primary + "15",
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.sm,
-  },
-  modalOptionText: { fontSize: FONTS.sizes.base, color: COLORS.textSecondary },
-  modalOptionTextActive: {
-    color: COLORS.primaryLight,
+  fabScanLabel: {
+    fontSize: FONTS.sizes.sm,
     fontWeight: FONTS.weights.bold,
+    color: "#fff",
+    letterSpacing: 0.3,
   },
 
-  // Weather Modal
-  weatherModal: {
-    backgroundColor: COLORS.bgCard,
-    borderTopLeftRadius: RADIUS["2xl"],
-    borderTopRightRadius: RADIUS["2xl"],
-    maxHeight: "85%",
+  // Hovering tap location card (absolute inside mapContainer)
+  tapCard: {
+    position: "absolute",
+    width: 220,
+    zIndex: 30,
+    backgroundColor: "rgba(10,15,30,0.92)",
+    borderRadius: RADIUS.xl,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: SPACING.sm,
+    shadowColor: "#000",
+    shadowOpacity: 0.6,
+    shadowRadius: 10,
+    elevation: 10,
   },
-  weatherModalHeader: {
+  tapCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  tapCardLoadText: { fontSize: FONTS.sizes.xs, color: COLORS.textMuted },
+  tapCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
-    padding: SPACING.xl,
-    paddingBottom: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    marginBottom: 6,
   },
-  weatherModalTitle: {
-    fontSize: FONTS.sizes.base,
+  tapCardCoords: {
+    fontSize: FONTS.sizes.xs,
     fontWeight: FONTS.weights.bold,
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
   },
-  closeButton: {
-    padding: SPACING.xs,
-    borderRadius: RADIUS.full,
-    backgroundColor: COLORS.bgSurface,
-  },
-  weatherModalContent: {
-    flex: 1,
-    paddingHorizontal: SPACING.xl,
-  },
-  weatherLoadingContainer: {
-    padding: SPACING["3xl"],
-    alignItems: "center",
-  },
-  weatherLoadingText: {
-    fontSize: FONTS.sizes.sm,
+  tapCardDesc: {
+    fontSize: 10,
     color: COLORS.textMuted,
-    marginTop: SPACING.md,
-  },
-  weatherErrorContainer: {
-    padding: SPACING["3xl"],
-    alignItems: "center",
-  },
-  weatherErrorTitle: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.error,
-    marginBottom: SPACING.sm,
-  },
-  weatherErrorText: {
-    fontSize: FONTS.sizes.sm,
-    color: COLORS.textMuted,
-    textAlign: "center",
-    marginBottom: SPACING.lg,
-  },
-  retryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.sm,
-    backgroundColor: COLORS.primaryDark,
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.lg,
-  },
-  retryButtonText: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.primaryLight,
-  },
-  currentWeatherSection: {
-    marginTop: SPACING.lg,
-  },
-  sectionTitle: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
-  },
-  currentWeatherCard: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-    marginBottom: SPACING.md,
-    alignItems: "center",
-  },
-  currentWeatherMain: {
-    alignItems: "center",
-  },
-  currentTemp: {
-    fontSize: 36,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.primaryLight,
-  },
-  currentConditions: {
-    fontSize: FONTS.sizes.base,
-    color: COLORS.textSecondary,
-    marginTop: SPACING.xs,
+    marginTop: 2,
     textTransform: "capitalize",
   },
-  weatherDetailsGrid: {
+  tapCardStats: {
     flexDirection: "row",
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
     flexWrap: "wrap",
-    gap: SPACING.sm,
-    marginTop: SPACING.sm,
   },
-  weatherDetailCard: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    width: (SCREEN_W - SPACING.xl * 2 - SPACING.sm) / 2,
+  tapCardStat: { flexDirection: "row", alignItems: "center", gap: 3 },
+  tapCardStatVal: { fontSize: FONTS.sizes.xs, color: COLORS.textSecondary },
+  sendToAIBtn: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.full,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
   },
-  weatherDetailLabel: {
+  sendToAIText: {
     fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: SPACING.xs,
-    textAlign: "center",
-  },
-  weatherDetailValue: {
-    fontSize: FONTS.sizes.sm,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginTop: SPACING.xs,
-  },
-  forecastSection: {
-    marginTop: SPACING.lg,
-  },
-  forecastScroll: {
-    gap: SPACING.sm,
-    paddingRight: SPACING.xl,
-  },
-  forecastCard: {
-    backgroundColor: COLORS.bgSurface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    width: 90,
-    alignItems: "center",
-  },
-  forecastTime: {
-    fontSize: FONTS.sizes.xs,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textSecondary,
-  },
-  forecastTemp: {
-    fontSize: FONTS.sizes.base,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.primaryLight,
-  },
-  forecastConditions: {
-    fontSize: FONTS.sizes.xs,
-    color: COLORS.textMuted,
-    marginTop: SPACING.xs,
-    textAlign: "center",
+    fontWeight: FONTS.weights.semibold,
+    color: "#fff",
   },
 
-  // Offline overlay
-  offlineOverlay: {
+  // Deep Scan glassmorphic overlay (bottom 52% of mapContainer)
+  scanOverlay: {
     position: "absolute",
-    top: 0,
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(15, 23, 42, 0.95)",
-    zIndex: 1000,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: SPACING.xl,
+    height: "52%",
+    zIndex: 20,
+    backgroundColor: "rgba(8,12,26,0.94)",
+    borderTopLeftRadius: RADIUS["2xl"],
+    borderTopRightRadius: RADIUS["2xl"],
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    paddingTop: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    paddingBottom: 24,
+    shadowColor: "#000",
+    shadowOpacity: 0.6,
+    shadowRadius: 20,
+    elevation: 16,
   },
-  offlineCard: {
-    backgroundColor: COLORS.bgCard,
-    borderRadius: RADIUS["2xl"],
-    padding: SPACING["2xl"],
-    alignItems: "center",
-    maxWidth: 320,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  offlineTitle: {
-    fontSize: FONTS.sizes.lg,
-    fontWeight: FONTS.weights.bold,
-    color: COLORS.textPrimary,
-    marginTop: SPACING.md,
+  scanHandle: {
+    alignSelf: "center",
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.18)",
     marginBottom: SPACING.sm,
   },
-  offlineText: {
+  scanOverlayHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: SPACING.sm,
+  },
+  scanOverlayTitle: {
+    fontSize: FONTS.sizes.md,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  scanOverlayStage: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.primaryLight,
+    marginTop: 2,
+    letterSpacing: 0.3,
+  },
+  scanCancelBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: "#f8717155",
+    backgroundColor: "#f8717112",
+  },
+  scanCancelText: {
+    fontSize: FONTS.sizes.xs,
+    fontWeight: FONTS.weights.semibold,
+    color: "#f87171",
+  },
+
+  // Progress bar
+  scanProgressBg: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 2,
+    overflow: "hidden",
+    marginBottom: SPACING.sm,
+  },
+  scanProgressFill: {
+    height: 3,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: 2,
+  },
+
+  // Scan result states
+  scanResultBox: {
+    alignItems: "center",
+    paddingVertical: SPACING.md,
+    gap: SPACING.sm,
+  },
+  scanResultText: {
     fontSize: FONTS.sizes.sm,
+    color: COLORS.textSecondary,
+    textAlign: "center",
+    lineHeight: 20,
+    paddingHorizontal: SPACING.md,
+  },
+  scanActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: SPACING.xs,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.primaryLight,
+  },
+  scanActionBtnText: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: "#fff",
+  },
+
+  // SSE message feed
+  scanFeed: { flex: 1, marginBottom: SPACING.xs },
+  scanFeedRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.05)",
+  },
+  scanFeedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.textSubtle,
+    marginTop: 5,
+  },
+  scanFeedDotActive: {
+    backgroundColor: COLORS.primaryLight,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  scanFeedText: {
+    flex: 1,
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    lineHeight: 17,
+  },
+  scanFeedTextActive: {
+    color: COLORS.textPrimary,
+    fontWeight: FONTS.weights.semibold,
+  },
+  scanHint: {
+    fontSize: 10,
+    color: COLORS.textSubtle,
+    textAlign: "center",
+    lineHeight: 15,
+  },
+
+  // Info cards (below map)
+  infoCard: {
+    marginHorizontal: SPACING.md,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.sm,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  infoCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  infoTitle: {
+    fontSize: FONTS.sizes.base,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  infoSubtitle: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    marginTop: 2,
+    textTransform: "capitalize",
+  },
+  infoStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    flexWrap: "wrap",
+  },
+  infoStat: { flexDirection: "row", alignItems: "center", gap: 4 },
+  infoStatText: { fontSize: FONTS.sizes.sm, color: COLORS.textSecondary },
+  infoMeta: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textSubtle,
+    marginTop: 4,
+  },
+  gradeBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+  },
+  gradeText: { fontSize: FONTS.sizes.xs, fontWeight: FONTS.weights.bold },
+
+  // Spot detail
+  confidenceBox: { marginTop: SPACING.sm, marginBottom: SPACING.xs },
+  confidenceLabel: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  confidenceScore: { fontSize: FONTS.sizes.lg, fontWeight: FONTS.weights.bold },
+  confidenceMax: {
+    fontSize: FONTS.sizes.xs,
+    color: COLORS.textMuted,
+    fontWeight: "400",
+  },
+  barBg: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.bgSurface,
+    marginTop: 4,
+    overflow: "hidden",
+  },
+  barFill: { height: 6, borderRadius: 3 },
+  scoreTile: {
+    flex: 1,
+    alignItems: "center",
+    padding: SPACING.sm,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.bgSurface,
+    gap: 3,
+  },
+  scoreTileLabel: {
+    fontSize: 10,
     color: COLORS.textMuted,
     textAlign: "center",
-    lineHeight: 22,
   },
+  scoreTileValue: {
+    fontSize: FONTS.sizes.sm,
+    fontWeight: FONTS.weights.bold,
+    color: COLORS.textPrimary,
+  },
+  chloTag: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+  chloTagText: { fontSize: FONTS.sizes.xs, color: "#22d3ee" },
 });

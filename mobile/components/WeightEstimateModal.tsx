@@ -33,6 +33,8 @@ import {
   estimateFishWeightOnline,
   type OnlineWeightResult,
 } from "../lib/api-client";
+import { useNetwork } from "../lib/network-context";
+import { predictWeight } from "../lib/weight-inference";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -99,6 +101,7 @@ export function WeightEstimateModal({
   const [phase, setPhase] = useState<Phase>("input");
   const [result, setResult] = useState<OnlineWeightResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const { effectiveMode } = useNetwork();
 
   const handleClose = useCallback(() => {
     // Reset state when closing
@@ -135,22 +138,34 @@ export function WeightEstimateModal({
     setPhase("loading");
 
     try {
-      const onlineResult = await estimateFishWeightOnline({
-        species,
-        length1: parseFloat(values.length1),
-        length3: parseFloat(values.length3),
-        height: parseFloat(values.height),
-        width: parseFloat(values.width),
-      });
+      if (effectiveMode === "offline") {
+        const offlineResult = await predictWeight({
+          species,
+          length1: parseFloat(values.length1),
+          length3: parseFloat(values.length3),
+          height: parseFloat(values.height),
+          width: parseFloat(values.width),
+        });
+        const weightG = offlineResult.predictedWeightG;
+        onConfirm(weightG, undefined);
+      } else {
+        const onlineResult = await estimateFishWeightOnline({
+          species,
+          length1: parseFloat(values.length1),
+          length3: parseFloat(values.length3),
+          height: parseFloat(values.height),
+          width: parseFloat(values.width),
+        });
 
-      const weightG = onlineResult.estimated_weight_grams;
-      onConfirm(weightG, onlineResult);
+        const weightG = onlineResult.estimated_weight_grams;
+        onConfirm(weightG, onlineResult);
+      }
       handleClose();
     } catch (e) {
       setErrorMsg(e instanceof Error ? e.message : String(e));
       setPhase("error");
     }
-  }, [values, species, onConfirm, handleClose]);
+  }, [values, species, onConfirm, handleClose, effectiveMode]);
 
   const handleTryAgain = () => {
     setPhase("input");

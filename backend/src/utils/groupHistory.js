@@ -70,11 +70,27 @@ async function getMergedHistory(userId, options = {}) {
     const { limit = 20 } = options;
 
     try {
-        // Query both tables concurrently
-        const [groupsResult, legacyImages] = await Promise.all([
+        // Query both tables concurrently — treat each source as optional so a
+        // timeout on one source doesn't kill the entire response.
+        const [groupsSettled, legacySettled] = await Promise.allSettled([
             queryGroupsByUserId(userId, { limit }),
             queryLegacyImages(userId, { limit }),
         ]);
+
+        if (groupsSettled.status === "rejected") {
+            console.error("[getMergedHistory] groups query failed:", groupsSettled.reason);
+        }
+        if (legacySettled.status === "rejected") {
+            console.error("[getMergedHistory] legacy images query failed:", legacySettled.reason);
+        }
+
+        const groupsResult = groupsSettled.status === "fulfilled"
+            ? groupsSettled.value
+            : { items: [], lastKey: undefined };
+
+        const legacyImages = legacySettled.status === "fulfilled"
+            ? legacySettled.value
+            : [];
 
         // Transform legacy records to group format
         const transformedLegacy = legacyImages.map(transformLegacyToGroup);

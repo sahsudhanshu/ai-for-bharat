@@ -63,7 +63,10 @@ import {
 } from "../../components/chat/FishPickerModal";
 import { useAgentContext } from "../../lib/agent-context";
 import { getAnalysisData } from "../../lib/analysis-store";
-import { sanitiseAgentText } from "../../lib/chat-stream-client";
+import {
+  sanitiseAgentText,
+  stripContextTags,
+} from "../../lib/chat-stream-client";
 import type { AgentUIActions } from "../../lib/chat-stream-client";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -893,11 +896,14 @@ export default function ChatScreen() {
     Keyboard.dismiss();
 
     const finalUserText = trimmed || addedContexts.join(", ");
+    // Strip bracket context tags ([page:...], [userLoc:...], etc.) for display.
+    // The full text (with tags) is still sent to the API via messagePayload.
+    const displayText = stripContextTags(finalUserText);
 
     const userMsg: UIMessage = {
       id: `user_${Date.now()}`,
       role: "user",
-      text: finalUserText,
+      text: displayText || finalUserText,
       timestamp: new Date(),
       replyTo: replyingTo
         ? { id: replyingTo.id, text: replyingTo.text, role: replyingTo.role }
@@ -905,7 +911,11 @@ export default function ChatScreen() {
       referencedAnalysis: referencedAnalysis || undefined,
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    // Only show the user bubble if there is visible text after stripping context tags.
+    // Pure-context auto-sends (e.g. from AskAgentFAB with no custom prompt) remain hidden.
+    if (displayText) {
+      setMessages((prev) => [...prev, userMsg]);
+    }
     setReplyingTo(null);
     const analysisIdToSend = referencedAnalysis?.id;
     setReferencedAnalysis(null);
@@ -917,7 +927,7 @@ export default function ChatScreen() {
       try {
         const { createConversation } = await import("../../lib/api-client");
         const newConv = await createConversation(
-          finalUserText.substring(0, 40),
+          (displayText || finalUserText).substring(0, 40),
           locale,
         );
         targetChatId = newConv.conversationId;
@@ -925,7 +935,7 @@ export default function ChatScreen() {
         if (targetChatId) {
           const newChat: StoredConversation = {
             id: targetChatId,
-            title: finalUserText.substring(0, 40),
+            title: (displayText || finalUserText).substring(0, 40),
             lastMessageTime: new Date().toISOString(),
           };
           const updated = [newChat, ...chats];
