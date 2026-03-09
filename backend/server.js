@@ -104,42 +104,46 @@ app.post('/weight-estimates', (req, res) => runLambda(req, res, require('./src/f
 // Offline session sync (two-phase: prepare → upload to S3 → commit)
 app.post('/sync/offline-session/:action', (req, res) => runLambda(req, res, require('./src/functions/syncOfflineSession.js').handler));
 
-// ── Start server with diagnostics ───────────────────────────────────────────
-(async () => {
-    const diagnostics = await runStartupChecks();
+// ── Export app for Lambda and start server if local ────────────────────────
+module.exports = app;
 
-    if (!diagnostics.ok) {
-        console.error('\n❌  Critical startup checks failed. Fix the issues above before continuing.\n');
-        process.exit(1);
-    }
+if (require.main === module) {
+    (async () => {
+        const diagnostics = await runStartupChecks();
 
-    let server = app.listen(port, () => {
-        console.log(`\n🐟  matsya AI Backend Local Server running at http://localhost:${port}`);
-        console.log(`Ready to accept requests from the frontend!`);
-        console.log(`\nAvailable endpoints:`);
-        console.log(`  POST /images/presigned-url`);
-        console.log(`  POST /images/:imageId/analyze`);
-        console.log(`  GET  /images`);
-        console.log(`  GET  /map`);
-        console.log(`  POST /chat`);
-        console.log(`  GET  /chat`);
-        console.log(`  GET  /analytics`);
-        console.log(`  POST /groups/presigned-urls`);
-        console.log(`  POST /groups/:groupId/analyze`);
-        console.log(`  GET  /groups`);
-        console.log(`  GET  /groups/:groupId`);
-        console.log(`  DELETE /groups/:groupId`);
-        console.log(`  POST /sync/offline-session/prepare`);
-        console.log(`  POST /sync/offline-session/commit`);
-        console.log(`\nPress Ctrl+C to stop the server\n`);
-    });
+        if (!diagnostics.ok) {
+            console.error('\n❌  Critical startup checks failed. Fix the issues above before continuing.\n');
+            process.exit(1);
+        }
 
-    server.on('close', () => console.log('Server closed'));
-    server.on('error', (err) => {
-        console.error('Server error:', err);
-        process.exit(1);
-    });
-})();
+        let server = app.listen(port, () => {
+            console.log(`\n🐟  matsya AI Backend Local Server running at http://localhost:${port}`);
+            console.log(`Ready to accept requests from the frontend!`);
+            console.log(`\nAvailable endpoints:`);
+            console.log(`  POST /images/presigned-url`);
+            console.log(`  POST /images/:imageId/analyze`);
+            console.log(`  GET  /images`);
+            console.log(`  GET  /map`);
+            console.log(`  POST /chat`);
+            console.log(`  GET  /chat`);
+            console.log(`  GET  /analytics`);
+            console.log(`  POST /groups/presigned-urls`);
+            console.log(`  POST /groups/:groupId/analyze`);
+            console.log(`  GET  /groups`);
+            console.log(`  GET  /groups/:groupId`);
+            console.log(`  DELETE /groups/:groupId`);
+            console.log(`  POST /sync/offline-session/prepare`);
+            console.log(`  POST /sync/offline-session/commit`);
+            console.log(`\nPress Ctrl+C to stop the server\n`);
+        });
+
+        server.on('close', () => console.log('Server closed'));
+        server.on('error', (err) => {
+            console.error('Server error:', err);
+            process.exit(1);
+        });
+    })();
+}
 
 // Handle uncaught errors
 process.on('uncaughtException', (err) => {

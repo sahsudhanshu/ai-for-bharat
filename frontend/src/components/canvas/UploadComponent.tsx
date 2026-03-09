@@ -562,7 +562,7 @@ export default function UploadComponent({
     const generatedAt = new Date().toLocaleString("en-IN");
 
     doc.setFontSize(18);
-    doc.text("OceanAI - Group Analysis Report", 14, 20);
+    doc.text("MatsyaAI - Group Analysis Report", 14, 20);
     doc.setFontSize(10);
     doc.text(`Generated: ${generatedAt}`, 14, 30);
     doc.text(`Images Analyzed: ${mlResults.length}`, 14, 36);
@@ -613,7 +613,7 @@ export default function UploadComponent({
       cursorY = 20;
     }
     doc.text(`Total Fish Detected: ${totalFish}`, 14, cursorY);
-    doc.save(`oceanai-group-${Date.now()}.pdf`);
+    doc.save(`matsyaai-group-${Date.now()}.pdf`);
     toast.success("PDF exported successfully.");
   };
 

@@ -1,5 +1,5 @@
-// OceanAI Service Worker — Basic offline caching for static assets
-const CACHE_NAME = 'oceanai-v1';
+// MatsyaAI Service Worker — Basic offline caching for static assets
+const CACHE_NAME = 'matsyaai-v1';
 const STATIC_URLS = [
     '/',
     '/manifest.json',

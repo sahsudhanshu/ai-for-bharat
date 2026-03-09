@@ -234,7 +234,7 @@ export default function HistoryDetailView({
 
       doc.setFontSize(20);
       doc.setFont("helvetica", "bold");
-      doc.text("OceanAI - Group Analysis Report", 14, cursorY);
+      doc.text("MatsyaAI - Group Analysis Report", 14, cursorY);
 
       cursorY += 10;
       doc.setFontSize(9);
@@ -341,7 +341,7 @@ export default function HistoryDetailView({
         cursorY += 8;
       }
 
-      doc.save(`oceanai-group-${groupId.slice(0, 8)}-${Date.now()}.pdf`);
+      doc.save(`matsyaai-group-${groupId.slice(0, 8)}-${Date.now()}.pdf`);
       toast.success("PDF exported successfully");
     } catch (error) {
       console.error("PDF export error:", error);

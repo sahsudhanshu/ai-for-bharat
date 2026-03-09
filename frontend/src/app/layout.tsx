@@ -20,7 +20,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "OceanAI - AI for Bharat Fisherman Dashboard",
+  title: "MatsyaAI - AI for Bharat Fisherman Dashboard",
   description: "Advanced AI dashboard for fish identification, weight estimation, and ocean insights.",
 };
 

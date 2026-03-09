@@ -101,7 +101,7 @@ export default function HistoryComponent() {
       let y = 20;
       doc.setFontSize(18);
       doc.setFont("helvetica", "bold");
-      doc.text("OceanAI - Analysis Report", 14, y); y += 10;
+      doc.text("MatsyaAI - Analysis Report", 14, y); y += 10;
       doc.setFontSize(9);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100);
@@ -125,7 +125,7 @@ export default function HistoryComponent() {
       Object.entries(stats.speciesDistribution).forEach(([sp, cnt]) => {
         doc.text(`${sp}: ${cnt} fish`, 18, y); y += 6;
       });
-      doc.save(`oceanai-${group.groupId.slice(0, 8)}.pdf`);
+      doc.save(`matsyaai-${group.groupId.slice(0, 8)}.pdf`);
       toast.success("PDF exported!");
     } catch (err) {
       console.error("Export error:", err);

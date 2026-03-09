@@ -44,7 +44,7 @@ export function resolveMLUrl(path: string): string {
 }
 
 /** App metadata */
-export const APP_NAME = "OceanAI";
+export const APP_NAME = "MatsyaAI";
 export const APP_TAGLINE = "AI-Powered Fisherman's Assistant";
 
 /** Supported Indian languages */

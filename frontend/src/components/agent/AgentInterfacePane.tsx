@@ -241,7 +241,7 @@ export default function AgentInterfacePane({
             </div>
             <div className="min-w-0">
               <h2 className="text-base font-bold text-foreground leading-tight">
-                OceanAI
+                MatsyaAI
               </h2>
               <p className="text-[10px] text-muted-foreground/60 leading-tight">
                 Your AI Fishing Assistant
