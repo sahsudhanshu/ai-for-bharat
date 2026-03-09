@@ -10,6 +10,7 @@ import { useLanguage } from '@/lib/i18n';
 import { useSessionRestore } from '@/lib/hooks/useSessionRestore';
 import { formatMessageForDisplay } from '@/lib/utils/pane-message';
 import type { PaneMessage } from '@/types/agent-first';
+import { useAgentContext } from '@/lib/stores/agent-context-store';
 
 interface AgentInterfacePaneProps {
   variant?: 'full' | 'compact';
@@ -41,17 +42,17 @@ export default function AgentInterfacePane({
   const setConversationHistory = useAgentFirstStore((state) => state.setConversationHistory);
   const persistSession = useAgentFirstStore((state) => state.persistSession);
   const clearProcessedMessages = useAgentFirstStore((state) => state.clearProcessedMessages);
-  
+
   // Restore session on mount
   const { isRestoring, isRestored, hasSession } = useSessionRestore();
-  
+
   // Scroll position preservation
   const scrollPositionRef = useRef<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   // Debounce timer for session persistence
   const persistTimerRef = useRef<NodeJS.Timeout>();
-  
+
   // Track processed PaneMessages to avoid duplicates
   const processedMessagesRef = useRef<Set<string>>(new Set());
 
@@ -59,6 +60,13 @@ export default function AgentInterfacePane({
     (activeComponent === 'history' || activeComponent === 'upload')
       ? (componentProps?.selectedGroupId ?? componentProps?.currentGroupId ?? null)
       : null;
+
+  // ── Clear global agent context when closing panes ──────────────────────────
+  useEffect(() => {
+    if (!activeComponent) {
+      useAgentContext.getState().resetContext();
+    }
+  }, [activeComponent]);
 
   // ── Preserve scroll position across component changes ──────────────────────
   useEffect(() => {
@@ -89,7 +97,7 @@ export default function AgentInterfacePane({
   // ── Handle chat ID changes ─────────────────────────────────────────────────
   const handleChatIdChange = useCallback((chatId: string) => {
     setChatId(chatId);
-    
+
     // Persist session when chat ID changes (debounced)
     if (persistTimerRef.current) {
       clearTimeout(persistTimerRef.current);
@@ -98,11 +106,11 @@ export default function AgentInterfacePane({
       persistSession();
     }, 500);
   }, [setChatId, persistSession]);
-  
+
   // ── Sync conversation history from AgentChat to store ──────────────────────
   const handleConversationUpdate = useCallback((messages: any[]) => {
     setConversationHistory(messages);
-    
+
     // Persist session when conversation updates (debounced)
     if (persistTimerRef.current) {
       clearTimeout(persistTimerRef.current);
@@ -111,7 +119,7 @@ export default function AgentInterfacePane({
       persistSession();
     }, 500);
   }, [setConversationHistory, persistSession]);
-  
+
   // ── Cleanup debounce timer ─────────────────────────────────────────────────
   useEffect(() => {
     return () => {
@@ -194,7 +202,7 @@ export default function AgentInterfacePane({
     const handleOnline = () => {
       useAgentFirstStore.getState().setOffline(false);
     };
-    
+
     const handleOffline = () => {
       useAgentFirstStore.getState().setOffline(true);
     };
@@ -265,7 +273,7 @@ export default function AgentInterfacePane({
                 </span>
               </motion.div>
             )}
-            
+
             {/* Online Indicator (subtle) */}
             {!isOffline && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/5 border border-emerald-500/10">

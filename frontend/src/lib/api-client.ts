@@ -397,6 +397,124 @@ export async function getFishingSpots(
   return agentFetch<FishingSpotsResponse>(`/fishing-spots?${params}`);
 }
 
+// ── SSE event types for fishing-spots stream ──────────────────────────────────
+
+export interface FishingSpotsProgressEvent {
+  type: "progress";
+  stage: "init" | "osm" | "history" | "scan" | "finalise" | "done";
+  message: string;
+  pct: number;
+}
+
+export interface FishingSpotsResultEvent {
+  type: "result";
+  spots: FishingSpot[];
+  summary: string;
+  total_bodies_found: number;
+  user_location: { lat: number; lon: number };
+}
+
+export interface FishingSpotsErrorEvent {
+  type: "error";
+  error: string;
+}
+
+export interface FishingSpotsCancelledEvent {
+  type: "cancelled";
+}
+
+export type FishingSpotsStreamEvent =
+  | FishingSpotsProgressEvent
+  | FishingSpotsResultEvent
+  | FishingSpotsErrorEvent
+  | FishingSpotsCancelledEvent;
+
+/**
+ * Stream fishing spots via SSE from /fishing-spots/stream.
+ * Calls `onEvent` for every SSE message, resolves with the final result
+ * or rejects on error. Pass an AbortController signal to cancel.
+ */
+export async function streamFishingSpots(
+  lat: number,
+  lon: number,
+  radiusKm = 50,
+  onEvent: (event: FishingSpotsStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<FishingSpotsResultEvent> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    radius_km: String(radiusKm),
+  });
+
+  const url = `${AGENT_BASE_URL}/fishing-spots/stream?${params}`.replace(
+    /([^:]\/)\/+/g,
+    "$1",
+  );
+  const token = await getToken();
+  const headers: Record<string, string> = {
+    Accept: "text/event-stream",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  const res = await fetch(url, { headers, signal });
+  if (!res.ok) {
+    let message = `Agent API error ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body.detail || body.error || message;
+    } catch { /* ignore */ }
+    throw new ApiError(res.status, message);
+  }
+  if (!res.body) throw new Error("No response body from SSE stream");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  return new Promise<FishingSpotsResultEvent>((resolve, reject) => {
+    const pump = async () => {
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let event: FishingSpotsStreamEvent;
+            try {
+              event = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+            onEvent(event);
+            if (event.type === "result") {
+              resolve(event);
+              return;
+            }
+            if (event.type === "error") {
+              reject(new Error(event.error));
+              return;
+            }
+            if (event.type === "cancelled") {
+              reject(new Error("Scan cancelled"));
+              return;
+            }
+          }
+        }
+        reject(new Error("SSE stream closed without a result"));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    pump();
+  });
+}
+
 /**
  * Send a chat message and receive an AI response.
  * Routes to the Python agent (LangGraph) when available.

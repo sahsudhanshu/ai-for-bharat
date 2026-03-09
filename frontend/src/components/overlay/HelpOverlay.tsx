@@ -3,8 +3,8 @@
 import React, { useState, useMemo, useCallback } from "react";
 import {
     Search, ChevronDown, ChevronUp, Mail,
-    Fish, BarChart2, MessageSquare,
-    HelpCircle, BookOpen, Zap, Shield, Globe,
+    Fish, BarChart2, MessageSquare, Phone,
+    HelpCircle, BookOpen, Zap, Shield, Globe, ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,64 +17,69 @@ const FAQ_ITEMS = [
     {
         category: "Getting Started", icon: Zap, color: "text-amber-500", bg: "bg-amber-500/10",
         questions: [
-            { q: "How do I upload my first catch?", a: "Navigate to Upload from the sidebar. Upload individual images or create a group analysis. Our AI analyzes each for species, weight, and freshness." },
-            { q: "What image formats are supported?", a: "JPEG, PNG, and WebP. Take clear photos in natural light with fish fully visible for best results." },
-            { q: "Is MatsyaAI available offline?", a: "Dashboard and analytics work offline if previously loaded. Image analysis requires internet." },
+            { q: "How do I upload my first catch?", a: "Navigate to the Camera/Upload tab from the bottom menu. You can snap a photo directly or upload an image from your gallery. Our AI will automatically analyze the species, weight, and freshness." },
+            { q: "What image formats are supported?", a: "We support JPEG, PNG, and WebP formats. For the best AI accuracy, ensure the fish is fully visible and the photo is taken in natural daylight." },
+            { q: "Is MatsyaAI available offline?", a: "Yes! Your Dashboard, Analytics, and past Catch History are available offline. However, processing new catch images requires an active internet connection." },
         ],
     },
     {
         category: "Fish Analysis", icon: Fish, color: "text-teal-500", bg: "bg-teal-500/10",
         questions: [
-            { q: "How accurate is species identification?", a: "Over 90% accuracy for common Indian coastal species including Pomfret, Rohu, Catla, Hilsa, and Mackerel." },
-            { q: "How is weight estimated?", a: "Computer vision analyzes length, girth, and shape. Results typically within ±10% of actual weight." },
-            { q: "What does freshness mean?", a: "Classified from 'Very Fresh' to 'Not Fresh' based on eye clarity, gill color, and skin texture — helping determine market pricing." },
-            { q: "What is group analysis?", a: "Analyze multiple fish at once for aggregate stats: total count, species distribution, combined weight." },
+            { q: "How accurate is species identification?", a: "Our AI model boasts over 90% accuracy for common coastal species found in Indian waters, including Pomfret, Rohu, Catla, Hilsa, and Indian Mackerel." },
+            { q: "How is the weight estimated?", a: "The computer vision model analyzes the fish's length, girth, and overall shape from your image. While highly accurate, the results are typically within a ±10% margin of the actual scale weight." },
+            { q: "What does the freshness metric mean?", a: "Freshness is classified on a scale from 'Very Fresh' to 'Not Fresh' based on visual indicators like eye clarity, gill color, and skin texture. This is crucial for determining optimal market pricing." },
+            { q: "Can I analyze multiple fish at once?", a: "Yes, you can use the 'Group Analysis' feature to upload a batch. It will provide aggregate statistics such as total count, species distribution, and combined weight estimates." },
         ],
     },
     {
-        category: "Analytics", icon: BarChart2, color: "text-indigo-500", bg: "bg-indigo-500/10",
+        category: "Market & Analytics", icon: BarChart2, color: "text-indigo-500", bg: "bg-indigo-500/10",
         questions: [
-            { q: "How do I generate a PDF report?", a: "Go to Analytics → Generate Report. Includes summary stats, species breakdown, earnings trends, and full history." },
-            { q: "How are earnings estimated?", a: "Based on species, weight cross-referenced with typical market rates for your region." },
-            { q: "Can I export data as CSV?", a: "Yes! Settings → Data & Privacy → Export Catch Data for full history with all analysis details." },
+            { q: "How do I generate a PDF report?", a: "Go to the Analytics tab and tap 'Generate Report'. The PDF will include your summary statistics, a breakdown by species, earnings trends, and a complete historical log." },
+            { q: "How are earnings estimated?", a: "Earnings are estimated by cross-referencing your identified species and their weights with the typical, real-time market rates for your registered port or region." },
+            { q: "Can I export my data?", a: "Absolutely! Go to Profile -> App Settings -> Data & Privacy -> Export Catch Data. You will receive a comprehensive CSV file containing your full history." },
         ],
     },
     {
         category: "AI Assistant", icon: MessageSquare, color: "text-blue-500", bg: "bg-blue-500/10",
         questions: [
-            { q: "What can I ask the AI?", a: "Catch history, species ID, fishing regulations, weather, market prices — the assistant uses your analysis history for context-aware answers." },
-            { q: "Does it support Hindi?", a: "Yes! Understands Hindi, Tamil, Marathi, and other regional languages. Set preference in Settings." },
+            { q: "What can I ask the AI?", a: "The AI Assistant is fully context-aware! You can ask it to summarize your catch history, identify specific species, provide local fishing regulations, check weather forecasts, or fetch current market prices." },
+            { q: "Does it support regional languages?", a: "Yes. The AI natively understands Hindi, Tamil, Marathi, Malayalam, and more. You can change your preferred language in the App Settings." },
         ],
     },
     {
-        category: "Privacy", icon: Shield, color: "text-purple-500", bg: "bg-purple-500/10",
+        category: "Privacy & Security", icon: Shield, color: "text-purple-500", bg: "bg-purple-500/10",
         questions: [
-            { q: "How is my data protected?", a: "All data encrypted at rest/transit. Images in AWS S3, analysis in DynamoDB. We never share personal data." },
-            { q: "How do I delete my account?", a: "Settings → Data & Privacy → Delete Account. Type 'DELETE' to confirm. Irreversible." },
+            { q: "How is my data protected?", a: "All personal data and images are encrypted both at rest and in transit. Images are securely stored in AWS S3 and analysis metrics in DynamoDB. We never share your personal data with third parties." },
+            { q: "How do I delete my account?", a: "Go to Profile -> App Settings -> Data & Privacy -> Delete Account. You will be prompted to type 'DELETE' to confirm. Note that this action is strictly irreversible." },
         ],
     },
 ];
 
-// ── FAQ Item ──────────────────────────────────────────────────────────────────
+// ── Premium FAQ Item ──────────────────────────────────────────────────────────
 function FAQItem({ question, answer }: { question: string; answer: string }) {
     const [open, setOpen] = useState(false);
     return (
-        <div className="border border-border/20 rounded-xl overflow-hidden transition-colors hover:border-border/40">
+        <div className={cn(
+            "border rounded-2xl overflow-hidden transition-all duration-300",
+            open ? "border-primary/30 bg-primary/[0.03] shadow-sm" : "border-border/20 hover:border-border/40 hover:bg-muted/10"
+        )}>
             <button
-                className="w-full flex items-center justify-between p-3 text-left text-[13px] font-semibold gap-3 hover:bg-muted/10 transition-colors"
+                className="w-full flex items-center justify-between p-3.5 sm:p-4 text-left gap-4"
                 onClick={() => setOpen(!open)}
             >
-                <span className="min-w-0 leading-snug">{question}</span>
-                {open
-                    ? <ChevronUp className="w-3.5 h-3.5 shrink-0 text-primary" />
-                    : <ChevronDown className="w-3.5 h-3.5 shrink-0 text-muted-foreground/40" />}
+                <span className={cn("text-sm transition-colors duration-200 leading-snug", open ? "font-bold text-foreground" : "font-semibold text-foreground/80")}>{question}</span>
+                <div className={cn("shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300", open ? "bg-primary text-primary-foreground rotate-180" : "bg-muted text-muted-foreground/70")}>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                </div>
             </button>
             <div className={cn(
-                "grid transition-all duration-200 ease-in-out",
+                "grid transition-all duration-300 ease-in-out",
                 open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
             )}>
                 <div className="overflow-hidden">
-                    <div className="px-3 pb-3 text-xs text-muted-foreground/70 leading-relaxed">{answer}</div>
+                    <div className="px-4 pb-4 pt-1 text-[13px] text-muted-foreground/80 leading-relaxed">
+                        {answer}
+                    </div>
                 </div>
             </div>
         </div>
@@ -82,7 +87,7 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HELP OVERLAY — lightweight, no router, renders directly
+// REDESIGNED HELP OVERLAY
 // ═══════════════════════════════════════════════════════════════════
 
 export default function HelpOverlay() {
@@ -105,87 +110,121 @@ export default function HelpOverlay() {
     const setCategory = useCallback((c: string) => setActiveCategory(c), []);
 
     return (
-        <div className="px-4 sm:px-6 py-5 sm:py-6 space-y-4">
-            {/* Header */}
-            <div className="space-y-1 pr-8">
-                <h1 className="text-lg sm:text-xl font-bold tracking-tight">Help & Support</h1>
-                <p className="text-xs text-muted-foreground/60">Find answers or contact our team.</p>
-            </div>
-
-            {/* Search */}
-            <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/40" />
-                <Input placeholder="Search FAQs..." value={search} onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9 h-9 rounded-xl text-sm bg-muted/15 border-border/20 focus-visible:ring-primary/20" />
-            </div>
-
-            {/* Quick Actions */}
-            <div className="grid grid-cols-3 gap-2">
-                {[
-                    { icon: Mail, label: "Email", desc: "support@matsyaai.app", color: "text-teal-500", bg: "bg-teal-500/10" },
-                    { icon: BookOpen, label: "Docs", desc: "Guides & reference", color: "text-indigo-500", bg: "bg-indigo-500/10" },
-                    { icon: Globe, label: "Status", desc: "All operational", color: "text-emerald-500", bg: "bg-emerald-500/10" },
-                ].map(({ icon: Icon, label, desc, color, bg }) => (
-                    <Card key={label} className="rounded-xl border-border/20 bg-card/30 cursor-pointer hover:bg-card/50 transition-colors">
-                        <CardContent className="p-2.5 sm:p-3 flex flex-col items-center text-center gap-1.5">
-                            <div className={cn("p-1.5 rounded-lg", bg, color)}><Icon className="w-3.5 h-3.5" /></div>
-                            <div>
-                                <p className="text-xs font-semibold">{label}</p>
-                                <p className="text-[10px] text-muted-foreground/50 hidden sm:block">{desc}</p>
-                            </div>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
-
-            {/* Category Filter */}
-            <div className="flex flex-wrap gap-1.5">
-                {categories.map((cat) => (
-                    <Button key={cat} variant={activeCategory === cat ? "default" : "outline"} size="sm"
-                        className={cn("rounded-lg h-6 text-[10px] font-semibold px-2.5 border-border/20",
-                            activeCategory === cat && "shadow-sm shadow-primary/15")}
-                        onClick={() => setCategory(cat)}>
-                        {cat}
-                    </Button>
-                ))}
-            </div>
-
-            {/* FAQ */}
-            {filtered.length === 0 ? (
-                <div className="py-12 text-center text-muted-foreground/50">
-                    <HelpCircle className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                    <p className="text-xs font-bold">No results</p>
+        <div className="px-4 py-6 sm:p-8 space-y-6 max-w-full">
+            {/* Header & Search */}
+            <div className="space-y-4">
+                <div className="space-y-1.5">
+                    <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-widest mb-1">
+                        <HelpCircle className="w-3 h-3" /> Support Center
+                    </div>
+                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">How can we help?</h1>
+                    <p className="text-sm text-muted-foreground/70">Search our knowledge base or get in touch with our support team.</p>
                 </div>
-            ) : (
-                <div className="space-y-4">
-                    {filtered.map((section) => {
-                        const Icon = section.icon;
-                        return (
-                            <section key={section.category} className="space-y-2">
-                                <div className="flex items-center gap-2">
-                                    <div className={cn("p-1 rounded-md", section.bg, section.color)}><Icon className="w-3 h-3" /></div>
-                                    <h2 className="text-xs font-bold">{section.category}</h2>
-                                    <Badge variant="secondary" className="rounded-md text-[9px] h-4 px-1.5 font-semibold">{section.questions.length}</Badge>
+
+                <div className="relative group">
+                    <div className="absolute inset-0 bg-primary/5 rounded-2xl blur-md transition-opacity opacity-0 group-focus-within:opacity-100" />
+                    <div className="relative flex items-center bg-card border border-border/30 rounded-2xl p-1 shadow-sm transition-all focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/20">
+                        <div className="pl-3 pr-2 text-muted-foreground/40 group-focus-within:text-primary transition-colors">
+                            <Search className="w-5 h-5" />
+                        </div>
+                        <Input
+                            placeholder="Find answers (e.g., How do I upload?)"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="flex-1 h-12 border-0 bg-transparent shadow-none focus-visible:ring-0 text-sm px-0 placeholder:text-muted-foreground/40"
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* Quick Actions (2 Columns for premium feel) */}
+            {!search && (
+                <div className="grid grid-cols-2 gap-3">
+                    {[
+                        { icon: BookOpen, label: "Detailed Guides", desc: "Read documentation", color: "text-indigo-500", bg: "bg-indigo-500/10", border: "border-indigo-500/20" },
+                        { icon: Globe, label: "System Status", desc: "All systems online", color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+                    ].map(({ icon: Icon, label, desc, color, bg, border }) => (
+                        <Card key={label} className={cn("rounded-2xl border bg-card/40 cursor-pointer hover:bg-card hover:shadow-md transition-all duration-300 group", border)}>
+                            <CardContent className="p-3.5 flex flex-col gap-2.5">
+                                <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110", bg, color)}>
+                                    <Icon className="w-4 h-4" />
                                 </div>
-                                <div className="space-y-1">
-                                    {section.questions.map((item) => <FAQItem key={item.q} question={item.q} answer={item.a} />)}
+                                <div>
+                                    <p className="text-[13px] font-bold text-foreground leading-tight">{label}</p>
+                                    <p className="text-[10px] sm:text-[11px] text-muted-foreground/60 mt-0.5">{desc}</p>
                                 </div>
-                            </section>
-                        );
-                    })}
+                            </CardContent>
+                        </Card>
+                    ))}
                 </div>
             )}
 
-            {/* Still stuck? */}
-            <Card className="rounded-xl border-border/20 bg-gradient-to-r from-teal-500/5 to-indigo-500/5">
-                <CardContent className="p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-                    <div>
-                        <p className="text-xs font-bold">Still need help?</p>
-                        <p className="text-[11px] text-muted-foreground/50">We respond within 24 hours.</p>
+            {/* Scrollable Category Filter */}
+            <div className="relative -mx-4 px-4 sm:mx-0 sm:px-0">
+                <div className="flex overflow-x-auto gap-2 pb-2 hide-scrollbar snap-x">
+                    {categories.map((cat) => (
+                        <button
+                            key={cat}
+                            className={cn(
+                                "shrink-0 snap-center rounded-xl h-9 px-4 text-xs font-bold transition-all duration-200 border",
+                                activeCategory === cat
+                                    ? "bg-primary text-primary-foreground border-primary shadow-md shadow-primary/20"
+                                    : "bg-muted/30 text-muted-foreground/70 border-border/20 hover:bg-muted/60 hover:text-foreground"
+                            )}
+                            onClick={() => setCategory(cat)}
+                        >
+                            {cat}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            {/* FAQ Sections */}
+            <div className="min-h-[300px]">
+                {filtered.length === 0 ? (
+                    <div className="py-16 text-center text-muted-foreground/50 border border-dashed border-border/30 rounded-3xl bg-muted/5">
+                        <Search className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                        <p className="text-sm font-bold text-foreground/60">No matching questions found</p>
+                        <p className="text-xs mt-1">Try adjusting your search terms</p>
                     </div>
-                    <Button size="sm" className="rounded-xl h-7 font-semibold text-[11px] shadow-sm shrink-0">
-                        <Mail className="w-3 h-3 mr-1" /> Contact Us
-                    </Button>
+                ) : (
+                    <div className="space-y-6">
+                        {filtered.map((section) => {
+                            const Icon = section.icon;
+                            return (
+                                <section key={section.category} className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                    <div className="flex items-center gap-2.5 px-1">
+                                        <div className={cn("p-1.5 rounded-lg shadow-sm", section.bg, section.color)}>
+                                            <Icon className="w-4 h-4" />
+                                        </div>
+                                        <h2 className="text-sm font-extrabold tracking-tight text-foreground/90">{section.category}</h2>
+                                    </div>
+                                    <div className="space-y-2">
+                                        {section.questions.map((item) => <FAQItem key={item.q} question={item.q} answer={item.a} />)}
+                                    </div>
+                                </section>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Premium Contact Section */}
+            <Card className="rounded-2xl border-0 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent relative overflow-hidden mt-8">
+                <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary/20 rounded-full blur-2xl pointer-events-none" />
+                <CardContent className="p-5 sm:p-6 flex flex-col gap-4 relative z-10">
+                    <div className="space-y-1">
+                        <h3 className="text-base font-bold text-foreground">Still need help?</h3>
+                        <p className="text-xs text-muted-foreground leading-relaxed">Our support team is available around the clock. We usually respond within a few hours.</p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
+                        <Button className="rounded-xl h-10 w-full sm:w-auto font-bold text-xs gap-2 shadow-lg shadow-primary/20 bg-primary hover:bg-primary/90">
+                            <Mail className="w-4 h-4" /> Email Support
+                        </Button>
+                        <Button variant="outline" className="rounded-xl h-10 w-full sm:w-auto font-bold text-xs gap-2 border-border/30 bg-card hover:bg-muted/50">
+                            <Phone className="w-4 h-4" /> Call Us (Toll Free)
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         </div>

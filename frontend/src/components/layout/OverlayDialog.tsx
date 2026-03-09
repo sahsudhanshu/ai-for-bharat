@@ -41,13 +41,13 @@ export default function OverlayDialog({ isOpen, onClose, children, className }: 
         <AnimatePresence>
             {isOpen && (
                 <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center">
-                    {/* Backdrop */}
+                    {/* Backdrop without blur to fix rendering lag over heavy maps */}
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                        className="absolute inset-0 bg-black/80"
                         onClick={onClose}
                     />
 

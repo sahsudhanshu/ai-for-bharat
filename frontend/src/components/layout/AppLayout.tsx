@@ -33,7 +33,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   // Global loading spinner while checking auth
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-[100dvh] bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4 animate-fade-in">
           <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-float">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -44,8 +44,19 @@ export default function AppLayout({ children }: AppLayoutProps) {
     );
   }
 
-  // Redirect in progress
-  if (!isAuthenticated && !isPublicRoute) return null;
+  // Redirect in progress — show loading instead of white screen
+  if (!isAuthenticated && !isPublicRoute) {
+    return (
+      <div className="min-h-[100dvh] bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 animate-fade-in">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-float">
+            <Loader2 className="w-8 h-8 text-primary animate-spin" />
+          </div>
+          <p className="text-sm font-medium text-muted-foreground animate-gentle-pulse">Redirecting...</p>
+        </div>
+      </div>
+    );
+  }
 
   // Authenticated routes run in a single Agent-First experience.
   return <AgentFirstLayout />;

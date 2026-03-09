@@ -45,8 +45,8 @@ export default function HistoryComponent(_props: HistoryComponentProps = {}) {
       const topSpecies = group?.analysisResult?.aggregateStats
         ?.speciesDistribution
         ? Object.keys(
-            group.analysisResult.aggregateStats.speciesDistribution,
-          )[0]
+          group.analysisResult.aggregateStats.speciesDistribution,
+        )[0]
         : undefined;
       setCurrentGroup(selectedGroupId, 0, topSpecies);
     } else {
@@ -318,32 +318,32 @@ export default function HistoryComponent(_props: HistoryComponentProps = {}) {
               return (
                 <Card
                   key={group.groupId}
-                  className="rounded-2xl hover:shadow-lg transition-shadow"
+                  className="rounded-2xl hover:shadow-md transition-shadow"
                 >
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                  <CardContent className="p-4 sm:p-5">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
                         <ThumbnailStack group={group} />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-bold text-lg">
+                          <div className="flex items-center gap-2 mb-0.5 sm:mb-1">
+                            <h3 className="font-bold text-base sm:text-lg">
                               {group.imageCount}{" "}
                               {group.imageCount === 1 ? "Image" : "Images"}
                             </h3>
                             <Badge
                               className={cn(
-                                "uppercase text-xs",
+                                "uppercase text-[10px] sm:text-xs",
                                 getStatusColor(group.status),
                               )}
                             >
                               {group.status}
                             </Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground">
+                          <p className="text-xs sm:text-sm text-muted-foreground">
                             {new Date(group.createdAt).toLocaleString()}
                           </p>
                           {stats && (
-                            <div className="mt-2 flex gap-4 text-xs text-muted-foreground">
+                            <div className="mt-1.5 sm:mt-2 flex flex-wrap gap-2 sm:gap-4 text-[11px] sm:text-xs text-muted-foreground">
                               <span>🐟 {fishCount} fish</span>
                               <span>📊 {speciesCount} species</span>
                               {stats.diseaseDetected && (
@@ -355,31 +355,32 @@ export default function HistoryComponent(_props: HistoryComponentProps = {}) {
                           )}
                         </div>
                       </div>
-                      <div className="flex gap-2 shrink-0">
-                        {group.status === "completed" && (
+                      <div className="flex flex-wrap gap-2 w-full sm:w-auto shrink-0 justify-end mt-2 sm:mt-0 pt-2 sm:pt-0 border-t border-border/10 sm:border-t-0">
+
+                        {group.status === 'completed' && (
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="rounded-lg text-muted-foreground hover:text-foreground"
+                            className="h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50"
                             onClick={() => handleExportPdf(group)}
                             title="Export as PDF"
                           >
-                            <Download className="w-4 h-4 mr-1" />
+                            <Download className="w-3.5 h-3.5 mr-1" />
                             <span className="hidden sm:inline">Export</span>
                           </Button>
                         )}
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
+                          className="h-8 rounded-lg text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={() => handleDelete(group.groupId)}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="rounded-lg text-primary hover:bg-primary/10"
+                          className="h-8 rounded-lg text-primary hover:text-primary hover:bg-primary/10"
                           onClick={() => {
                             const summary = `Group ${group.groupId.slice(0, 8)}, ${group.imageCount} images, status: ${group.status}, created ${new Date(group.createdAt).toLocaleDateString()}`;
                             (window as any).__agentChatInject?.(
@@ -400,9 +401,9 @@ export default function HistoryComponent(_props: HistoryComponentProps = {}) {
                           variant="outline"
                           size="sm"
                           onClick={() => setSelectedGroupId(group.groupId)}
-                          className="rounded-lg"
+                          className="h-8 rounded-lg"
                         >
-                          <Eye className="w-4 h-4 mr-2" />
+                          <Eye className="w-3.5 h-3.5 mr-2" />
                           View
                         </Button>
                       </div>

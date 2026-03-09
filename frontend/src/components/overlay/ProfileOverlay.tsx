@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     User, Camera, Pencil, Save, Globe, ExternalLink,
     X, Copy, Link2, Scale, Loader2, MapPin, Ship,
+    Settings, LogOut
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,7 +30,7 @@ interface ProfileOverlayProps {
 }
 
 export default function ProfileOverlay({ onClose, onSwitchTab }: ProfileOverlayProps) {
-    const { user, updateUser } = useAuth();
+    const { user, updateUser, logout } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -341,6 +342,22 @@ export default function ProfileOverlay({ onClose, onSwitchTab }: ProfileOverlayP
                     )}
                 </CardContent>
             </Card>
+
+            {/* ═════ APP SETTINGS & LOGOUT (MOBILE COMPATIBLE) ═════ */}
+            <div className="space-y-2 pt-2">
+                <Button variant="outline" className="w-full justify-between rounded-2xl h-14 px-5 border-border/30 hover:bg-muted/30 transition-colors"
+                    onClick={() => onSwitchTab?.('settings')}>
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-slate-500/10 text-slate-500 dark:text-slate-400 rounded-xl"><Settings className="w-5 h-5" /></div>
+                        <span className="font-semibold text-sm">App Settings</span>
+                    </div>
+                </Button>
+                <Button variant="outline" className="w-full justify-start rounded-2xl h-14 px-5 border-red-500/20 text-red-500 hover:bg-red-500/10 hover:text-red-500 transition-colors"
+                    onClick={() => { logout(); onClose(); }}>
+                    <LogOut className="w-5 h-5 mr-3" />
+                    <span className="font-semibold text-sm">Log Out</span>
+                </Button>
+            </div>
         </div>
     );
 }

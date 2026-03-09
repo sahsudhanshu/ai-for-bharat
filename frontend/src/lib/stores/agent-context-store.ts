@@ -39,6 +39,8 @@ export interface AgentContextState {
   buildContextPayload: () => string;
   /** Returns the human-readable label shown in the ContextPill */
   getContextLabel: () => string;
+  /** Resets global context when panes close */
+  resetContext: () => void;
 }
 
 export const useAgentContext = create<AgentContextState>((set, get) => ({
@@ -63,6 +65,17 @@ export const useAgentContext = create<AgentContextState>((set, get) => ({
   setUserLocation: (loc) => set({ userLocation: loc }),
   setLocale: (locale) => set({ locale }),
   setOffline: (offline) => set({ isOffline: offline }),
+
+  resetContext: () => set({
+    currentPage: 'chat',
+    currentGroupId: null,
+    currentImageIndex: 0,
+    currentSpecies: null,
+    scanSummary: null,
+    mapCenter: null,
+    mapZoom: null,
+    selectedMapPoint: null,
+  }),
 
   getContextLabel: () => {
     const s = get();

@@ -19,6 +19,7 @@ import { getUserProfile, updateUserProfile, exportUserData, deleteUserAccount } 
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
+import { useRouter } from "next/navigation";
 
 // ── Reusable setting row ──────────────────────────────────────────────────────
 function SettingRow({
@@ -76,6 +77,7 @@ interface SettingsOverlayProps {
 export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverlayProps) {
     const { user, logout, changePassword } = useAuth();
     const { theme, setTheme } = useTheme();
+    const router = useRouter();
 
     const [isLoading, setIsLoading] = useState(true);
     const [showPassword, setShowPassword] = useState(false);
@@ -245,8 +247,8 @@ export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverla
                         <div className={cn(
                             "absolute left-1 top-1 bottom-1 w-8 bg-background rounded-full shadow-sm transition-transform duration-300 ease-in-out border border-border/10",
                             theme === 'light' ? "translate-x-0" :
-                                theme === 'system' ? "translate-x-8" :
-                                    "translate-x-16"
+                                theme === 'system' ? "translate-x-[32px]" :
+                                    "translate-x-[64px]"
                         )} />
 
                         <button
@@ -360,8 +362,8 @@ export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverla
             {/* FOOTER */}
             <div className="pt-3 border-t border-border/20 flex flex-col sm:flex-row gap-1.5 justify-between">
                 <Button variant="ghost" size="sm" className="rounded-xl h-8 px-3 text-red-500 hover:bg-red-500/10 font-semibold text-xs gap-1.5 justify-start"
-                    onClick={() => { logout(); onClose(); }}>
-                    <LogOut className="w-3.5 h-3.5" /> Sign Out
+                    onClick={() => { logout(); onClose(); router.push('/login'); }}>
+                    <LogOut className="w-3.5 h-3.5" /> Log Out
                 </Button>
                 {onSwitchTab && (
                     <Button variant="ghost" size="sm" className="rounded-xl h-8 px-3 text-muted-foreground font-semibold text-xs gap-1.5 justify-start sm:justify-end"

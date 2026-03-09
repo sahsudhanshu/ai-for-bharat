@@ -199,7 +199,7 @@ async def stream_fishing_spots(
 
                     yield _prog(
                         "scan",
-                        f"Deep-scanning «{body_name}»...",
+                        f"Scanning «{body_name}»...",
                         pct,
                     )
 
@@ -221,7 +221,7 @@ async def stream_fishing_spots(
                                 )
                                 yield _prog(
                                     "scan",
-                                    f"Weather analysis complete for «{body_name}» · score {weather_s:.0f}/100",
+                                    f"Checking weather conditions at {body_name}...",
                                     pct + 2,
                                 )
                         except Exception:
@@ -232,12 +232,12 @@ async def stream_fishing_spots(
                         return
 
                     # Chlorophyll
-                    yield _prog("scan", f"Fetching NASA MODIS chlorophyll-a data for «{body_name}»...", pct + 3)
+                    yield _prog("scan", f"Analyzing water quality and food sources at {body_name}...", pct + 3)
                     chl_score = await _fetch_chlorophyll_score(client, c_lat, c_lon)
                     if chl_score is not None:
                         yield _prog(
                             "scan",
-                            f"Phytoplankton density for «{body_name}»: {chl_score:.0f}/100",
+                            f"Water quality analysis complete for {body_name}",
                             pct + 4,
                         )
 
@@ -246,7 +246,7 @@ async def stream_fishing_spots(
                         return
 
                     # Gemini web score
-                    yield _prog("scan", f"AI web intelligence for «{body_name}»...", pct + 5)
+                    yield _prog("scan", f"Gathering local fishing reports for {body_name}...", pct + 5)
                     web_score = await _fetch_gemini_web_score(client, body_name, c_lat, c_lon)
 
                     # Sub-points

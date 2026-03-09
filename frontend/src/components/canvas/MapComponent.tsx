@@ -2,20 +2,25 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  Waves, Thermometer, Filter, ChevronRight,
-  TrendingUp, Calendar, Droplets, Maximize2, Navigation,
+  Waves, Thermometer, Filter,
+  Droplets, Maximize2, Navigation,
   Crosshair, Loader2, MapPin, Wind, X, AlertTriangle,
-  Anchor, ArrowUpRight, ArrowDownRight, Minus, Heart,
-  Sun, Moon, CloudRain, Clock, Compass, Target,
-  Sunset, Sparkles
+  Sun,
+  Sunset, Sparkles, CheckCircle2, Radio
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { getMapData, getFishingSpots } from "@/lib/api-client";
-import type { MapMarker, FishingSpot } from "@/lib/api-client";
+import {
+  getMapData,
+  streamFishingSpots
+} from "@/lib/api-client";
+import type {
+  MapMarker, FishingSpot,
+  FishingSpotsProgressEvent,
+  FishingSpotsStreamEvent
+} from "@/lib/api-client";
 import { useLanguage } from "@/lib/i18n";
 import { useAgentContext } from '@/lib/stores/agent-context-store';
 import {
@@ -56,7 +61,7 @@ const INDIA_BOUNDS: [[number, number], [number, number]] = [
   [4.0, 64.0],   // SW corner
   [38.0, 100.0],  // NE corner
 ];
-const INDIA_CENTER: [number, number] = [16.0, 76.0];
+const INDIA_CENTER: [number, number] = [20.5937, 78.9629]; // Geographic center of India
 
 const OPENWEATHER_LAYER_BY_ACTIVE_LAYER: Record<string, string | null> = {
   temp: "temp_new",
@@ -189,6 +194,18 @@ export default function MapComponent({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const openWeatherApiKey = process.env.NEXT_PUBLIC_OPENWEATHERMAP_API_KEY || "";
+
+  // ── SSE scan state ───────────────────────────────────────────────────────
+  type ScanLogEntry = { stage: string; message: string; pct: number; ts: number };
+  const [scanLog, setScanLog] = useState<ScanLogEntry[]>([]);
+  const [scanPct, setScanPct] = useState(0);
+  const [scanDone, setScanDone] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanSummary, setScanSummary] = useState<string | null>(null);
+  const [showScanPanel, setShowScanPanel] = useState(false);
+  const [isScanPanelMinimized, setIsScanPanelMinimized] = useState(false);
+  const scanAbortRef = useRef<AbortController | null>(null);
+  const scanLogRef = useRef<HTMLDivElement>(null);
 
   // Ref to hold latest handleMapClick so the flyTo effect can call it safely
   const handleMapClickRef = useRef<(pos: { lat: number; lng: number }) => void>(undefined);
@@ -431,15 +448,71 @@ export default function MapComponent({
   }, []);
 
   const handleFetchFishingSpots = useCallback(async () => {
-    const loc = userLocation ?? (mapInstanceRef.current ? (() => { const c = mapInstanceRef.current.getCenter(); return { lat: c.lat, lng: c.lng }; })() : null);
+    const loc = userLocation ?? (mapInstanceRef.current
+      ? (() => { const c = mapInstanceRef.current.getCenter(); return { lat: c.lat, lng: c.lng }; })()
+      : null);
     if (!loc) return;
+
+    // Cancel any previous scan
+    scanAbortRef.current?.abort();
+    const controller = new AbortController();
+    scanAbortRef.current = controller;
+
+    // Reset scan state
+    setScanLog([]);
+    setScanPct(0);
+    setScanDone(false);
+    setScanError(null);
+    setScanSummary(null);
+    setShowScanPanel(true);
+    setIsScanPanelMinimized(false);
     setFishingSpotsLoading(true);
     setShowFishingSpots(true);
+
+    // Request notification permission up-front
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => { });
+    }
+
     try {
-      const res = await getFishingSpots(loc.lat, loc.lng, 50);
-      setFishingSpots(res.spots || []);
-    } catch (e) {
-      console.error('Fishing spots error:', e);
+      const result = await streamFishingSpots(
+        loc.lat, loc.lng, 50,
+        (event: FishingSpotsStreamEvent) => {
+          if (event.type === 'progress') {
+            const prog = event as FishingSpotsProgressEvent;
+            setScanPct(prog.pct);
+            setScanLog(prev => [
+              ...prev,
+              { stage: prog.stage, message: prog.message, pct: prog.pct, ts: Date.now() }
+            ]);
+            // auto-scroll log
+            setTimeout(() => {
+              if (scanLogRef.current) {
+                scanLogRef.current.scrollTop = scanLogRef.current.scrollHeight;
+              }
+            }, 30);
+          }
+        },
+        controller.signal,
+      );
+
+      setFishingSpots(result.spots || []);
+      setScanSummary(result.summary);
+      setScanDone(true);
+      setScanPct(100);
+
+      // Browser notification
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('🎣 Deep Scan Complete', {
+          body: result.summary,
+          icon: '/logo.png',
+        });
+      }
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        setScanError(e?.message || 'Scan failed');
+        console.error('Fishing spots stream error:', e);
+      }
     } finally {
       setFishingSpotsLoading(false);
     }
@@ -522,65 +595,190 @@ export default function MapComponent({
           </div> */}
 
           <div className="space-y-2 animate-fade-in text-xs">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2 items-end">
-              {/* Layers */}
-              <div className="space-y-1.5 lg:col-span-9">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Layers</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                  {[
-                    { id: 'temp', label: 'Temperature', icon: Thermometer },
-                    { id: 'currents', label: 'Currents', icon: Waves },
-                    { id: 'salinity', label: 'Salinity', icon: Droplets },
-                  ].map((layer) => (
-                    <Button
-                      key={layer.id}
-                      variant={activeLayer === layer.id ? "secondary" : "ghost"}
-                      className={cn(
-                        "justify-start gap-1.5 rounded-lg h-7 px-2 transition-all text-[11px]",
-                        activeLayer === layer.id ? "bg-primary/10 text-primary border border-primary/20" : "text-muted-foreground"
-                      )}
-                      onClick={() => handleLayerChange(layer.id as keyof typeof OPENWEATHER_LAYER_BY_ACTIVE_LAYER)}
-                    >
-                      <layer.icon className="w-3 h-3" />
-                      <span className="font-semibold truncate">{layer.label}</span>
-                    </Button>
-                  ))}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mr-2">LAYERS</h4>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {[
+                  { id: 'temp', label: 'Temperature', icon: Thermometer },
+                  { id: 'currents', label: 'Currents', icon: Waves },
+                  { id: 'salinity', label: 'Salinity', icon: Droplets },
+                ].map((layer) => (
+                  <Button
+                    key={layer.id}
+                    variant={activeLayer === layer.id ? "secondary" : "ghost"}
+                    className={cn(
+                      "flex-1 sm:flex-none justify-start gap-1.5 rounded-lg h-9 px-3 transition-all text-[11px] border",
+                      activeLayer === layer.id ? "bg-amber-500/10 text-amber-500 border-amber-500/30 shadow-sm" : "border-transparent text-muted-foreground hover:bg-muted/50"
+                    )}
+                    onClick={() => handleLayerChange(layer.id as keyof typeof OPENWEATHER_LAYER_BY_ACTIVE_LAYER)}
+                  >
+                    <layer.icon className="w-3.5 h-3.5" />
+                    <span className="font-semibold truncate">{layer.label}</span>
+                  </Button>
+                ))}
 
-              {/* Alerts */}
-              <Button
-                variant={showAlerts ? "secondary" : "ghost"}
-                className={cn(
-                  "w-full justify-start gap-2 rounded-lg h-7 px-2 transition-all text-[11px] lg:col-span-3",
-                  showAlerts ? "bg-red-500/10 text-red-400 border border-red-500/20" : "text-muted-foreground"
-                )}
-                onClick={() => setShowAlerts(!showAlerts)}
-              >
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span className="font-semibold">Live Alerts</span>
-                {activeAlerts.length > 0 && (
-                  <span className={cn(
-                    "ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded-full",
-                    showAlerts ? "bg-red-500/20 text-red-400" : "bg-muted text-muted-foreground"
-                  )}>
-                    {activeAlerts.length}
-                  </span>
-                )}
-              </Button>
+                {/* Alerts */}
+                <Button
+                  variant={showAlerts ? "secondary" : "ghost"}
+                  className={cn(
+                    "flex-1 sm:flex-none justify-start gap-1.5 rounded-lg h-9 px-3 transition-all text-[11px] border",
+                    showAlerts ? "bg-red-500/10 text-red-500 border-red-500/20 shadow-sm" : "border-transparent text-muted-foreground hover:bg-red-500/10 hover:text-red-500"
+                  )}
+                  onClick={() => setShowAlerts(!showAlerts)}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  <span className="font-semibold truncate">Live Alerts</span>
+                </Button>
+
+                {/* Scan Button Action */}
+                <Button
+                  className={cn(
+                    "flex-1 sm:flex-none justify-center gap-1.5 rounded-lg h-9 px-4 transition-all text-[11px] font-bold shadow-sm",
+                    fishingSpotsLoading
+                      ? "bg-secondary text-secondary-foreground opacity-70 cursor-not-allowed border border-transparent"
+                      : showFishingSpots
+                        ? "bg-primary text-primary-foreground hover:bg-primary/90 border border-transparent"
+                        : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-white hover:from-emerald-600 hover:to-emerald-500 border border-emerald-500/30 shadow-emerald-500/20"
+                  )}
+                  onClick={fishingSpotsLoading ? () => {
+                    scanAbortRef.current?.abort();
+                    setFishingSpotsLoading(false);
+                    setScanDone(true);
+                  } : handleFetchFishingSpots}
+                >
+                  {fishingSpotsLoading ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" />Scanning...</>
+                  ) : showFishingSpots ? (
+                    <><Crosshair className="w-3.5 h-3.5" />Rescan Config</>
+                  ) : (
+                    <><Crosshair className="w-3.5 h-3.5" />Scan Fishing Spots</>
+                  )}
+                </Button>
+              </div>
             </div>
 
             {/* Daily Sun Info */}
-            <div className="grid grid-cols-2 gap-1.5 mt-0.5">
-              <div className="p-2 rounded-lg bg-amber-500/8 border border-amber-500/15 space-y-0.5">
-                <div className="flex items-center gap-1.5"><Sun className="w-3.5 h-3.5 text-amber-400" /><span className="text-[10px] font-bold text-amber-400">Sunrise</span></div>
+            <div className="grid grid-cols-2 gap-1.5 mt-1 pt-1">
+              <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/15 space-y-1">
+                <div className="flex items-center gap-1.5"><Sun className="w-4 h-4 text-amber-500" /><span className="text-[10px] font-bold text-amber-500/90">Sunrise</span></div>
                 <p className="text-xs font-bold text-foreground">{sunTimes?.sunrise || 'Loading...'}</p>
               </div>
-              <div className="p-2 rounded-lg bg-amber-500/8 border border-amber-500/15 space-y-0.5">
-                <div className="flex items-center gap-1.5"><Sunset className="w-3.5 h-3.5 text-amber-400" /><span className="text-[10px] font-bold text-amber-400">Sunset</span></div>
+              <div className="p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/15 space-y-1">
+                <div className="flex items-center gap-1.5"><Sunset className="w-4 h-4 text-amber-500" /><span className="text-[10px] font-bold text-amber-500/90">Sunset</span></div>
                 <p className="text-xs font-bold text-foreground">{sunTimes?.sunset || 'Loading...'}</p>
               </div>
             </div>
+
+            {/* ── Inline Fishing Scan Progress Panel ──────────── */}
+            {showScanPanel && (
+              <div className="mt-2.5 pt-2.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className={cn(
+                  "rounded-xl border shadow-sm overflow-hidden transition-all duration-500",
+                  scanDone ? "border-emerald-500/30 bg-emerald-500/5"
+                    : scanError ? "border-red-500/30 bg-red-500/5"
+                      : "border-primary/30 bg-primary/5"
+                )}>
+                  {/* Header */}
+                  <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-border/20">
+                    <div className="flex items-center gap-2.5">
+                      {scanDone ? (
+                        <div className="p-1 rounded-full bg-emerald-500/20 text-emerald-500"><CheckCircle2 className="w-3.5 h-3.5" /></div>
+                      ) : scanError ? (
+                        <div className="p-1 rounded-full bg-red-500/20 text-red-500"><AlertTriangle className="w-3.5 h-3.5" /></div>
+                      ) : (
+                        <div className="p-1 rounded-full bg-primary/20 text-primary relative">
+                          <Radio className="w-3.5 h-3.5 relative z-10 animate-pulse" />
+                        </div>
+                      )}
+                      <div className="flex flex-col">
+                        <span className="text-[11px] font-bold tracking-widest uppercase"
+                          style={{ color: scanDone ? '#10b981' : scanError ? '#ef4444' : 'hsl(var(--primary))' }}>
+                          {scanDone ? 'Deep Scan Complete' : scanError ? 'Scan Failed' : 'Deep Scan Running'}
+                        </span>
+                        {!scanDone && !scanError && <span className="text-[10px] text-muted-foreground font-mono">Analyzing marine conditions...</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="px-3 pb-2.5 pt-2">
+                    <div className="flex justify-between mb-1.5">
+                      <span className="text-[10px] text-muted-foreground font-bold tracking-wide uppercase truncate max-w-[80%]">
+                        {scanLog.length > 0 ? scanLog[scanLog.length - 1]?.stage : 'INIT'}
+                      </span>
+                      <span className="text-[10px] text-foreground font-mono font-bold">{scanPct}%</span>
+                    </div>
+                    <div className="w-full h-1.5 rounded-full bg-muted/50 overflow-hidden relative border border-black/5">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-500",
+                          !scanDone && !scanError && "bg-primary relative"
+                        )}
+                        style={{
+                          width: `${scanPct}%`,
+                          ...(scanDone ? { background: 'linear-gradient(90deg, #10b981, #34d399)' } : {}),
+                          ...(scanError ? { background: '#ef4444' } : {})
+                        }}
+                      >
+                        {!scanDone && !scanError && (
+                          <div className="absolute inset-0 bg-white/20 w-full animate-[shimmer_2s_infinite] -translate-x-full" style={{ animation: 'shimmer 2s infinite' }}></div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Log area */}
+                  <div
+                    ref={scanLogRef}
+                    className="px-3 pb-3 space-y-2 max-h-[160px] overflow-y-auto"
+                    style={{
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: 'var(--border) transparent',
+                    }}
+                  >
+                    {scanLog.length === 0 && !scanError && (
+                      <p className="text-[10px] text-muted-foreground italic pl-1">Initialising scan engine...</p>
+                    )}
+                    {scanLog.map((entry, i) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2.5 text-[10.5px] pl-1.5"
+                        style={{ opacity: i === scanLog.length - 1 ? 1 : 0.5 + (i / scanLog.length) * 0.5 }}
+                      >
+                        <span
+                          className="mt-[5px] w-1.5 h-1.5 rounded-full flex-shrink-0 shadow-sm"
+                          style={{
+                            background:
+                              entry.stage === 'done' || entry.stage === 'finalise' ? '#10b981' // emerald
+                                : entry.stage === 'scan' ? 'hsl(var(--primary))' // primary blue
+                                  : entry.stage === 'history' ? '#c084fc' // lighter purple for contrast
+                                    : entry.stage === 'osm' ? '#fbbf24' // lighter amber for contrast
+                                      : '#93c5fd', // lighter blue for default
+                          }}
+                        />
+                        <span className="text-foreground leading-snug">{entry.message}</span>
+                      </div>
+                    ))}
+                    {scanError && (
+                      <div className="flex items-start gap-2 text-[10px] text-red-500 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>{scanError}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Summary on completion */}
+                  {scanDone && scanSummary && (
+                    <div className="mx-3 mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-relaxed font-medium flex gap-1.5 items-start">
+                        <Sparkles className="w-3.5 h-3.5 flex-shrink-0 text-emerald-500" />
+                        {scanSummary}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>
@@ -599,8 +797,6 @@ export default function MapComponent({
             center={userLocation ? [userLocation.lat, userLocation.lng] : initialCenter}
             zoom={initialZoom}
             zoomControl={false}
-            maxBounds={INDIA_BOUNDS}
-            maxBoundsViscosity={0.8}
             minZoom={4}
             preferCanvas={true}
             className="w-full h-full z-10"
@@ -663,24 +859,24 @@ export default function MapComponent({
                     </div>
 
                     {/* Confidence score — large, prominent */}
-                    <div className="rounded-lg p-2 border" style={{ borderColor: spot.color + '55', background: spot.color + '12' }}>
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
+                    <div className="rounded-lg p-2.5 border bg-background" style={{ borderColor: spot.color + '55' }}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Overall Confidence</span>
                         <span className="text-xl font-extrabold" style={{ color: spot.color }}>{spot.confidence}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
                       </div>
-                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+                      <div className="w-full h-2.5 rounded-full bg-muted overflow-hidden border border-black/5 dark:border-white/5 shadow-inner">
                         <div className="h-full rounded-full transition-all" style={{ width: `${spot.confidence}%`, background: spot.color }} />
                       </div>
                     </div>
 
                     {/* Fish Density — primary metric */}
-                    <div className="rounded-lg p-2 border border-cyan-500/30 bg-cyan-500/8">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wide">🐟 Fish Density</span>
-                        <span className="text-lg font-extrabold text-cyan-300">{spot.fish_density_score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
+                    <div className="rounded-lg p-2.5 border border-cyan-500/30 bg-cyan-500/5">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-wide flex items-center gap-1">🐟 Fish Density</span>
+                        <span className="text-lg font-extrabold text-cyan-600 dark:text-cyan-400">{spot.fish_density_score}<span className="text-xs font-normal text-muted-foreground">/100</span></span>
                       </div>
-                      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full rounded-full bg-cyan-400 transition-all" style={{ width: `${spot.fish_density_score}%` }} />
+                      <div className="w-full h-2 rounded-full bg-muted overflow-hidden border border-black/5 dark:border-white/5 shadow-inner">
+                        <div className="h-full rounded-full bg-cyan-500 dark:bg-cyan-400 transition-all shadow-sm" style={{ width: `${spot.fish_density_score}%` }} />
                       </div>
                       {spot.chlorophyll_available && (
                         <p className="text-[9px] text-cyan-400 mt-1">🌊 Chlorophyll data included</p>
@@ -750,7 +946,7 @@ export default function MapComponent({
                               }
                             );
                           }}
-                          className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-[11px] font-bold text-primary hover:bg-primary/20 transition-colors"
+                          className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-[11px] font-bold text-primary hover:text-primary hover:bg-primary/20 transition-colors"
                         >
                           <Sparkles className="w-3 h-3" />
                           Ask AI about this area
@@ -805,7 +1001,7 @@ export default function MapComponent({
 
         {/* ── Legend + Weather Scale ──────────────────────────── */}
         {showLegend && (
-          <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 z-[1000] pointer-events-auto max-w-[380px]">
+          <div className="absolute bottom-[84px] sm:bottom-4 left-3 sm:left-4 z-[1000] pointer-events-auto max-w-[380px]">
             <div className="flex flex-col gap-2 px-3 sm:px-4 py-2.5 sm:py-3 rounded-2xl bg-black/80 backdrop-blur-xl border border-white/15 shadow-2xl">
               {/* <div className="flex items-center gap-3 sm:gap-5">
                 <div className="flex flex-col gap-0.5">
@@ -829,30 +1025,19 @@ export default function MapComponent({
                 </div>
               )}
 
-              {/* Fishing Spots Inline Toggle */}
-              <div className={`${showAlerts && activeAlerts.length > 0 ? "pt-2 border-t border-white/10" : ""}`}>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    {/* <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest flex items-center gap-1"><Target className="w-3 h-3" /> API Scan</span> */}
-                    {showFishingSpots && fishingSpots.length > 0 && (
-                      <div className="flex items-center gap-1.5 text-[8px] text-white/80 font-bold">
-                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Gd</span>
-                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Fr</span>
-                        <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Lw</span>
-                      </div>
-                    )}
+              {/* Fishing Spots Legend */}
+              {showFishingSpots && fishingSpots.length > 0 && (
+                <div className={`${showAlerts && activeAlerts.length > 0 ? "pt-2 border-t border-white/10" : ""}`}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[8px] font-bold text-white/60 uppercase tracking-widest">Spots</span>
+                    <div className="flex items-center gap-1.5 text-[9px] font-bold text-white">
+                      <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Good</span>
+                      <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" />Fair</span>
+                      <span className="flex items-center gap-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />Low</span>
+                    </div>
                   </div>
-                  <Button
-                    size="sm"
-                    className={cn("w-full h-7 text-[10px] rounded-lg font-bold transition-all", showFishingSpots ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30" : "bg-white/10 text-white hover:bg-white/20")}
-                    onClick={handleFetchFishingSpots}
-                    disabled={fishingSpotsLoading}
-                  >
-                    {fishingSpotsLoading ? <Loader2 className="mr-1.5 w-3 h-3 animate-spin" /> : null}
-                    {showFishingSpots ? "Rescan Fishing Zones" : "Scan Fishing Zones"}
-                  </Button>
                 </div>
-              </div>
+              )}
               {currentScale && (
                 <div className="pt-1.5 border-t border-white/10">
                   <WeatherScaleLegend scale={currentScale} />
@@ -871,6 +1056,18 @@ export default function MapComponent({
             </div>
           </div>
         )}
+
+
+
+        <style>{`
+          @keyframes fadeSlideDown {
+            from { opacity: 0; transform: translate(-50%, -12px); }
+            to   { opacity: 1; transform: translate(-50%, 0); }
+          }
+          @keyframes shimmer {
+            100% { transform: translateX(100%); }
+          }
+        `}</style>
       </div>
     </div>
   );

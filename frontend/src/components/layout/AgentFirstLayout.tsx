@@ -310,14 +310,14 @@ export default function AgentFirstLayout() {
 
     return (
         <TooltipProvider delayDuration={150}>
-            <div className="flex h-screen bg-background text-foreground font-sans overflow-hidden">
+            <div className="flex h-[100dvh] bg-background text-foreground font-sans overflow-hidden">
 
                 {/* ════════════════════════════════════════════════════════════════════════
             ICON RAIL (Left Edge ~ 64px) — Desktop only
             ════════════════════════════════════════════════════════════════════════ */}
                 <aside
                     className={cn(
-                        "hidden md:flex flex-col h-screen bg-card/30 backdrop-blur-xl border-r border-border/20 shrink-0 z-50 transition-all duration-300 ease-out overflow-hidden",
+                        "hidden md:flex flex-col h-full min-h-0 bg-card/30 backdrop-blur-xl border-r border-border/20 shrink-0 z-50 transition-all duration-300 ease-out overflow-hidden",
                         sidebarExpanded ? "w-60" : "w-16"
                     )}
                     onMouseEnter={handleLeftMouseEnter}
@@ -340,18 +340,18 @@ export default function AgentFirstLayout() {
                                 }
                             }}
                             className={cn(
-                                "rounded-xl bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center border border-primary/20 hover:border-primary/40 transition-all hover:scale-105 cursor-pointer gap-2",
+                                " flex items-center transition-all hover:scale-105 cursor-pointer gap-2",
                                 sidebarExpanded ? "h-9 px-3" : "w-10 h-10 justify-center group/logobtn"
                             )}
                         >
                             {sidebarExpanded ? (
                                 <>
-                                    <Sparkles className="w-5 h-5 text-primary shrink-0" />
+                                    <img src="/logo.png" alt="Logo" className="w-10 h-10 object-contain shrink-0" />
                                     <span className="text-sm font-bold text-primary truncate whitespace-nowrap">MatsyaAI</span>
                                 </>
                             ) : (
                                 <>
-                                    <Sparkles className="w-5 h-5 text-primary shrink-0 group-hover/logobtn:hidden" />
+                                    <img src="/logo.png" alt="Logo" className="w-10 h-10 object-contain shrink-0 group-hover/logobtn:hidden" />
                                     <PanelLeftOpen className="w-5 h-5 text-primary shrink-0 hidden group-hover/logobtn:block" />
                                 </>
                             )}
@@ -359,9 +359,9 @@ export default function AgentFirstLayout() {
                         {sidebarExpanded && (
                             <button
                                 onClick={() => { setSidebarExpanded(false); leftHoverExpanded.current = false; }}
-                                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-muted/30 transition-colors text-muted-foreground/50 hover:text-foreground"
+                                className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-muted/30 text-muted-foreground/50"
                             >
-                                <PanelLeftClose className="w-4 h-4" />
+                                <PanelLeftClose className="w-5 h-5 hover:text-primary" />
                             </button>
                         )}
                     </div>
@@ -383,7 +383,7 @@ export default function AgentFirstLayout() {
                         >
                             <Plus className={cn("shrink-0 transition-all", sidebarExpanded ? "w-4 h-4" : "w-[18px] h-[18px]")} />
                             <span className={cn(
-                                "text-sm font-semibold truncate whitespace-nowrap transition-all flex-1 text-left",
+                                "text-sm font-semibold truncate whitespace-nowrap transition-[opacity,max-width] duration-150 delay-100 flex-1 text-left",
                                 sidebarExpanded ? "opacity-100 max-w-full" : "opacity-0 max-w-0"
                             )}>
                                 New Chat
@@ -412,7 +412,7 @@ export default function AgentFirstLayout() {
                         >
                             <MessageSquare className={cn("shrink-0 transition-all", sidebarExpanded ? "w-4 h-4" : "w-[18px] h-[18px]")} />
                             <span className={cn(
-                                "text-sm font-semibold truncate whitespace-nowrap transition-all flex-1 text-left",
+                                "text-sm font-semibold truncate whitespace-nowrap transition-[opacity,max-width] duration-150 delay-100 flex-1 text-left",
                                 sidebarExpanded ? "opacity-100 max-w-full" : "opacity-0 max-w-0"
                             )}>
                                 {chatCollapsed ? 'Open Chat' : 'AI Assistant'}
@@ -433,7 +433,7 @@ export default function AgentFirstLayout() {
                                 <>
                                     <div className="mx-3 my-1 border-t border-border/15" />
                                     <div className="px-4 py-1">
-                                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">Recent chats</p>
+                                        <p className="text-[10px] font-bold uppercase tracking-widest">Recent chats</p>
                                     </div>
                                 </>
                             )}
@@ -460,7 +460,7 @@ export default function AgentFirstLayout() {
                                                     "w-full h-8 rounded-lg flex items-center gap-2.5 px-2.5 text-left transition-all group/item",
                                                     isActive
                                                         ? "bg-primary/10 text-primary"
-                                                        : "text-muted-foreground/50 hover:text-foreground hover:bg-muted/15"
+                                                        : "text-muted-foreground/70 hover:text-foreground hover:bg-muted/15"
                                                 )}
                                             >
                                                 <span className="text-[12px] font-medium truncate whitespace-nowrap w-full">
@@ -505,7 +505,7 @@ export default function AgentFirstLayout() {
                                 >
                                     <Icon className="w-[22px] h-[22px] shrink-0 transition-all mx-0.5" />
                                     <span className={cn(
-                                        "text-[13px] font-medium truncate whitespace-nowrap transition-all flex-1 text-left",
+                                        "text-[13px] font-medium truncate whitespace-nowrap transition-[opacity,max-width] duration-150 delay-100 flex-1 text-left",
                                         sidebarExpanded ? "opacity-100 max-w-full" : "opacity-0 max-w-0"
                                     )}>
                                         {item.label}
@@ -531,7 +531,9 @@ export default function AgentFirstLayout() {
                                     sidebarExpanded ? "gap-2.5 px-2 rounded-xl hover:bg-muted/20" : "justify-center"
                                 )}>
                                     <Avatar className="h-8 w-8 border border-border/30 hover:border-primary/30 transition-all cursor-pointer shrink-0">
-                                        <AvatarImage src={user?.avatar} />
+                                        {user?.avatar && (user.avatar.startsWith('http://') || user.avatar.startsWith('https://')) && (
+                                            <AvatarImage src={user.avatar} />
+                                        )}
                                         <AvatarFallback className="text-[10px] font-bold bg-primary/10 text-primary">{userInitials}</AvatarFallback>
                                     </Avatar>
                                     {sidebarExpanded && (
@@ -570,8 +572,8 @@ export default function AgentFirstLayout() {
                                         <div className={cn(
                                             "absolute left-0.5 top-0.5 bottom-0.5 w-7 bg-background rounded-full shadow-sm transition-transform duration-300 ease-in-out border border-border/10",
                                             theme === 'light' ? "translate-x-0" :
-                                                theme === 'system' ? "translate-x-[30px]" :
-                                                    "translate-x-[60px]"
+                                                theme === 'system' ? "translate-x-[28px]" :
+                                                    "translate-x-[56px]"
                                         )} />
 
                                         <button
@@ -624,14 +626,12 @@ export default function AgentFirstLayout() {
                 {/* ════════════════════════════════════════════════════════════════════════
             MAIN CONTENT: Split Pane (Desktop) / Stacked (Mobile)
             ════════════════════════════════════════════════════════════════════════ */}
-                <div className="flex-1 flex flex-col h-screen overflow-hidden" ref={containerRef}>
+                <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden" ref={containerRef}>
 
                     {/* ── Mobile Top Bar (simplified: logo + offline only) ── */}
                     <div className="md:hidden flex items-center justify-between h-12 px-4 border-b border-border/20 bg-card/30 backdrop-blur-xl shrink-0" data-compact>
                         <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center justify-center border border-primary/20">
-                                <Sparkles className="w-4 h-4 text-primary" />
-                            </div>
+                            <img src="/logo.png" alt="MatsyaAI" className="w-8 h-8 object-contain" />
                             <span className="font-bold text-base text-foreground">MatsyaAI</span>
                             {isOffline && <OfflineIndicator className="text-[9px] ml-1" />}
                         </div>
@@ -704,13 +704,14 @@ export default function AgentFirstLayout() {
                                 }}
                                 transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
                                 className={cn(
-                                    "h-full overflow-hidden will-change-[width] border-border/10 bg-background relative z-10 transition-shadow duration-500",
+                                    "h-full overflow-hidden will-change-[width] border-border/10 bg-background relative z-10",
+                                    "transition-[width,border-width,box-shadow] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
                                     canvasFlash && "ring-2 ring-primary/40 shadow-lg shadow-primary/10"
                                 )}
                             >
                                 <div className="h-full flex flex-col absolute inset-y-0 left-0 min-w-[340px]" style={{ width: '100%' }}>
                                     {/* Canvas Header */}
-                                    <div className="h-12 flex items-center justify-between px-4 border-b border-border/15 bg-card/20 backdrop-blur-sm shrink-0">
+                                    <div className="h-12 flex items-center justify-between px-4 border-b border-border/20 bg-card/60 backdrop-blur-sm shrink-0">
                                         <div className="flex items-center gap-2">
                                             {/* Expand chat button (only when collapsed) */}
                                             {chatCollapsed && (
@@ -836,16 +837,21 @@ export default function AgentFirstLayout() {
                                                 key={tab.id}
                                                 onClick={tab.onClick}
                                                 className={cn(
-                                                    "flex-1 flex flex-col items-center justify-center gap-1 transition-colors duration-150",
+                                                    "flex-1 flex flex-col items-center justify-center gap-1 transition-colors duration-150 relative",
                                                     tab.isActive
                                                         ? "text-primary"
                                                         : "text-muted-foreground"
                                                 )}
                                             >
-                                                <TabIcon className={cn(
-                                                    "w-7 h-7 transition-all",
-                                                    tab.isActive && "scale-110"
-                                                )} />
+                                                <div className={cn(
+                                                    "w-12 h-7 rounded-full flex items-center justify-center transition-all duration-200",
+                                                    tab.isActive ? "bg-primary/10" : "bg-transparent"
+                                                )}>
+                                                    <TabIcon className={cn(
+                                                        "w-5 h-5 transition-all",
+                                                        tab.isActive && "scale-105"
+                                                    )} />
+                                                </div>
                                                 <span className={cn(
                                                     "text-[11px] font-semibold leading-none",
                                                     tab.isActive && "font-bold"
@@ -890,7 +896,7 @@ export default function AgentFirstLayout() {
                 <aside
                     className={
                         cn(
-                            "hidden md:flex flex-col h-screen bg-card/30 backdrop-blur-xl border-l border-border/20 shrink-0 z-50 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden",
+                            "hidden md:flex flex-col h-full min-h-0 bg-card/30 backdrop-blur-xl border-l border-border/20 shrink-0 z-50 transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] overflow-hidden",
                             rightSidebarExpanded ? "w-52" : "w-14"
                         )
                     }
@@ -948,7 +954,7 @@ export default function AgentFirstLayout() {
                                                 : "w-[40px] h-[40px] justify-center",
                                             isActive
                                                 ? cn(tool.activeBg, tool.color)
-                                                : cn("text-muted-foreground/60 hover:text-foreground", !rightSidebarExpanded && tool.hoverBg, rightSidebarExpanded && "hover:bg-muted/20")
+                                                : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/25"
                                         )}
                                     >
                                         <Icon className="shrink-0 transition-all w-[18px] h-[18px]" />

@@ -300,15 +300,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cognitoUser.signOut();
     }
     setUser(null);
+
+    // Clear auth tokens from localStorage
     localStorage.removeItem("matsya_ai_user");
     localStorage.removeItem("matsya_ai_token");
-    
-    // Clear session storage for agent-first architecture
+
+    // Clear ALL Cognito tokens written by amazon-cognito-identity-js
+    // (prefixed with "CognitoIdentityServiceProvider.<clientId>")
     try {
-      sessionStorage.removeItem('matsyaai_agent_session');
+      const cognitoPrefix = "CognitoIdentityServiceProvider";
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith(cognitoPrefix))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch { }
+
+    // Clear persisted pane widths so next login starts fresh layout
+    try { localStorage.removeItem("matsyaai_pane_widths"); } catch { }
+
+    // Clear session storage fully (activeComponent, chat history, etc.)
+    try {
+      sessionStorage.clear();
     } catch (error) {
-      console.error('[Auth] Failed to clear session:', error);
+      console.error("[Auth] Failed to clear session:", error);
     }
+
+    // Reset Zustand store in-memory state so activeComponent, history etc.
+    // are wiped immediately — prevents stale state leaking into next login
+    try {
+      // Dynamic import avoids circular dependency
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { useAgentFirstStore } = require("@/lib/stores/agent-first-store");
+      useAgentFirstStore.getState().logout();
+    } catch { }
   };
 
   // Keep ref up-to-date so the event listener always calls the latest logout

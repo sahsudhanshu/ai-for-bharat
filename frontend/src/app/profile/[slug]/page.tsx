@@ -49,7 +49,7 @@ export default function PublicProfilePage() {
         : null;
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-50 relative pb-24 lg:pb-0 font-sans selection:bg-teal-500/30">
+        <div className="min-h-[100dvh] bg-slate-950 text-slate-50 relative pb-24 lg:pb-0 font-sans selection:bg-teal-500/30">
 
             {/* Dynamic Background */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
