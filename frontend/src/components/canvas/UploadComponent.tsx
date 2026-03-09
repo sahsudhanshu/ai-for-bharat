@@ -937,13 +937,10 @@ export default function UploadComponent({
                                   <p className="text-sm font-bold">
                                     ₹
                                     {
-                                      weightResults[key].estimated_fish_value
-                                        .min_inr
-                                    }
-                                    –
-                                    {
-                                      weightResults[key].estimated_fish_value
-                                        .max_inr
+                                      (weightResults[key].market_price_per_kg
+                                          .min_inr + 
+                                        weightResults[key].market_price_per_kg
+                                          .max_inr)/2
                                     }
                                   </p>
                                 </div>
