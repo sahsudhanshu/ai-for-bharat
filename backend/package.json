@@ -5,11 +5,7 @@
   "main": "index.js",
   "scripts": {
     "go": "nodemon server.js",
-    "start": "node server.js",
-    "test": "node test-local.js",
-    "test:pbt": "jest --testMatch='**/*.test.js' --verbose",
-    "test:all": "npm run test && npm run test:pbt",
-    "zip": "zip -r function.zip src/ node_modules/ -x '*.test.js'"
+    "start": "node server.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
@@ -21,6 +17,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "serverless-http": "^4.0.0",
     "uuid": "^9.0.0"
   },
   "engines": {

@@ -41,7 +41,7 @@ export async function register() {
 
     lines.push('');
     lines.push(`${CYN}${B}╔══════════════════════════════════════════════════════════════════╗${R}`);
-    lines.push(`${CYN}${B}║  🌊 OceanAI Frontend — Development Startup Diagnostics         ║${R}`);
+    lines.push(`${CYN}${B}║  🌊 MatsyaAI Frontend — Development Startup Diagnostics         ║${R}`);
     lines.push(`${CYN}${B}╠══════════════════════════════════════════════════════════════════╣${R}`);
     lines.push(`${CYN}${B}║  ${WHT}Environment Variables${R}`);
     lines.push(`${CYN}${B}╟──────────────────────────────────────────────────────────────────╢${R}`);

@@ -137,7 +137,7 @@ export default function LoginPage() {
             <Fish className="w-6 h-6 text-white" />
           </div>
           <div>
-            <p className="text-white font-bold text-xl">OceanAI</p>
+            <p className="text-white font-bold text-xl">MatsyaAI</p>
             <p className="text-white/50 text-xs">AI for Bharat</p>
           </div>
         </div>
@@ -182,7 +182,7 @@ export default function LoginPage() {
           <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center">
             <Fish className="w-5 h-5 text-primary" />
           </div>
-          <p className="font-bold text-xl">OceanAI</p>
+          <p className="font-bold text-xl">MatsyaAI</p>
         </div>
 
         <div className="w-full max-w-md space-y-8">
@@ -192,7 +192,7 @@ export default function LoginPage() {
             </h2>
             <p className="text-muted-foreground">
               {mode === "login"
-                ? "Sign in to your OceanAI dashboard"
+                ? "Sign in to your MatsyaAI dashboard"
                 : "Start your AI fishing journey today"}
             </p>
           </div>

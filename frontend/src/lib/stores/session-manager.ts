@@ -7,7 +7,7 @@ import type { SessionState, ComponentType, ComponentProps, PaneWidths } from '@/
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const SESSION_STORAGE_KEY = 'oceanai_agent_session';
+const SESSION_STORAGE_KEY = 'matsyaai_agent_session';
 const SESSION_VERSION = '1.0.0';
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -175,7 +175,7 @@ export function clearSessionOnLogout(): void {
   clearSession();
   
   // Clear localStorage pane widths (optional - could keep for next login)
-  // localStorage.removeItem('oceanai_pane_widths');
+  // localStorage.removeItem('matsyaai_pane_widths');
   
   console.log('[Session] Cleared session on logout');
 }

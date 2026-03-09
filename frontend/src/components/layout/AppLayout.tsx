@@ -38,7 +38,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-float">
             <Loader2 className="w-8 h-8 text-primary animate-spin" />
           </div>
-          <p className="text-sm font-medium text-muted-foreground animate-gentle-pulse">Loading OceanAI...</p>
+          <p className="text-sm font-medium text-muted-foreground animate-gentle-pulse">Loading MatsyaAI...</p>
         </div>
       </div>
     );

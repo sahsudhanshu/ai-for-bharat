@@ -19,7 +19,7 @@ const FAQ_ITEMS = [
         questions: [
             { q: "How do I upload my first catch?", a: "Navigate to Upload from the sidebar. Upload individual images or create a group analysis. Our AI analyzes each for species, weight, and freshness." },
             { q: "What image formats are supported?", a: "JPEG, PNG, and WebP. Take clear photos in natural light with fish fully visible for best results." },
-            { q: "Is OceanAI available offline?", a: "Dashboard and analytics work offline if previously loaded. Image analysis requires internet." },
+            { q: "Is MatsyaAI available offline?", a: "Dashboard and analytics work offline if previously loaded. Image analysis requires internet." },
         ],
     },
     {
@@ -122,7 +122,7 @@ export default function HelpOverlay() {
             {/* Quick Actions */}
             <div className="grid grid-cols-3 gap-2">
                 {[
-                    { icon: Mail, label: "Email", desc: "support@oceanai.app", color: "text-teal-500", bg: "bg-teal-500/10" },
+                    { icon: Mail, label: "Email", desc: "support@matsyaai.app", color: "text-teal-500", bg: "bg-teal-500/10" },
                     { icon: BookOpen, label: "Docs", desc: "Guides & reference", color: "text-indigo-500", bg: "bg-indigo-500/10" },
                     { icon: Globe, label: "Status", desc: "All operational", color: "text-emerald-500", bg: "bg-emerald-500/10" },
                 ].map(({ icon: Icon, label, desc, color, bg }) => (

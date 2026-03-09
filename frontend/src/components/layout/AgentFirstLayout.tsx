@@ -347,7 +347,7 @@ export default function AgentFirstLayout() {
                             {sidebarExpanded ? (
                                 <>
                                     <Sparkles className="w-5 h-5 text-primary shrink-0" />
-                                    <span className="text-sm font-bold text-primary truncate whitespace-nowrap">OceanAI</span>
+                                    <span className="text-sm font-bold text-primary truncate whitespace-nowrap">MatsyaAI</span>
                                 </>
                             ) : (
                                 <>
@@ -550,7 +550,7 @@ export default function AgentFirstLayout() {
                                 <DropdownMenuLabel className="font-normal">
                                     <div className="flex flex-col space-y-1 pb-1">
                                         <p className="text-sm font-bold">{user?.name ?? 'Fisher'}</p>
-                                        <p className="text-[11px] text-muted-foreground/60">{user?.email ?? 'user@oceanai.in'}</p>
+                                        <p className="text-[11px] text-muted-foreground/60">{user?.email ?? 'user@matsyaai.in'}</p>
                                         {user?.port && <Badge className="w-fit mt-1 text-[10px] bg-primary/10 text-primary border-none">{user.port}</Badge>}
                                     </div>
                                 </DropdownMenuLabel>
@@ -632,7 +632,7 @@ export default function AgentFirstLayout() {
                             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/20 to-cyan-500/20 flex items-center justify-center border border-primary/20">
                                 <Sparkles className="w-4 h-4 text-primary" />
                             </div>
-                            <span className="font-bold text-base text-foreground">OceanAI</span>
+                            <span className="font-bold text-base text-foreground">MatsyaAI</span>
                             {isOffline && <OfflineIndicator className="text-[9px] ml-1" />}
                         </div>
                     </div>

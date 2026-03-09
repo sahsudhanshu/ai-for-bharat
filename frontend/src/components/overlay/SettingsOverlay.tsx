@@ -136,7 +136,7 @@ export default function SettingsOverlay({ onClose, onSwitchTab }: SettingsOverla
             const blob = new Blob([csv], { type: "text/csv" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a"); a.href = url;
-            a.download = `oceanai-data-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.download = `matsyaai-data-${new Date().toISOString().slice(0, 10)}.csv`;
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             URL.revokeObjectURL(url);
             toast.success("Data exported!");

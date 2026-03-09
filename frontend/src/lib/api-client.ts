@@ -1,5 +1,5 @@
 /**
- * Typed API client for OceanAI backend (AWS API Gateway → Lambda).
+ * Typed API client for MatsyaAI backend (AWS API Gateway → Lambda).
  *
  * All functions call the real backend / agent endpoints and throw
  * typed ApiError on failure. No mock/demo fallbacks.

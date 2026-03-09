@@ -27,7 +27,7 @@ export default function SplitPaneContainer({
   minAgentWidth = 25,
   minCanvasWidth = 400,
   maxAgentWidth = 50,
-  persistKey = 'oceanai_pane_widths',
+  persistKey = 'matsyaai_pane_widths',
   className,
 }: SplitPaneContainerProps) {
   const containerRef = useRef<HTMLDivElement>(null);

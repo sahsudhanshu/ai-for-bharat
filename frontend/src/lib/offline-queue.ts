@@ -5,7 +5,7 @@
  * Stores images locally when offline, auto-flushes when connectivity returns.
  */
 
-const DB_NAME = "oceanai-offline";
+const DB_NAME = "matsyaai-offline";
 const DB_VERSION = 1;
 const STORE_NAME = "image-queue";
 

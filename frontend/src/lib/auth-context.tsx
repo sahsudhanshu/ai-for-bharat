@@ -64,14 +64,14 @@ export async function getFreshToken(): Promise<string> {
     if (typeof window === "undefined" || !isCognitoConfigured) return resolve("");
     const cognitoUser = userPool.getCurrentUser();
     if (!cognitoUser) {
-      return resolve(localStorage.getItem("ocean_ai_token") || "");
+      return resolve(localStorage.getItem("matsya_ai_token") || "");
     }
     cognitoUser.getSession((err: Error | null, session: CognitoUserSession | null) => {
       if (err || !session || !session.isValid()) {
-        resolve(localStorage.getItem("ocean_ai_token") || "");
+        resolve(localStorage.getItem("matsya_ai_token") || "");
       } else {
         const token = session.getAccessToken().getJwtToken();
-        localStorage.setItem("ocean_ai_token", token);
+        localStorage.setItem("matsya_ai_token", token);
         resolve(token);
       }
     });
@@ -100,8 +100,8 @@ function toUserFromSession(
 }
 
 function persistUserSession(nextUser: User, token: string): void {
-  localStorage.setItem("ocean_ai_user", JSON.stringify(nextUser));
-  localStorage.setItem("ocean_ai_token", token);
+  localStorage.setItem("matsya_ai_user", JSON.stringify(nextUser));
+  localStorage.setItem("matsya_ai_token", token);
 }
 
 /** Hydrate user with profile data from DynamoDB (best-effort) */
@@ -300,12 +300,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cognitoUser.signOut();
     }
     setUser(null);
-    localStorage.removeItem("ocean_ai_user");
-    localStorage.removeItem("ocean_ai_token");
+    localStorage.removeItem("matsya_ai_user");
+    localStorage.removeItem("matsya_ai_token");
     
     // Clear session storage for agent-first architecture
     try {
-      sessionStorage.removeItem('oceanai_agent_session');
+      sessionStorage.removeItem('matsyaai_agent_session');
     } catch (error) {
       console.error('[Auth] Failed to clear session:', error);
     }
@@ -329,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getToken = (): string => {
     if (typeof window === "undefined") return "";
-    return localStorage.getItem("ocean_ai_token") || "";
+    return localStorage.getItem("matsya_ai_token") || "";
   };
 
   const updateUser = (partial: Partial<User>) => {
@@ -337,7 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!prev) return prev;
       const updated = { ...prev, ...partial };
       // Keep localStorage in sync
-      const token = localStorage.getItem("ocean_ai_token") || "";
+      const token = localStorage.getItem("matsya_ai_token") || "";
       persistUserSession(updated, token);
       return updated;
     });
