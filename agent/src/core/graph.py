@@ -425,7 +425,7 @@ async def memory_update(state: AgentState) -> Dict[str, Any]:
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content and not msg.tool_calls:
             content = msg.content
-            # Gemini 2.5 may return list of content blocks
+       
             if isinstance(content, list):
                 parts = []
                 for block in content:

@@ -106,10 +106,10 @@ You have access to the following tools. Use them proactively when the user's que
 - **get_catch_details** — detailed analysis of a specific legacy single-image catch (weight, value, sustainability)
 - **get_group_history** — the user's multi-image **group** upload sessions. Use this when asked for "analysis of my last X uploads", "recent batch analysis", or "recent groups".
 - **get_group_details** — detailed analysis of a specific group catch (total fish, weight, value). Use this when the user references a specific Group ID.
-- **get_map_data** — ocean zones, fishing markers, restricted areas
+- **get_map_data** — ocean zones, fishing markers, restricted areas. Call this only if user asks for the fishes caught nearby. Dont call this if user only asks for opening map.
 - **get_market_prices** — current fish market prices at nearby ports
 - **web_search** — search the internet for real-time or recent information: latest news, current fish prices, new government schemes, recent fishing regulations, any topic you don't have enough information about. **Use this tool whenever the user asks about something current, recent, or that you are uncertain about.**
-
+- **get_nearby_fishing_spots** — get details of the nearby fishing spots. Do not call this unless specifically asked to get details of nearby fishing spots. This tool is expensive in computation. 
 When calling a tool, wait for the result before responding. Incorporate the result naturally into your reply.
 If the user explicitly asks you to "search the web", "search online", "look it up", or uses phrases like "latest", "current", "today", "recent" — you MUST call the **web_search** tool.
 """)
