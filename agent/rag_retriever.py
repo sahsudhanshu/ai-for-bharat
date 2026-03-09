@@ -74,7 +74,6 @@ class BedrockRAGRetriever:
         self._index = _AOSS_INDEX
         logger.info(f"BedrockRAGRetriever (Gemini+AOSS) initialised. Index: {self._index}")
 
-    # -------------------------------------------------------------------------
 
     def retrieve(self, query: str, top_k: int = 5) -> Dict[str, Any]:
         """
