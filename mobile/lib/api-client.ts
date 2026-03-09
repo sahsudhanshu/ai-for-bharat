@@ -1315,10 +1315,36 @@ export async function updateUserProfile(
 }
 
 // ── Public Profile API ────────────────────────────────────────────────────────
+//
+// The backend has NO separate public-profile endpoints. Instead:
+//   - GET  /user/profile       → returns the full user profile including
+//                                 publicProfileEnabled, publicProfileSlug, showPublicStats
+//   - PUT  /user/profile       → updates those same fields
+//   - GET  /user/public/:slug  → unauthenticated; returns the public-facing profile
+//
+// These helper functions map between the backend field names
+// (publicProfileEnabled, publicProfileSlug, showPublicStats) and the mobile
+// PublicProfile type (isPublic, slug, showStats).
+
+/** Map a UserProfile to the mobile PublicProfile shape */
+function mapUserProfileToPublicProfile(p: UserProfile): PublicProfile {
+  return {
+    slug: p.publicProfileSlug || "",
+    userId: p.userId,
+    name: p.name || "",
+    avatarUrl: p.avatar,
+    role: p.role,
+    port: p.port,
+    region: p.region,
+    isPublic: p.publicProfileEnabled ?? false,
+    showStats: p.showPublicStats ?? false,
+    createdAt: p.createdAt,
+  };
+}
 
 /**
- * Get user's public profile settings
- * Uses retry logic for transient failures
+ * Get user's public profile settings.
+ * Reads from GET /user/profile and maps the relevant fields.
  */
 export async function getPublicProfile(): Promise<PublicProfile> {
   if (IS_DEMO_MODE) {
@@ -1335,15 +1361,12 @@ export async function getPublicProfile(): Promise<PublicProfile> {
   }
 
   try {
-    return await apiFetchWithRetry<PublicProfile>(
-      "/user/public",
-      {},
-      RETRY_PRESETS.FAST,
-    );
+    const profile = await getUserProfile();
+    return mapUserProfileToPublicProfile(profile);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       console.warn(
-        "Public profile not found (404). Returning default public profile.",
+        "User profile not found (404). Returning default public profile.",
       );
       return DEFAULT_PUBLIC_PROFILE;
     }
@@ -1356,30 +1379,30 @@ export async function getPublicProfile(): Promise<PublicProfile> {
 }
 
 /**
- * Update public profile settings
- * Uses retry logic for transient failures
+ * Update public profile settings.
+ * Sends publicProfileEnabled, showPublicStats, publicProfileSlug
+ * to PUT /user/profile.
  */
 export async function updatePublicProfile(settings: {
   isPublic: boolean;
   showStats: boolean;
+  slug?: string;
 }): Promise<PublicProfile> {
   if (IS_DEMO_MODE) {
     throw new ApiError(0, "Public profile updates not available in demo mode");
   }
 
-  if (settings.isPublic === undefined || settings.showStats === undefined) {
-    throw new ApiError(400, "Both isPublic and showStats are required");
+  const payload: Partial<UserProfile> = {
+    publicProfileEnabled: settings.isPublic,
+    showPublicStats: settings.showStats,
+  };
+  if (settings.slug) {
+    payload.publicProfileSlug = settings.slug;
   }
 
   try {
-    return await apiFetchWithRetry<PublicProfile>(
-      "/user/public",
-      {
-        method: "PUT",
-        body: JSON.stringify(settings),
-      },
-      RETRY_PRESETS.STANDARD,
-    );
+    const updated = await updateUserProfile(payload);
+    return mapUserProfileToPublicProfile(updated);
   } catch (error) {
     console.error("Failed to update public profile:", error);
     throw new ApiError(
@@ -1390,8 +1413,8 @@ export async function updatePublicProfile(settings: {
 }
 
 /**
- * Generate a unique slug for public profile
- * Uses retry logic for transient failures
+ * Generate a unique slug for public profile (client-side, matching frontend approach).
+ * Fetches the user profile for name/userId, creates the slug, and saves it.
  */
 export async function generatePublicSlug(): Promise<{
   slug: string;
@@ -1402,13 +1425,23 @@ export async function generatePublicSlug(): Promise<{
   }
 
   try {
-    return await apiFetchWithRetry<{ slug: string; url: string }>(
-      "/user/public/generate-slug",
-      {
-        method: "POST",
-      },
-      RETRY_PRESETS.FAST,
-    );
+    const profile = await getUserProfile();
+    const name = profile.name || "fisherman";
+    const id = profile.userId || "";
+    const base = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "-")
+      .replace(/-+/g, "-")
+      .slice(0, 20);
+    const slug = `${base}-${id.slice(0, 8)}`;
+    const baseUrl =
+      process.env.EXPO_PUBLIC_WEB_URL || "https://oceanai.app";
+    const url = `${baseUrl}/profile/${slug}`;
+
+    // Persist the slug on the user profile
+    await updateUserProfile({ publicProfileSlug: slug });
+
+    return { slug, url };
   } catch (error) {
     console.error("Failed to generate public slug:", error);
     throw new ApiError(
@@ -1419,8 +1452,8 @@ export async function generatePublicSlug(): Promise<{
 }
 
 /**
- * Get public profile by slug (for viewing others' profiles)
- * Uses retry logic for transient failures
+ * Get public profile by slug (for viewing others' profiles).
+ * Calls GET /user/public/:slug and maps the backend response.
  */
 export async function getPublicProfileBySlug(
   slug: string,
@@ -1434,11 +1467,33 @@ export async function getPublicProfileBySlug(
   }
 
   try {
-    return await apiFetchWithRetry<PublicProfile>(
-      `/user/public/${slug}`,
+    // Backend returns { profile: { name, avatar, port, ... , stats? } }
+    const response = await apiFetchWithRetry<{ profile: Record<string, any> }>(
+      `/user/public/${encodeURIComponent(slug)}`,
       {},
       RETRY_PRESETS.FAST,
     );
+    const p = response.profile;
+    return {
+      slug: p.publicProfileSlug || slug,
+      userId: "",
+      name: p.name || "",
+      avatarUrl: p.avatar,
+      role: p.role,
+      port: p.port,
+      region: p.region,
+      isPublic: true,
+      showStats: p.showPublicStats ?? false,
+      stats: p.stats
+        ? {
+            totalCatches: p.stats.totalFish || 0,
+            speciesCount: p.stats.uniqueSpecies || 0,
+            totalEarnings: 0,
+            speciesDistribution: {},
+          }
+        : undefined,
+      createdAt: p.createdAt || "",
+    };
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       console.warn(
@@ -2271,6 +2326,7 @@ export interface WeightEstimatePayload {
   species: string;
   weightG: number;
   timestamp: string;
+  fullEstimate?: OnlineWeightResult;
 }
 
 export interface OfflineAnalysisSyncResult {

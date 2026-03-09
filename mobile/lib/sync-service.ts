@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
+import { syncLogger } from "./sync-logger";
 import {
   updateUserProfile,
   updateUserPreferences,
@@ -32,10 +33,12 @@ export class SyncService {
 
     // Initialize offline queue
     await offlineQueue.initialize();
+    syncLogger.info("SyncService", "Initialized — listening for connectivity changes");
 
     // Listen for connectivity changes
     this.netInfoUnsubscribe = NetInfo.addEventListener((state) => {
       if (state.isConnected && !this.isSyncing) {
+        syncLogger.info("SyncService", "Network came online — starting sync");
         this.syncPendingChanges();
       }
     });
@@ -43,7 +46,10 @@ export class SyncService {
     // Sync on app startup if connected
     const state = await NetInfo.fetch();
     if (state.isConnected) {
+      syncLogger.info("SyncService", "Online at startup — running initial sync");
       this.syncPendingChanges();
+    } else {
+      syncLogger.info("SyncService", "Offline at startup — sync deferred");
     }
   }
 
@@ -77,6 +83,7 @@ export class SyncService {
     const queue = await this.getQueue();
     queue.push(item);
     await this.saveQueue(queue);
+    syncLogger.info("SyncService", `Queued ${type} change (queue size: ${queue.length})`);
 
     this.notifyListeners();
 
@@ -99,20 +106,26 @@ export class SyncService {
     try {
       const queue = await this.getQueue();
       const pending = queue.filter((item) => item.status === "pending");
+      syncLogger.info("SyncService", `Starting sync — ${pending.length} profile/weight item(s) queued`);
 
       let hasErrors = false;
 
       for (const item of pending) {
         try {
+          syncLogger.info("SyncService", `Syncing ${item.type}…`);
           await this.syncItem(item);
           item.status = "completed";
+          syncLogger.success("SyncService", `✔ ${item.type} synced`);
         } catch (error) {
           hasErrors = true;
           item.retryCount++;
+          const msg = error instanceof Error ? error.message : String(error);
           if (item.retryCount >= MAX_RETRY_COUNT) {
             item.status = "failed";
-            item.error =
-              error instanceof Error ? error.message : "Unknown error";
+            item.error = msg;
+            syncLogger.error("SyncService", `✘ ${item.type} failed (max retries): ${msg}`);
+          } else {
+            syncLogger.warn("SyncService", `✘ ${item.type} failed (attempt ${item.retryCount}/${MAX_RETRY_COUNT}): ${msg}`);
           }
         }
       }
@@ -128,11 +141,15 @@ export class SyncService {
       // Sync any locally-stored offline analysis records
       const { syncLocalHistory } = await import("./local-history");
       await syncLocalHistory();
+      syncLogger.info("SyncService", "Local history sync complete");
 
       // Update sync status
       this.lastSyncTime = new Date();
       this.syncStatus = hasErrors ? "failed" : "synced";
+      syncLogger.success("SyncService", hasErrors ? "Sync finished with errors" : "Sync complete");
     } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      syncLogger.error("SyncService", `Sync failed: ${msg}`);
       console.error("[SyncService] Sync failed:", error);
       this.syncStatus = "failed";
     } finally {

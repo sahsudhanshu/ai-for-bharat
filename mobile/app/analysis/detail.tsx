@@ -643,6 +643,7 @@ function OfflineFishDetail({
         onConfirm={handleConfirmWeight}
         species={det.species}
         fishIndex={index}
+        forceOffline
       />
       {viewerUri && (
         <FullscreenImageViewer

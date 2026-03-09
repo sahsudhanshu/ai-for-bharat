@@ -9,6 +9,7 @@ import {
   Modal,
   ActivityIndicator,
   ScrollView,
+  FlatList,
 } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-aware-scroll-view";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -35,7 +36,6 @@ import { DeleteAccountModal } from "../../components/settings/DeleteAccountModal
 import {
   getPublicProfile,
   updatePublicProfile,
-  generatePublicSlug,
   getUserPreferences,
   updateUserPreferences,
   getConversationsList,
@@ -43,6 +43,25 @@ import {
 } from "../../lib/api-client";
 import { ShareService } from "../../lib/share-service";
 import type { PublicProfile, UserPreferences } from "../../lib/types";
+import { SyncService } from "../../lib/sync-service";
+import type { SyncStatus } from "../../lib/sync-service";
+import { syncLogger } from "../../lib/sync-logger";
+import type { SyncLogEntry } from "../../lib/sync-logger";
+
+function formatLastSync(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+const LOG_LEVEL_COLOR: Record<SyncLogEntry["level"], string> = {
+  info:    "#94a3b8",
+  success: "#4ade80",
+  warn:    "#fbbf24",
+  error:   "#f87171",
+};
 
 export default function SettingsScreen() {
   const { user, logout } = useAuth();
@@ -66,9 +85,26 @@ export default function SettingsScreen() {
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [loadingPreferences, setLoadingPreferences] = useState(true);
 
+  // Sync state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncLogs, setSyncLogs] = useState<SyncLogEntry[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [showSyncLogs, setShowSyncLogs] = useState(false);
+
   useEffect(() => {
     loadPublicProfile();
     loadPreferences();
+  }, []);
+
+  useEffect(() => {
+    SyncService.getSyncStatus().then(setSyncStatus);
+    const unsubStatus = SyncService.subscribe((status) => {
+      setSyncStatus(status);
+      setIsSyncing(status.syncing);
+    });
+    setSyncLogs(syncLogger.getEntries());
+    const unsubLogs = syncLogger.subscribe(setSyncLogs);
+    return () => { unsubStatus(); unsubLogs(); };
   }, []);
 
   const loadPublicProfile = async () => {
@@ -120,21 +156,25 @@ export default function SettingsScreen() {
     try {
       setUpdatingProfile(true);
 
-      // If enabling public profile for the first time and no slug exists
-      if (value && !publicProfile.slug) {
-        const { slug } = await generatePublicSlug();
-        const updated = await updatePublicProfile({
-          isPublic: value,
-          showStats: publicProfile.showStats,
-        });
-        setPublicProfile({ ...updated, slug });
-      } else {
-        const updated = await updatePublicProfile({
-          isPublic: value,
-          showStats: publicProfile.showStats,
-        });
-        setPublicProfile(updated);
+      // If enabling public profile for the first time and no slug exists,
+      // generate one client-side (matching frontend approach)
+      let slug = publicProfile.slug || undefined;
+      if (value && !slug) {
+        const name = (user?.name || publicProfile.name || "fisherman");
+        const base = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "-")
+          .replace(/-+/g, "-")
+          .slice(0, 20);
+        slug = `${base}-${(user?.userId || "").slice(0, 8)}`;
       }
+
+      const updated = await updatePublicProfile({
+        isPublic: value,
+        showStats: publicProfile.showStats,
+        slug,
+      });
+      setPublicProfile(updated);
     } catch (err) {
       console.error("Error updating public profile:", err);
       Alert.alert("Error", "Failed to update public profile settings");
@@ -191,6 +231,18 @@ export default function SettingsScreen() {
         },
       },
     ]);
+  };
+
+  const handleManualSync = async () => {
+    if (isSyncing) return;
+    try {
+      await SyncService.manualSync();
+    } catch (err) {
+      Alert.alert(
+        "Sync Failed",
+        err instanceof Error ? err.message : "No internet connection. Please try again when online.",
+      );
+    }
   };
 
   const languageDisplayNames: Record<string, string> = {
@@ -457,6 +509,106 @@ export default function SettingsScreen() {
             }}
           />
         </Card>
+
+        {/* Data Sync */}
+        <Text style={styles.sectionLabel}>Data Sync</Text>
+        <Card padding={SPACING.md} style={[styles.menuCard, { padding: SPACING.md }]}>
+          {/* Status row */}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: SPACING.sm }}>
+            <View>
+              <Text style={{ fontSize: FONTS.sizes.sm, color: COLORS.textPrimary, fontWeight: FONTS.weights.semibold }}>
+                Last synced
+              </Text>
+              <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.textMuted, marginTop: 2 }}>
+                {syncStatus?.lastSync ? formatLastSync(syncStatus.lastSync) : "Never synced"}
+              </Text>
+            </View>
+            <View style={{ flexDirection: "row", gap: SPACING.xs }}>
+              {(syncStatus?.pending ?? 0) > 0 && (
+                <View style={{ backgroundColor: COLORS.primary + "25", borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.primaryLight, fontWeight: FONTS.weights.semibold }}>
+                    {syncStatus!.pending} pending
+                  </Text>
+                </View>
+              )}
+              {(syncStatus?.failed ?? 0) > 0 && (
+                <View style={{ backgroundColor: COLORS.error + "25", borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: 2 }}>
+                  <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.error, fontWeight: FONTS.weights.semibold }}>
+                    {syncStatus!.failed} failed
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+          {/* Sync Now button */}
+          <TouchableOpacity
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: SPACING.xs,
+              backgroundColor: COLORS.primary,
+              borderRadius: RADIUS.md,
+              padding: SPACING.sm,
+              opacity: isSyncing ? 0.6 : 1,
+            }}
+            onPress={handleManualSync}
+            disabled={isSyncing}
+            activeOpacity={0.8}
+          >
+            {isSyncing
+              ? <ActivityIndicator size="small" color="#fff" />
+              : <Ionicons name="sync" size={16} color="#fff" />
+            }
+            <Text style={{ fontSize: FONTS.sizes.sm, color: "#fff", fontWeight: FONTS.weights.semibold }}>
+              {isSyncing ? "Syncing…" : "Sync Now"}
+            </Text>
+          </TouchableOpacity>
+        </Card>
+
+        {/* Sync Logs toggle */}
+        <TouchableOpacity
+          style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: SPACING.xs, paddingHorizontal: SPACING.xs, marginBottom: SPACING.xs }}
+          onPress={() => setShowSyncLogs((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.textSubtle, textTransform: "uppercase", letterSpacing: 0.6 }}>
+            Sync Logs{syncLogs.length > 0 ? ` (${syncLogs.length})` : ""}
+          </Text>
+          <Ionicons name={showSyncLogs ? "chevron-up" : "chevron-down"} size={14} color={COLORS.textSubtle} />
+        </TouchableOpacity>
+        {showSyncLogs && (
+          <Card padding={SPACING.sm} style={[styles.menuCard, { maxHeight: 300 }]}>
+            {syncLogs.length === 0 ? (
+              <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.textSubtle, textAlign: "center", padding: SPACING.sm }}>
+                No sync events yet
+              </Text>
+            ) : (
+              <FlatList
+                data={syncLogs}
+                keyExtractor={(item) => item.id}
+                style={{ maxHeight: 240 }}
+                showsVerticalScrollIndicator={true}
+                renderItem={({ item }) => (
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", paddingVertical: 3, gap: 6 }}>
+                    <Text style={{ fontSize: 10, color: LOG_LEVEL_COLOR[item.level], marginTop: 1 }}>●</Text>
+                    <Text style={{ fontSize: 10, color: COLORS.textSubtle, width: 52 }}>{item.time}</Text>
+                    <Text style={{ fontSize: 10, color: COLORS.textMuted, width: 76 }}>[{item.source}]</Text>
+                    <Text style={{ fontSize: 10, color: COLORS.textSecondary, flex: 1 }}>{item.message}</Text>
+                  </View>
+                )}
+              />
+            )}
+            {syncLogs.length > 0 && (
+              <TouchableOpacity
+                onPress={() => syncLogger.clear()}
+                style={{ alignItems: "center", paddingTop: SPACING.xs, marginTop: SPACING.xs, borderTopWidth: 1, borderTopColor: COLORS.border }}
+              >
+                <Text style={{ fontSize: FONTS.sizes.xs, color: COLORS.textSubtle }}>Clear logs</Text>
+              </TouchableOpacity>
+            )}
+          </Card>
+        )}
 
         {/* Help */}
         <Text style={styles.sectionLabel}>{t("settings.help")}</Text>

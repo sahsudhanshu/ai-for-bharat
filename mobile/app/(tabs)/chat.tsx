@@ -61,6 +61,7 @@ import {
   FishPickerModal,
   type FishItem,
 } from "../../components/chat/FishPickerModal";
+import { GroupFishPickerModal } from "../../components/chat/GroupFishPickerModal";
 import { useAgentContext } from "../../lib/agent-context";
 import { getAnalysisData } from "../../lib/analysis-store";
 import {
@@ -203,7 +204,6 @@ export default function ChatScreen() {
   // ── State ─────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [inputText, setInputText] = useState("");
-  const [addedContexts, setAddedContexts] = useState<string[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -229,6 +229,11 @@ export default function ChatScreen() {
   } | null>(null);
   const [weightModalVisible, setWeightModalVisible] = useState(false);
   const [weightSpecies, setWeightSpecies] = useState("Tilapia");
+  const [showGroupFishPicker, setShowGroupFishPicker] = useState(false);
+  const [selectedGroupForWeight, setSelectedGroupForWeight] = useState<{
+    groupId: string;
+    source: "online" | "offline";
+  } | null>(null);
   const [liveToolCalls, setLiveToolCalls] = useState<string[]>([]);
   const [lastSuggestions, setLastSuggestions] = useState<
     ReturnType<typeof generateSuggestions>
@@ -238,7 +243,8 @@ export default function ChatScreen() {
 
   // ── Scan → Chat weight estimation state ──
   const [isScanChat, setIsScanChat] = useState(false);
-  const [scanFishList, setScanFishList] = useState<FishItem[]>([]);
+  const [isScanOffline, setIsScanOffline] = useState(false);
+  const [scanFishList, setScanFishList] = useState<FishItem[]>([]);;
   const [fishWeights, setFishWeights] = useState<Map<number, number>>(
     new Map(),
   );
@@ -324,6 +330,7 @@ export default function ChatScreen() {
       if (params.scanComplete && params.initialMessage) {
         createNewChat();
         setIsScanChat(true);
+        setIsScanOffline(params.scanMode !== "online");
 
         // Build fish list from analysis store
         const analysisData = getAnalysisData();
@@ -582,6 +589,7 @@ export default function ChatScreen() {
     setLiveToolCalls([]);
     setLastSuggestions([]);
     setIsScanChat(false);
+    setIsScanOffline(false);
     setScanFishList([]);
     setFishWeights(new Map());
     setShowFishPicker(false);
@@ -664,26 +672,22 @@ export default function ChatScreen() {
         weightSpecies;
 
       if (fullResult) {
-        const kgStr = (fullResult.estimated_weight_grams / 1000).toFixed(2);
-        const rangeStr = fullResult.estimated_weight_range
-          ? `${(fullResult.estimated_weight_range.min_grams / 1000).toFixed(2)}–${(fullResult.estimated_weight_range.max_grams / 1000).toFixed(2)} kg`
-          : "";
-        const priceStr = fullResult.market_price_per_kg
-          ? `\u20b9${fullResult.market_price_per_kg.min_inr}–${fullResult.market_price_per_kg.max_inr}/kg`
-          : "";
-        const valueStr = fullResult.estimated_fish_value
-          ? `\u20b9${fullResult.estimated_fish_value.min_inr}–${fullResult.estimated_fish_value.max_inr}`
-          : "";
-        const grade = fullResult.quality_grade || "";
-        sendMessage(
-          `Fish #${weightFishIndex + 1} (${species}) weight estimation results:\n` +
-            `• Estimated weight: ${kgStr} kg${rangeStr ? ` (range: ${rangeStr})` : ""}\n` +
-            (priceStr ? `• Market price: ${priceStr}\n` : "") +
-            (valueStr ? `• Estimated value: ${valueStr}\n` : "") +
-            (grade ? `• Quality grade: ${grade}\n` : "") +
-            (fullResult.notes ? `• Notes: ${fullResult.notes}\n` : "") +
-            `Any additional storage or quality recommendations?`,
-        );
+        // Online mode: results are already shown in the modal.
+        // Save to backend DB immediately (groupId is available from analysis store).
+        const analysisData = getAnalysisData();
+        const groupId = analysisData?.mode === "online" ? analysisData.groupId : undefined;
+        if (groupId) {
+          const { saveWeightEstimate } = require("../../lib/api-client");
+          saveWeightEstimate({
+            groupId,
+            imageUri: analysisData?.mode === "online" ? (analysisData.imageUris?.[0] || "") : "",
+            fishIndex: weightFishIndex,
+            species,
+            weightG,
+            timestamp: new Date().toISOString(),
+            fullEstimate: fullResult,
+          }).catch((e: unknown) => console.warn("[handleWeightResult] Save weight failed:", e));
+        }
       } else {
         const kgStr = (weightG / 1000).toFixed(2);
         sendMessage(
@@ -691,25 +695,68 @@ export default function ChatScreen() {
         );
       }
     } else {
+      // ── Standalone weight estimation (from group/fish picker) ──
+      const species = weightSpecies;
+      const groupId = selectedGroupForWeight?.groupId;
+      const source = selectedGroupForWeight?.source;
+
       if (fullResult) {
-        const kgStr = (fullResult.estimated_weight_grams / 1000).toFixed(2);
-        const priceStr = fullResult.market_price_per_kg
-          ? `\u20b9${fullResult.market_price_per_kg.min_inr}–${fullResult.market_price_per_kg.max_inr}/kg`
-          : "";
-        sendMessage(
-          `Weight estimation for ${weightSpecies}: ${kgStr} kg.` +
-            (priceStr ? ` Market price: ${priceStr}.` : "") +
-            ` Any quality or storage recommendations?`,
-        );
-      } else {
+        // Online: save weight to backend DB
+        if (groupId && source === "online") {
+          const { saveWeightEstimate } = require("../../lib/api-client");
+          saveWeightEstimate({
+            groupId,
+            imageUri: "",
+            fishIndex: weightFishIndex,
+            species,
+            weightG,
+            timestamp: new Date().toISOString(),
+            fullEstimate: fullResult,
+          }).catch((e: unknown) => console.warn("[handleWeightResult] Save weight failed:", e));
+        }
+        // For offline groups, update local history
+        if (groupId && source === "offline") {
+          import("../../lib/local-history").then(({ updateLocalDetectionWeight }) => {
+            updateLocalDetectionWeight(groupId, weightFishIndex, weightG)
+              .catch((e) => console.warn("[handleWeightResult] Local weight update failed:", e));
+          });
+        }
+        // Send a confirmation message to chat
         const kgStr = (weightG / 1000).toFixed(2);
         sendMessage(
-          `I just measured a ${weightSpecies} and the estimated weight is ${kgStr} kg (${weightG.toFixed(0)}g). What is the current market value? Any quality or storage recommendations?`,
+          `I just weighed Fish #${weightFishIndex + 1} (${species}) — estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved to my records. What is the market value for this fish?`,
+        );
+      } else {
+        // Offline inference: save to local history
+        if (groupId && source === "offline") {
+          import("../../lib/local-history").then(({ updateLocalDetectionWeight }) => {
+            updateLocalDetectionWeight(groupId, weightFishIndex, weightG)
+              .catch((e) => console.warn("[handleWeightResult] Local weight update failed:", e));
+          });
+        }
+        // For online groups with offline inference, queue the weight estimate
+        if (groupId && source === "online") {
+          const { saveWeightEstimate } = require("../../lib/api-client");
+          saveWeightEstimate({
+            groupId,
+            imageUri: "",
+            fishIndex: weightFishIndex,
+            species,
+            weightG,
+            timestamp: new Date().toISOString(),
+          }).catch((e: unknown) => console.warn("[handleWeightResult] Save weight failed:", e));
+        }
+        const kgStr = (weightG / 1000).toFixed(2);
+        sendMessage(
+          `I just weighed Fish #${weightFishIndex + 1} (${species}) — estimated weight: ${kgStr} kg (${weightG.toFixed(0)}g). The weight has been saved. What is the current market value? Any quality or storage recommendations?`,
         );
       }
+      // Reset selection state
+      setSelectedGroupForWeight(null);
     }
   };
 
+  /** Called when user picks a fish from the scan-context FishPickerModal */
   const handleFishSelected = (fishIndex: number, species: string) => {
     setShowFishPicker(false);
     setWeightFishIndex(fishIndex);
@@ -717,9 +764,24 @@ export default function ChatScreen() {
     setWeightModalVisible(true);
   };
 
+  /** Called when user picks a specific fish from the GroupFishPickerModal (standalone tool) */
+  const handleGroupFishSelected = (params: {
+    groupId: string;
+    source: "online" | "offline";
+    fishIndex: number;
+    species: string;
+    cropUrl?: string;
+  }) => {
+    setShowGroupFishPicker(false);
+    setSelectedGroupForWeight({ groupId: params.groupId, source: params.source });
+    setWeightFishIndex(params.fishIndex);
+    setWeightSpecies(params.species);
+    setWeightModalVisible(true);
+  };
+
   const handleCapabilityPress = (cap: AgentCapability) => {
     if (cap.action === "openCamera") router.push("/(tabs)/upload");
-    else if (cap.action === "openWeightEstimator") setWeightModalVisible(true);
+    else if (cap.action === "openWeightEstimator") setShowGroupFishPicker(true);
     else if (cap.prompt) sendMessage(cap.prompt);
   };
 
@@ -882,7 +944,7 @@ export default function ChatScreen() {
   const sendMessage = async (text: string) => {
     const trimmed = text.trim();
     if (
-      (!trimmed && addedContexts.length === 0) ||
+      !trimmed ||
       isTyping ||
       isStreaming ||
       isSendingRef.current
@@ -895,7 +957,7 @@ export default function ChatScreen() {
     setInputText("");
     Keyboard.dismiss();
 
-    const finalUserText = trimmed || addedContexts.join(", ");
+    const finalUserText = trimmed;
     // Strip bracket context tags ([page:...], [userLoc:...], etc.) for display.
     // The full text (with tags) is still sent to the API via messagePayload.
     const displayText = stripContextTags(finalUserText);
@@ -975,13 +1037,7 @@ export default function ChatScreen() {
     let streamSuccess = false;
     let collectedToolCalls: string[] = [];
 
-    const messagePayload =
-      addedContexts.length > 0
-        ? `[User Selected Context: ${addedContexts.join(" | ")}]\n${trimmed}`
-        : trimmed;
-
-    // Clear contexts immediately so UI updates
-    setAddedContexts([]);
+    const messagePayload = trimmed;
 
     try {
       await chatStreamClient.streamMessage({
@@ -1393,11 +1449,7 @@ export default function ChatScreen() {
           <TouchableOpacity
             key={action}
             style={styles.chip}
-            onPress={() =>
-              setAddedContexts((prev) =>
-                prev.includes(action) ? prev : [...prev, action],
-              )
-            }
+            onPress={() => sendMessage(action)}
             activeOpacity={0.7}
             disabled={isTyping || isStreaming}
           >
@@ -1578,12 +1630,18 @@ export default function ChatScreen() {
           onConfirm={handleWeightResult}
           species={weightSpecies}
           fishIndex={weightFishIndex}
+          forceOffline={isScanOffline}
         />
         <FishPickerModal
           visible={showFishPicker}
           onClose={() => setShowFishPicker(false)}
           onSelectFish={handleFishSelected}
           fish={scanFishList}
+        />
+        <GroupFishPickerModal
+          visible={showGroupFishPicker}
+          onClose={() => setShowGroupFishPicker(false)}
+          onSelectFish={handleGroupFishSelected}
         />
 
         {/* Header */}
@@ -1740,11 +1798,7 @@ export default function ChatScreen() {
                   messages.length > 1 && (
                     <SuggestionChips
                       suggestions={lastSuggestions}
-                      onSelect={(prompt) =>
-                        setAddedContexts((prev) =>
-                          prev.includes(prompt) ? prev : [...prev, prompt],
-                        )
-                      }
+                      onSelect={(prompt) => sendMessage(prompt)}
                       disabled={isTyping || isStreaming}
                     />
                   )}
@@ -1861,7 +1915,7 @@ export default function ChatScreen() {
                   style={styles.toolsPopupItem}
                   onPress={() => {
                     setShowToolsMenu(false);
-                    setWeightModalVisible(true);
+                    setShowGroupFishPicker(true);
                   }}
                 >
                   <Ionicons name="scale-outline" size={18} color="#f59e0b" />
@@ -1908,36 +1962,6 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {addedContexts.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.addedContextContainer}
-                keyboardShouldPersistTaps="always"
-              >
-                {addedContexts.map((ctx, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={styles.addedContextChip}
-                    onPress={() =>
-                      setAddedContexts((prev) =>
-                        prev.filter((_, i) => i !== idx),
-                      )
-                    }
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.addedContextChipText}>{ctx}</Text>
-                    <Ionicons
-                      name="close-circle"
-                      size={16}
-                      color={COLORS.textSubtle}
-                      style={{ marginLeft: 6 }}
-                    />
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            )}
-
             <View style={styles.inputRow}>
               <TouchableOpacity
                 style={styles.attachBtn}
@@ -1969,14 +1993,14 @@ export default function ChatScreen() {
               <TouchableOpacity
                 style={[
                   styles.sendBtn,
-                  ((!inputText.trim() && addedContexts.length === 0) ||
+                  (!inputText.trim() ||
                     isTyping ||
                     isStreaming) &&
                     styles.sendBtnDisabled,
                 ]}
                 onPress={() => sendMessage(inputText)}
                 disabled={
-                  (!inputText.trim() && addedContexts.length === 0) ||
+                  !inputText.trim() ||
                   isTyping ||
                   isStreaming
                 }
@@ -2382,28 +2406,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "500",
     color: COLORS.textPrimary,
-  },
-  addedContextContainer: {
-    paddingHorizontal: 8,
-    paddingBottom: 8,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  addedContextChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.bgDark,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  addedContextChipText: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    maxWidth: 200,
   },
   inputRow: {
     flexDirection: "row",

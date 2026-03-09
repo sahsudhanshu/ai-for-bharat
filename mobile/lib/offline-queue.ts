@@ -10,6 +10,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { toastService } from "./toast-service";
+import { syncLogger } from "./sync-logger";
 
 const QUEUE_KEY = "offline_queue";
 const FAILED_QUEUE_KEY = "offline_queue_failed";
@@ -50,6 +51,7 @@ class OfflineQueue {
       const stored = await AsyncStorage.getItem(QUEUE_KEY);
       if (stored) {
         this.queue = JSON.parse(stored);
+        syncLogger.info("OfflineQueue", `Loaded ${this.queue.length} pending operation(s) from storage`);
         console.log(
           `[OfflineQueue] Loaded ${this.queue.length} pending operations`,
         );
@@ -58,11 +60,14 @@ class OfflineQueue {
       const failedStored = await AsyncStorage.getItem(FAILED_QUEUE_KEY);
       if (failedStored) {
         this.failedQueue = JSON.parse(failedStored);
+        if (this.failedQueue.length > 0)
+          syncLogger.warn("OfflineQueue", `Loaded ${this.failedQueue.length} previously-failed operation(s) from storage`);
         console.log(
           `[OfflineQueue] Loaded ${this.failedQueue.length} failed operations`,
         );
       }
     } catch (error) {
+      syncLogger.error("OfflineQueue", "Failed to load queue from storage");
       console.error("[OfflineQueue] Failed to load queue:", error);
     }
   }
@@ -91,6 +96,7 @@ class OfflineQueue {
     await this.save();
     this.notifyListeners();
 
+    syncLogger.info("OfflineQueue", `Queued ${type} (${conflictStrategy}) — queue size: ${this.queue.length}`);
     console.log(
       `[OfflineQueue] Added ${type} operation to queue with ${conflictStrategy} strategy`,
     );
@@ -212,6 +218,7 @@ class OfflineQueue {
     }
 
     this.isProcessing = true;
+    syncLogger.info("OfflineQueue", `Processing ${this.queue.length} queued operation(s)`);
     console.log(`[OfflineQueue] Processing ${this.queue.length} operations...`);
 
     const operations = [...this.queue];
@@ -230,11 +237,13 @@ class OfflineQueue {
         // Update last attempt timestamp
         operation.lastAttempt = Date.now();
 
+        syncLogger.info("OfflineQueue", `Executing ${operation.type}…`);
         // Execute with conflict resolution
         await this.executeOperation(operation);
 
         // Success - remove from queue
         await this.remove(operation.id);
+        syncLogger.success("OfflineQueue", `✔ ${operation.type} complete`);
         successCount++;
       } catch (error) {
         console.error(
@@ -252,12 +261,15 @@ class OfflineQueue {
           console.warn(
             `[OfflineQueue] Max retries exceeded for ${operation.id}, moving to failed queue`,
           );
+          syncLogger.error("OfflineQueue", `✘ ${operation.type} exceeded max retries — moved to failed queue`);
           this.failedQueue.push(operation);
           await this.remove(operation.id);
           await this.saveFailed();
           this.notifyFailedListeners();
           failCount++;
         } else {
+          const msg = error instanceof Error ? error.message : String(error);
+          syncLogger.warn("OfflineQueue", `✘ ${operation.type} failed (attempt ${operation.retryCount}/${MAX_RETRIES}): ${msg}`);
           // Save updated retry count and last attempt
           await this.save();
         }
@@ -278,6 +290,7 @@ class OfflineQueue {
       );
     }
 
+    syncLogger.info("OfflineQueue", `Done: ${successCount} ✔  ${failCount} ✘  ${skippedCount} deferred (backoff)`);
     console.log(
       `[OfflineQueue] Processing complete: ${successCount} success, ${failCount} failed, ${skippedCount} skipped (backoff)`,
     );
