@@ -23,9 +23,9 @@ export const metadata: Metadata = {
   title: "MatsyaAI - AI for Bharat Fisherman Dashboard",
   description: "Advanced AI dashboard for fish identification, weight estimation, and ocean insights.",
   icons: {
-    icon: [{ url: "/logo.png", type: "image/png" }],
-    apple: "/logo.png",
-    shortcut: "/logo.png",
+    icon: [{ url: "/favicon.ico", type: "image/x-icon" }],
+    shortcut: "/favicon.ico",
+    apple: "/favicon.ico",
   },
 };
 

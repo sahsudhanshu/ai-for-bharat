@@ -403,18 +403,15 @@ function MessageRow({
             {msg.role === "assistant" && (
                 <Avatar
                     className={cn(
-                        "shrink-0 border border-primary/20",
-                        isCompact ? "h-7 w-7 mt-0.5" : "h-8 w-8 mt-1",
+                        "shrink-0 border border-primary/20 overflow-hidden",
+                        isCompact ? "h-9 w-9 mt-0.5" : "h-10 w-10 mt-1",
                     )}
                 >
-                    <div className="bg-gradient-to-br from-primary/15 to-cyan-500/15 h-full w-full flex items-center justify-center">
-                        <Fish
-                            className={cn(
-                                isCompact ? "w-3.5 h-3.5" : "w-4 h-4",
-                                "text-primary",
-                            )}
-                        />
-                    </div>
+                    <img
+                        src="/logo.png"
+                        alt="Matsya AI"
+                        className="h-full w-full object-contain"
+                    />
                 </Avatar>
             )}
 
