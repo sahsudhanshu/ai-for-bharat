@@ -1,14 +1,11 @@
 version: 1.0
-runtime: python3
-
+runtime: python311
 build:
   commands:
     build:
       - pip install -r requirements.txt
-
 run:
-  runtime-version: 3.11
-  command: uvicorn src.main:app --host 0.0.0.0 --port 8080
+  command: uvicorn run_local:app --host 0.0.0.0 --port 8080
   network:
     port: 8080
     env: PORT
