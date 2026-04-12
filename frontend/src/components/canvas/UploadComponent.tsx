@@ -254,6 +254,7 @@ export default function UploadComponent({
   const currentMlResult = mlResults[currentResultIndex] || null;
 
   const YOLO_CONFIDENCE_THRESHOLD = 0.3;
+  console.log(currentMlResult);
 
   const cropEntries = useMemo(() => {
     if (!currentMlResult?.crops) return [];

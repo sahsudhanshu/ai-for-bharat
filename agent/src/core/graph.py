@@ -27,8 +27,9 @@ Graph flow:
         END
 """
 from __future__ import annotations
-from typing import Any, Dict, Literal
+from typing import Any, Dict, Literal, Optional, Tuple
 import asyncio
+import re
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, END
@@ -86,7 +87,7 @@ def _get_classifier_llm():
             model=os.getenv("GEMINI_MODEL", "models/gemini-3-flash-preview"),
             google_api_key=os.getenv("GOOGLE_API_KEY", ""),
             temperature=0.0,
-            max_output_tokens=1024,
+            max_output_tokens=2048,
         )
     else:
         if not _BEDROCK_AVAILABLE:
@@ -253,6 +254,8 @@ _INTENT_CLASSIFIER_PROMPT = """
 You are a classifier for a fisherman assistant app. Given the user's message, return ONLY a valid JSON object.
 
 Message: "{message}"
+-ignore which page is opened. Just focus on the actual message.
+
 
 Rules:
 - "map": true if the user wants to see a map, find fishing spots, navigate to a location, or asks about a specific place or country
@@ -260,8 +263,43 @@ Rules:
 - "upload": true if the user wants to upload a photo, image, or picture (e.g. of a fish)
 - "map_lat" / "map_lon": if map=true, resolve the latitude and longitude of the specific place mentioned in the message — this can be ANY location worldwide (a city, country, sea, ocean, coast, island, region, landmark). Use your geographic knowledge. Examples: Australia → (-25.2744, 133.7751), Arabian Sea → (14.5, 65.0), Mumbai → (19.0760, 72.8777), Bay of Bengal → (15.0, 87.0). Only return null when the user is asking about THEIR OWN current location (phrases like "show me on the map", "where am I", "near me", "my location") — in that case the app will use their GPS automatically.
 Return ONLY a JSON object exactly like this example, no markdown, no explanation:
-{"map": false, "history": false, "upload": false, "map_lat": null, "map_lon": null}
+-if map is true also attach the coordinates of the place mentioned in the message. If no place is mentioned use the coordinates map_lat= {lat}, map_lon = {lon}
+{{"map": false, "history": false, "upload": false, "map_lat": null, "map_lon": null}}
 """
+
+
+def _strip_frontend_context_tags(message: str) -> str:
+    """Remove leading frontend metadata tags like [page:map] and [mapPin:lat,lon]."""
+    if not message:
+        return ""
+    cleaned = re.sub(r"^(?:\s*\[[^\]]+\]\s*)+", "", message)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _extract_map_pin_coordinates(message: str) -> Tuple[Optional[float], Optional[float]]:
+    """Extract [mapPin:lat,lon] coordinates from frontend metadata, if present and valid."""
+    if not message:
+        return None, None
+
+    match = re.search(
+        r"\[\s*mapPin\s*:\s*([+-]?\d+(?:\.\d+)?)\s*,\s*([+-]?\d+(?:\.\d+)?)\s*\]",
+        message,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None, None
+
+    try:
+        lat = float(match.group(1))
+        lon = float(match.group(2))
+    except (TypeError, ValueError):
+        return None, None
+
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+        return None, None
+
+    return lat, lon
 
 
 async def intent_classifier(state: AgentState) -> Dict[str, Any]:
@@ -274,6 +312,9 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
     import logging
 
     human_input = state.get("human_input", "")
+    lat, lon = _extract_map_pin_coordinates(human_input)
+    human_input = _strip_frontend_context_tags(human_input)
+    
     defaults: Dict[str, Any] = {
         "ui_map": False, "ui_history": False, "ui_upload": False,
         "map_lat": None, "map_lon": None,
@@ -283,8 +324,15 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
         from langchain_core.messages import HumanMessage as _HumanMessage
         llm = _get_classifier_llm()
         # Use % substitution to avoid KeyError if user message contains { or }
-        prompt = _INTENT_CLASSIFIER_PROMPT.replace("{message}", human_input.replace('"', "'"))
+       
+        prompt = _INTENT_CLASSIFIER_PROMPT.format(
+            message=human_input.replace('"', "'"),
+            lat=lat,
+            lon=lon,
+        )
+        print(prompt);
         resp = await llm.ainvoke([_HumanMessage(content=prompt)])
+        print(resp);
         # Extract text from content — Gemini may return a list of content blocks
         content = resp.content
         if isinstance(content, str):
@@ -313,6 +361,12 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
         # fall back to the user's GPS.
         map_lat = data.get("map_lat")
         map_lon = data.get("map_lon")
+
+        # If map is requested and frontend provided mapPin, prefer it first.
+        if data.get("map") and map_lat is None and lat is not None:
+            map_lat = lat
+            map_lon = lon
+
         if data.get("map") and map_lat is None:
             map_lat = state.get("latitude")
             map_lon = state.get("longitude")
@@ -322,7 +376,7 @@ async def intent_classifier(state: AgentState) -> Dict[str, Any]:
             "ui_history": bool(data.get("history", False)),
             "ui_upload":  bool(data.get("upload", False)),
             "map_lat":   float(map_lat) if map_lat is not None else None,
-            "map_lon":   float(map_lon) if map_lat is not None else None,
+            "map_lon":   float(map_lon) if map_lon is not None else None,
         }
     except Exception as exc:
         logging.warning(f"[intent_classifier] failed: {exc}")

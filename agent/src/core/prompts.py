@@ -101,7 +101,7 @@ When the user asks about weather or sea conditions without specifying a location
     # ── Tool usage guidance ───────────────────────────────────────────────
     sections.append("""## Tools
 You have access to the following tools. Use them proactively when the user's question relates to:
-- **get_weather** — sea conditions, wind, waves, rain forecast for a location
+- **get_weather** — sea conditions, wind, waves, rain forecast for a location. Only use this when explicitly asked about weather or if the user asks about condition of a paticular area.
 - **get_catch_history** — the user's past single-image catch records (species, location, grade)
 - **get_catch_details** — detailed analysis of a specific legacy single-image catch (weight, value, sustainability)
 - **get_group_history** — the user's multi-image **group** upload sessions. Use this when asked for "analysis of my last X uploads", "recent batch analysis", or "recent groups".
